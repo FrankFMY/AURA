@@ -6,11 +6,14 @@
 	import { authStore } from '$stores/auth.svelte';
 	import { walletStore } from '$stores/wallet.svelte';
 	import ndkService from '$services/ndk';
+	import { dbHelpers } from '$db';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
 	import { Badge } from '$components/ui/badge';
 	import { Spinner } from '$components/ui/spinner';
 	import { ToastContainer } from '$components/notifications';
+	import WelcomeTour from '$lib/components/onboarding/WelcomeTour.svelte';
+	import { KeyboardShortcuts } from '$components/ui/keyboard-shortcuts';
 	import Home from 'lucide-svelte/icons/home';
 	import Search from 'lucide-svelte/icons/search';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
@@ -25,6 +28,7 @@
 
 	let isInitializing = $state(true);
 	let showUserMenu = $state(false);
+	let showWelcomeTour = $state(false);
 
 	// Navigation items
 	const navItems = [
@@ -75,6 +79,15 @@
 			// Initialize wallet if previously connected
 			if (authStore.isAuthenticated) {
 				await walletStore.init();
+			}
+
+			// Check if first-time user
+			const welcomeCompleted = await dbHelpers.getSetting<boolean>(
+				'welcome_completed',
+				false,
+			);
+			if (!welcomeCompleted && authStore.isAuthenticated) {
+				showWelcomeTour = true;
 			}
 		} catch (e) {
 			console.error('Initialization failed:', e);
@@ -270,3 +283,11 @@
 		</nav>
 	</div>
 {/if}
+
+<!-- Welcome Tour for first-time users -->
+{#if showWelcomeTour}
+	<WelcomeTour onComplete={() => (showWelcomeTour = false)} />
+{/if}
+
+<!-- Global keyboard shortcuts -->
+<KeyboardShortcuts />

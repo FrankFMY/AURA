@@ -10,6 +10,7 @@
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { parseNoteContent, sanitizeUrl } from '$lib/validators/sanitize';
 	import { feedStore } from '$stores/feed.svelte';
+	import { notificationsStore } from '$stores/notifications.svelte';
 	import Heart from 'lucide-svelte/icons/heart';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
 	import Repeat2 from 'lucide-svelte/icons/repeat-2';
@@ -143,18 +144,35 @@
 
 	async function handleShare() {
 		const noteUrl = `${window.location.origin}/note/${event.id}`;
+		const shareText = `${event.content.slice(0, 100)}${event.content.length > 100 ? '...' : ''}\n\n— ${displayName} on AURA`;
+
 		try {
 			if (navigator.share) {
 				await navigator.share({
 					url: noteUrl,
 					title: `Note by ${displayName}`,
+					text: shareText,
 				});
 			} else {
 				await navigator.clipboard.writeText(noteUrl);
+				notificationsStore.success('Link copied!', 'Share it anywhere');
 			}
 		} catch (e) {
-			// User cancelled or clipboard failed
-			console.debug('Share failed:', e);
+			// User cancelled share dialog - try clipboard fallback
+			if ((e as Error).name !== 'AbortError') {
+				try {
+					await navigator.clipboard.writeText(noteUrl);
+					notificationsStore.success(
+						'Link copied!',
+						'Share it anywhere',
+					);
+				} catch {
+					notificationsStore.error(
+						'Failed to share',
+						'Could not copy link',
+					);
+				}
+			}
 		}
 	}
 </script>

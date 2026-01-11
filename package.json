@@ -54,15 +54,18 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "deploy:ipfs": "node scripts/deploy-ipfs.js"
   },
   "dependencies": {
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@nostr-dev-kit/ndk": "^2.18.1",
+    "@scure/bip39": "^2.0.1",
     "@types/dompurify": "^3.2.0",
     "bits-ui": "^2.15.4",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "dexie": "^4.2.1",
     "dompurify": "^3.3.1",
@@ -82,6 +85,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.3.1",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^25.0.6",
     "@vitest/coverage-v8": "^4.0.16",
     "jsdom": "^27.4.0",

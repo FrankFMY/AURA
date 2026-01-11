@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { browser } from '$app/environment';
 	import { authStore } from '$stores/auth.svelte';
 	import ndkService from '$services/ndk';
 	import { dbHelpers, type UserProfile } from '$db';
@@ -24,6 +25,25 @@
 	let showReplyComposer = $state(false);
 
 	const noteId = $derived($page.params.id ?? '');
+
+	// OG Meta tags
+	const ogTitle = $derived(
+		author?.display_name || author?.name ?
+			`${author.display_name || author.name} on AURA`
+		:	'Note on AURA',
+	);
+	const ogDescription = $derived(
+		note?.content ?
+			note.content.slice(0, 200) +
+				(note.content.length > 200 ? '...' : '')
+		:	'A decentralized social post on AURA',
+	);
+	const ogImage = $derived(author?.picture || '/icon-192.svg');
+	const canonicalUrl = $derived(
+		browser ?
+			`${window.location.origin}/note/${noteId}`
+		:	`/note/${noteId}`,
+	);
 
 	// Profile cache
 	const profileCache = new Map<string, UserProfile>();
@@ -140,7 +160,61 @@
 </script>
 
 <svelte:head>
-	<title>Note | AURA</title>
+	<title>{ogTitle} | AURA</title>
+	<meta
+		name="description"
+		content={ogDescription}
+	/>
+
+	<!-- Open Graph -->
+	<meta
+		property="og:type"
+		content="article"
+	/>
+	<meta
+		property="og:title"
+		content={ogTitle}
+	/>
+	<meta
+		property="og:description"
+		content={ogDescription}
+	/>
+	<meta
+		property="og:image"
+		content={ogImage}
+	/>
+	<meta
+		property="og:url"
+		content={canonicalUrl}
+	/>
+	<meta
+		property="og:site_name"
+		content="AURA"
+	/>
+
+	<!-- Twitter Card -->
+	<meta
+		name="twitter:card"
+		content="summary"
+	/>
+	<meta
+		name="twitter:title"
+		content={ogTitle}
+	/>
+	<meta
+		name="twitter:description"
+		content={ogDescription}
+	/>
+	<meta
+		name="twitter:image"
+		content={ogImage}
+	/>
+
+	<!-- Canonical URL -->
+	<link
+		rel="canonical"
+		href={canonicalUrl}
+	/>
 </svelte:head>
 
 <div class="min-h-screen pb-16 md:pb-0">

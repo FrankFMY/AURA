@@ -193,6 +193,37 @@ bun run test:coverage # Run tests with coverage
 
 ---
 
+## 🌐 Deployment
+
+### Vercel (Recommended)
+
+AURA is optimized for deployment on Vercel:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/FrankFMY/AURA)
+
+### GitHub Pages
+
+AURA can also be deployed to GitHub Pages using the included workflow.
+
+### IPFS (Censorship Resistant)
+
+For maximum censorship resistance, deploy AURA to IPFS:
+
+```bash
+# Using Pinata (set PINATA_API_KEY and PINATA_API_SECRET first)
+bun run deploy:ipfs --provider pinata
+
+# Using local IPFS node
+bun run deploy:ipfs --provider local
+```
+
+Once deployed, access AURA via any IPFS gateway:
+- `https://ipfs.io/ipfs/<CID>`
+- `https://dweb.link/ipfs/<CID>`
+- `https://cloudflare-ipfs.com/ipfs/<CID>`
+
+---
+
 ## 🤝 Contributing
 
 Contributions are what make the open source community amazing! Any contributions you make are **greatly appreciated**.

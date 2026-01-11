@@ -5,6 +5,8 @@
 	import { Textarea } from '$components/ui/textarea';
 	import { Spinner } from '$components/ui/spinner';
 	import { notificationsStore } from '$stores/notifications.svelte';
+	import { fireZapConfetti } from '$lib/utils/confetti';
+	import { playZapSound, vibrate } from '$lib/services/audio';
 	import Zap from 'lucide-svelte/icons/zap';
 	import X from 'lucide-svelte/icons/x';
 	import Copy from 'lucide-svelte/icons/copy';
@@ -44,6 +46,7 @@
 	let isLoading = $state(false);
 	let zapResult = $state<ZapResult | null>(null);
 	let copied = $state(false);
+	let showFlyingSats = $state(false);
 
 	const effectiveAmount = $derived(
 		customAmount ? parseInt(customAmount, 10) : selectedAmount,
@@ -78,11 +81,17 @@
 			zapResult = result;
 
 			if (result.paymentResult?.success) {
+				// Fire confetti celebration!
+				fireZapConfetti();
+				playZapSound();
+				vibrate([10, 30, 10, 30, 10]);
+				showFlyingSats = true;
+
 				notificationsStore.success(
-					'Zap sent!',
+					'Zap sent! ⚡',
 					`${effectiveAmount} sats zapped successfully`,
 				);
-				setTimeout(() => onclose(), 2000);
+				setTimeout(() => onclose(), 2500);
 			}
 		} catch (e) {
 			console.error('Zap failed:', e);
@@ -221,15 +230,38 @@
 				{:else}
 					<!-- Result -->
 					{#if zapResult.paymentResult?.success}
-						<div class="text-center py-4">
+						<div class="text-center py-4 relative overflow-hidden">
+							<!-- Flying sats animation -->
+							{#if showFlyingSats}
+								<div
+									class="absolute inset-0 pointer-events-none"
+								>
+									{#each Array(8) as _, i}
+										<span
+											class="flying-sat absolute text-2xl"
+											style="left: {20 +
+												i * 10}%; animation-delay: {i *
+												0.1}s"
+										>
+											⚡
+										</span>
+									{/each}
+								</div>
+							{/if}
+
 							<div
-								class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10"
+								class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-warning/20 animate-bounce"
 							>
-								<Check class="h-8 w-8 text-success" />
+								<Zap class="h-8 w-8 text-warning" />
 							</div>
-							<h3 class="text-lg font-semibold">Zap Sent!</h3>
-							<p class="text-muted-foreground">
-								{effectiveAmount} sats zapped successfully
+							<h3 class="text-lg font-semibold text-warning">
+								Zap Sent! ⚡
+							</h3>
+							<p class="text-2xl font-bold text-warning mt-2">
+								+{effectiveAmount} sats
+							</p>
+							<p class="text-muted-foreground text-sm mt-1">
+								zapped successfully
 							</p>
 						</div>
 					{:else}
@@ -299,3 +331,23 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	@keyframes fly-up {
+		0% {
+			opacity: 1;
+			transform: translateY(100px) scale(1);
+		}
+		50% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+			transform: translateY(-100px) scale(1.5);
+		}
+	}
+
+	.flying-sat {
+		animation: fly-up 1.5s ease-out forwards;
+	}
+</style>

@@ -36,7 +36,15 @@
 	import Zap from 'lucide-svelte/icons/zap';
 	import Heart from 'lucide-svelte/icons/heart';
 	import Coffee from 'lucide-svelte/icons/coffee';
+	import Volume2 from 'lucide-svelte/icons/volume-2';
+	import VolumeX from 'lucide-svelte/icons/volume-x';
 	import { onMount } from 'svelte';
+	import {
+		setSoundsEnabled,
+		isSoundsEnabled,
+		initAudioService,
+		playZapSound,
+	} from '$lib/services/audio';
 
 	let relays = $state<
 		Array<{
@@ -65,6 +73,9 @@
 	const DEVELOPER_LN_ADDRESS = 'classywallaby932694@getalby.com';
 	const PRESET_AMOUNTS = [21, 210, 2100, 21000];
 
+	// Sound settings
+	let soundsEnabled = $state(true);
+
 	onMount(async () => {
 		// Load relays
 		const storedRelays = await db.relays.toArray();
@@ -85,6 +96,10 @@
 		if (authStore.isAuthenticated) {
 			await profileStore.load();
 		}
+
+		// Load sound settings
+		await initAudioService();
+		soundsEnabled = isSoundsEnabled();
 	});
 
 	async function handleSaveProfile() {
@@ -582,6 +597,52 @@
 					Clear All Cache
 				</Button>
 			</CardFooter>
+		</Card>
+
+		<!-- Sound Settings -->
+		<Card>
+			<CardHeader>
+				<div class="flex items-center gap-2">
+					{#if soundsEnabled}
+						<Volume2 class="h-5 w-5" />
+					{:else}
+						<VolumeX class="h-5 w-5" />
+					{/if}
+					<CardTitle>Sound & Haptics</CardTitle>
+				</div>
+				<CardDescription>Audio feedback for actions</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<div class="flex items-center justify-between">
+					<div class="space-y-0.5">
+						<p class="font-medium">Sound Effects</p>
+						<p class="text-sm text-muted-foreground">
+							Play sounds for zaps and notifications
+						</p>
+					</div>
+					<Button
+						variant={soundsEnabled ? 'default' : 'outline'}
+						size="sm"
+						onclick={async () => {
+							soundsEnabled = !soundsEnabled;
+							await setSoundsEnabled(soundsEnabled);
+							if (soundsEnabled) {
+								playZapSound(); // Preview sound
+							}
+						}}
+					>
+						{soundsEnabled ? 'On' : 'Off'}
+					</Button>
+				</div>
+				<div class="flex items-start gap-3 rounded-lg bg-muted p-3">
+					<Zap class="mt-0.5 h-4 w-4 text-warning" />
+					<p class="text-sm text-muted-foreground">
+						Sounds are generated using Web Audio API - no external
+						audio files needed. Haptic feedback works on supported
+						devices.
+					</p>
+				</div>
+			</CardContent>
 		</Card>
 
 		<!-- Privacy -->

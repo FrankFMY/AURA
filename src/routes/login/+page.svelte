@@ -12,6 +12,13 @@
 		CardFooter,
 	} from '$components/ui/card';
 	import { Spinner } from '$components/ui/spinner';
+	import {
+		generateNostrMnemonic,
+		getVerificationIndices,
+		verifyWords,
+		recoverFromMnemonic,
+		type GeneratedKeys,
+	} from '$lib/services/crypto/mnemonic';
 	import Key from 'lucide-svelte/icons/key';
 	import Puzzle from 'lucide-svelte/icons/puzzle';
 	import Plus from 'lucide-svelte/icons/plus';
@@ -20,16 +27,33 @@
 	import Check from 'lucide-svelte/icons/check';
 	import Eye from 'lucide-svelte/icons/eye';
 	import EyeOff from 'lucide-svelte/icons/eye-off';
+	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import Shield from 'lucide-svelte/icons/shield';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { copyToClipboard } from '$lib/utils';
 
-	type LoginMode = 'select' | 'extension' | 'nsec' | 'generate';
+	type LoginMode =
+		| 'select'
+		| 'extension'
+		| 'nsec'
+		| 'generate'
+		| 'show-words'
+		| 'verify-words'
+		| 'success';
 
 	let mode = $state<LoginMode>('select');
 	let nsecInput = $state('');
 	let showNsec = $state(false);
-	let generatedKeys = $state<{ nsec: string; npub: string } | null>(null);
+	let generatedKeys = $state<GeneratedKeys | null>(null);
 	let keyCopied = $state(false);
-	let seedSaved = $state(false);
+
+	// Seed phrase wizard state
+	let currentWordIndex = $state(0);
+	let wordsConfirmed = $state(false);
+	let verificationIndices = $state<number[]>([]);
+	let verificationInputs = $state<string[]>(['', '', '']);
+	let verificationError = $state(false);
 
 	async function handleExtensionLogin() {
 		mode = 'extension';
@@ -37,7 +61,6 @@
 			await authStore.loginWithExtension();
 			goto('/');
 		} catch (e) {
-			// Error is handled in authStore
 			mode = 'select';
 		}
 	}
@@ -53,18 +76,74 @@
 		}
 	}
 
-	async function handleGenerateKeys() {
-		try {
-			generatedKeys = await authStore.generateAndLogin();
-		} catch (e) {
-			// Error is handled in authStore
+	function handleGenerateKeys() {
+		generatedKeys = generateNostrMnemonic();
+		currentWordIndex = 0;
+		wordsConfirmed = false;
+		mode = 'show-words';
+	}
+
+	function handleNextWord() {
+		if (currentWordIndex < 11) {
+			currentWordIndex++;
+		} else {
+			wordsConfirmed = true;
 		}
 	}
 
-	async function handleCopyNsec() {
+	function handlePrevWord() {
+		if (currentWordIndex > 0) {
+			currentWordIndex--;
+		}
+	}
+
+	function handleConfirmWords() {
+		if (!generatedKeys) return;
+		verificationIndices = getVerificationIndices();
+		verificationInputs = ['', '', ''];
+		verificationError = false;
+		mode = 'verify-words';
+	}
+
+	async function handleVerifyWords() {
 		if (!generatedKeys) return;
 
-		const success = await copyToClipboard(generatedKeys.nsec);
+		const isValid = verifyWords(
+			generatedKeys.words,
+			verificationIndices,
+			verificationInputs,
+		);
+
+		if (isValid) {
+			verificationError = false;
+			// Login with the generated key
+			try {
+				await authStore.loginWithPrivateKey(
+					generatedKeys.privateKeyHex,
+				);
+				mode = 'success';
+			} catch (e) {
+				// Error handled in authStore
+			}
+		} else {
+			verificationError = true;
+		}
+	}
+
+	async function handleCopyAll() {
+		if (!generatedKeys) return;
+
+		const text = `AURA Recovery Phrase (KEEP SECRET!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${generatedKeys.words.map((w, i) => `${i + 1}. ${w}`).join('\n')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Public Key (npub): ${generatedKeys.npub}
+
+⚠️ Never share your recovery phrase with anyone!`;
+
+		const success = await copyToClipboard(text);
 		if (success) {
 			keyCopied = true;
 			setTimeout(() => (keyCopied = false), 2000);
@@ -75,19 +154,31 @@
 		goto('/');
 	}
 
+	function resetToSelect() {
+		mode = 'select';
+		generatedKeys = null;
+		currentWordIndex = 0;
+		wordsConfirmed = false;
+		verificationInputs = ['', '', ''];
+		verificationError = false;
+	}
+
 	const hasExtension = authStore.hasExtension();
+	const progress = $derived(((currentWordIndex + 1) / 12) * 100);
 </script>
 
 <svelte:head>
 	<title>Login | AURA</title>
 </svelte:head>
 
-<div class="flex min-h-screen items-center justify-center p-4">
+<div
+	class="flex min-h-screen items-center justify-center p-4 bg-linear-to-br from-background via-background to-primary/5"
+>
 	<div class="w-full max-w-md">
 		<!-- Logo -->
 		<div class="mb-8 text-center">
 			<div
-				class="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-linear-to-br from-primary to-accent shadow-lg shadow-primary/20"
+				class="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-linear-to-br from-primary to-accent shadow-lg shadow-primary/20 animate-pulse-slow"
 			>
 				<span class="text-3xl font-bold text-primary-foreground">A</span
 				>
@@ -163,12 +254,13 @@
 					</div>
 
 					<Button
-						variant="secondary"
+						variant="glow"
 						class="w-full justify-start gap-3"
-						onclick={() => (mode = 'generate')}
+						onclick={handleGenerateKeys}
 					>
 						<Plus class="h-5 w-5" />
 						Create New Account
+						<Sparkles class="ml-auto h-4 w-4" />
 					</Button>
 				</CardContent>
 
@@ -186,7 +278,7 @@
 				<CardHeader>
 					<CardTitle>Login with Private Key</CardTitle>
 					<CardDescription
-						>Enter your nsec or hex private key</CardDescription
+						>Enter your nsec, hex key, or recovery phrase</CardDescription
 					>
 				</CardHeader>
 				<CardContent class="space-y-4">
@@ -194,7 +286,7 @@
 						<Input
 							type={showNsec ? 'text' : 'password'}
 							bind:value={nsecInput}
-							placeholder="nsec1... or hex key"
+							placeholder="nsec1... or hex key or 12 words"
 							class="pr-10 font-mono"
 						/>
 						<button
@@ -223,7 +315,7 @@
 				<CardFooter class="flex gap-3">
 					<Button
 						variant="outline"
-						onclick={() => (mode = 'select')}
+						onclick={resetToSelect}
 					>
 						Back
 					</Button>
@@ -241,145 +333,246 @@
 					</Button>
 				</CardFooter>
 			</Card>
-		{:else if mode === 'generate'}
-			<!-- Generate new keys -->
+		{:else if mode === 'show-words'}
+			<!-- Seed phrase display - one word at a time -->
 			<Card>
-				<CardHeader>
-					<CardTitle>
-						{generatedKeys ? 'Save Your Keys!' : (
-							'Create New Account'
-						)}
-					</CardTitle>
+				<CardHeader class="text-center">
+					<CardTitle>Your Recovery Phrase</CardTitle>
 					<CardDescription>
-						{generatedKeys ?
-							'Write down your private key - this is the ONLY way to recover your account'
-						:	'Generate a new Nostr identity'}
+						Write down each word in order. This is the ONLY way to
+						recover your account.
 					</CardDescription>
 				</CardHeader>
-				<CardContent class="space-y-4">
-					{#if !generatedKeys}
-						<div class="rounded-lg bg-muted p-4 text-sm">
-							<p class="mb-2 font-medium">
-								What you need to know:
-							</p>
-							<ul
-								class="list-inside list-disc space-y-1 text-muted-foreground"
-							>
-								<li>
-									Your private key (nsec) is your password
-								</li>
-								<li>
-									There's no "forgot password" - lose it and
-									you lose access
-								</li>
-								<li>Never share your nsec with anyone</li>
-								<li>Your public key (npub) is your username</li>
-							</ul>
+				<CardContent class="space-y-6">
+					<!-- Progress bar -->
+					<div class="space-y-2">
+						<div
+							class="flex justify-between text-xs text-muted-foreground"
+						>
+							<span>Word {currentWordIndex + 1} of 12</span>
+							<span>{Math.round(progress)}%</span>
 						</div>
-					{:else}
-						<div class="space-y-4">
+						<div class="h-2 rounded-full bg-muted overflow-hidden">
 							<div
-								class="rounded-lg border border-destructive/50 bg-destructive/10 p-4"
+								class="h-full bg-primary transition-all duration-300"
+								style="width: {progress}%"
+							></div>
+						</div>
+					</div>
+
+					<!-- Current word display -->
+					{#if generatedKeys}
+						<div
+							class="relative rounded-xl bg-linear-to-br from-primary/10 to-accent/10 p-8 text-center border border-primary/20"
+						>
+							<span
+								class="absolute top-2 left-3 text-xs font-mono text-muted-foreground"
 							>
-								<p class="mb-2 font-semibold text-destructive">
-									Private Key (nsec)
-								</p>
-								<div class="flex items-center gap-2">
-									<code
-										class="flex-1 break-all rounded bg-background/50 p-2 font-mono text-xs"
-									>
-										{showNsec ?
-											generatedKeys.nsec
-										:	'••••••••••••••••••••••••••••••••'}
-									</code>
-									<Button
-										variant="ghost"
-										size="icon"
-										onclick={() => (showNsec = !showNsec)}
-									>
-										{#if showNsec}
-											<EyeOff class="h-4 w-4" />
-										{:else}
-											<Eye class="h-4 w-4" />
-										{/if}
-									</Button>
-								</div>
-								<Button
-									variant="outline"
-									size="sm"
-									class="mt-2 w-full"
-									onclick={handleCopyNsec}
-								>
-									{#if keyCopied}
-										<Check class="h-4 w-4" />
-										Copied!
-									{:else}
-										<Copy class="h-4 w-4" />
-										Copy Private Key
-									{/if}
-								</Button>
-							</div>
-
-							<div class="rounded-lg bg-muted p-4">
-								<p
-									class="mb-2 font-semibold text-muted-foreground"
-								>
-									Public Key (npub)
-								</p>
-								<code
-									class="block break-all rounded bg-background/50 p-2 font-mono text-xs"
-								>
-									{generatedKeys.npub}
-								</code>
-							</div>
-
-							<label class="flex items-center gap-2">
-								<input
-									type="checkbox"
-									bind:checked={seedSaved}
-									class="h-4 w-4 rounded border-border text-primary"
-								/>
-								<span class="text-sm">
-									I have saved my private key in a safe place
-								</span>
-							</label>
+								#{currentWordIndex + 1}
+							</span>
+							<p
+								class="text-4xl font-bold tracking-wider animate-fade-in"
+							>
+								{generatedKeys.words[currentWordIndex]}
+							</p>
 						</div>
 					{/if}
+
+					<!-- Navigation -->
+					<div class="flex items-center justify-between gap-4">
+						<Button
+							variant="outline"
+							size="icon"
+							onclick={handlePrevWord}
+							disabled={currentWordIndex === 0}
+						>
+							<ChevronLeft class="h-5 w-5" />
+						</Button>
+
+						<div class="flex gap-1">
+							{#each Array(12) as _, i}
+								<div
+									class="h-2 w-2 rounded-full transition-colors {(
+										i <= currentWordIndex
+									) ?
+										'bg-primary'
+									:	'bg-muted'}"
+								></div>
+							{/each}
+						</div>
+
+						<Button
+							variant="outline"
+							size="icon"
+							onclick={handleNextWord}
+							disabled={currentWordIndex === 11 && wordsConfirmed}
+						>
+							<ChevronRight class="h-5 w-5" />
+						</Button>
+					</div>
+
+					<!-- Copy all button -->
+					<Button
+						variant="outline"
+						class="w-full"
+						onclick={handleCopyAll}
+					>
+						{#if keyCopied}
+							<Check class="mr-2 h-4 w-4" />
+							Copied!
+						{:else}
+							<Copy class="mr-2 h-4 w-4" />
+							Copy All Words
+						{/if}
+					</Button>
 				</CardContent>
 				<CardFooter class="flex gap-3">
 					<Button
 						variant="outline"
-						onclick={() => {
-							mode = 'select';
-							generatedKeys = null;
-							seedSaved = false;
-						}}
+						onclick={resetToSelect}
 					>
 						Back
 					</Button>
-					{#if generatedKeys}
-						<Button
-							variant="glow"
-							class="flex-1"
-							onclick={handleContinue}
-							disabled={!seedSaved}
+					<Button
+						variant="glow"
+						class="flex-1"
+						onclick={handleConfirmWords}
+						disabled={currentWordIndex < 11}
+					>
+						{#if currentWordIndex < 11}
+							View All Words First
+						{:else}
+							I've Written Them Down
+						{/if}
+					</Button>
+				</CardFooter>
+			</Card>
+		{:else if mode === 'verify-words'}
+			<!-- Verify words -->
+			<Card>
+				<CardHeader class="text-center">
+					<CardTitle>Verify Your Phrase</CardTitle>
+					<CardDescription>
+						Enter the words at these positions to confirm you saved
+						them
+					</CardDescription>
+				</CardHeader>
+				<CardContent class="space-y-4">
+					{#if verificationError}
+						<div
+							class="rounded-lg bg-destructive/10 p-3 text-center text-destructive"
 						>
-							Continue to AURA
-						</Button>
-					{:else}
-						<Button
-							variant="glow"
-							class="flex-1"
-							onclick={handleGenerateKeys}
-							disabled={authStore.isLoading}
-						>
-							{#if authStore.isLoading}
-								<Spinner size="sm" />
-							{:else}
-								Generate Keys
-							{/if}
-						</Button>
+							<AlertTriangle class="mx-auto mb-2 h-5 w-5" />
+							<p class="text-sm font-medium">
+								Incorrect words. Please try again.
+							</p>
+						</div>
 					{/if}
+
+					{#each verificationIndices as wordIndex, i}
+						<div class="space-y-2">
+							<label
+								for="verify-{i}"
+								class="text-sm font-medium flex items-center gap-2"
+							>
+								<span
+									class="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground"
+								>
+									{wordIndex + 1}
+								</span>
+								Word #{wordIndex + 1}
+							</label>
+							<Input
+								id="verify-{i}"
+								type="text"
+								bind:value={verificationInputs[i]}
+								placeholder="Enter word #{wordIndex + 1}"
+								class="font-mono lowercase"
+								autocomplete="off"
+								autocapitalize="off"
+							/>
+						</div>
+					{/each}
+
+					<div
+						class="flex items-start gap-2 rounded-lg bg-muted p-3 text-muted-foreground"
+					>
+						<Shield class="mt-0.5 h-4 w-4 shrink-0" />
+						<p class="text-xs">
+							This verification ensures you've saved your recovery
+							phrase correctly. Without it, you cannot recover
+							your account.
+						</p>
+					</div>
+				</CardContent>
+				<CardFooter class="flex gap-3">
+					<Button
+						variant="outline"
+						onclick={() => (mode = 'show-words')}
+					>
+						Back
+					</Button>
+					<Button
+						variant="glow"
+						class="flex-1"
+						onclick={handleVerifyWords}
+						disabled={verificationInputs.some((v) => !v.trim()) ||
+							authStore.isLoading}
+					>
+						{#if authStore.isLoading}
+							<Spinner size="sm" />
+						{:else}
+							Verify & Continue
+						{/if}
+					</Button>
+				</CardFooter>
+			</Card>
+		{:else if mode === 'success'}
+			<!-- Success -->
+			<Card>
+				<CardHeader class="text-center">
+					<div
+						class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10"
+					>
+						<Check class="h-8 w-8 text-success" />
+					</div>
+					<CardTitle class="text-success">Account Created!</CardTitle>
+					<CardDescription>
+						Your Nostr identity is ready
+					</CardDescription>
+				</CardHeader>
+				<CardContent class="space-y-4">
+					{#if generatedKeys}
+						<div class="rounded-lg bg-muted p-4 text-center">
+							<p class="text-xs text-muted-foreground mb-1">
+								Your Public Key
+							</p>
+							<p class="font-mono text-sm break-all">
+								{generatedKeys.npub}
+							</p>
+						</div>
+					{/if}
+
+					<div
+						class="flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-warning"
+					>
+						<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+						<p class="text-sm">
+							Remember: Your recovery phrase is the ONLY way to
+							access your account. Keep it safe and never share
+							it!
+						</p>
+					</div>
+				</CardContent>
+				<CardFooter>
+					<Button
+						variant="glow"
+						class="w-full"
+						onclick={handleContinue}
+					>
+						<Sparkles class="mr-2 h-4 w-4" />
+						Enter AURA
+					</Button>
 				</CardFooter>
 			</Card>
 		{/if}
@@ -395,15 +588,37 @@
 			>
 				Get Alby
 			</a>
-			or
-			<a
-				href="https://github.com/ArcadeLabsInc/arc"
-				target="_blank"
-				rel="noopener noreferrer"
-				class="text-accent hover:underline"
-			>
-				Arc
-			</a>
 		</p>
 	</div>
 </div>
+
+<style>
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.animate-fade-in {
+		animation: fade-in 0.3s ease-out;
+	}
+
+	@keyframes pulse-slow {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.8;
+		}
+	}
+
+	.animate-pulse-slow {
+		animation: pulse-slow 3s ease-in-out infinite;
+	}
+</style>
