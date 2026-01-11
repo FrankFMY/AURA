@@ -145,7 +145,7 @@
 	<title>{displayName} | AURA</title>
 </svelte:head>
 
-<div class="min-h-screen pb-16 md:pb-0">
+<div class="min-h-screen pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
 	<!-- Banner -->
 	<div
 		class="relative h-32 bg-linear-to-br from-primary/20 to-accent/20 md:h-48"
@@ -295,15 +295,19 @@
 				</div>
 
 				<!-- Stats -->
-				<div class="flex gap-6 border-t border-border pt-4">
-					<div>
+				<div class="flex gap-6 border-t border-border py-4">
+					<button
+						class="text-left transition-opacity hover:opacity-80"
+					>
 						<span class="font-bold">{notes.length}</span>
 						<span class="text-muted-foreground"> notes</span>
-					</div>
-					<div>
+					</button>
+					<button
+						class="text-left transition-opacity hover:opacity-80"
+					>
 						<span class="font-bold">{followingCount}</span>
 						<span class="text-muted-foreground"> following</span>
-					</div>
+					</button>
 				</div>
 			{/if}
 		</div>
@@ -312,7 +316,9 @@
 	<!-- Notes -->
 	<div class="mx-auto max-w-2xl">
 		<div class="border-t border-border">
-			<div class="flex border-b border-border">
+			<div
+				class="sticky top-0 z-30 flex border-b border-border bg-background/95 backdrop-blur"
+			>
 				<button
 					class="flex-1 border-b-2 border-primary py-3 text-sm font-medium text-primary"
 				>

@@ -266,7 +266,7 @@
 			>
 				<a
 					href="/note/{event.id}"
-					class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 group/action"
+					class="inline-flex items-center gap-1.5 rounded-lg px-2.5 h-9 text-sm text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 group/action"
 					aria-label="View thread{replyCount > 0 ?
 						`, ${replyCount} replies`
 					:	''}"
@@ -283,7 +283,7 @@
 					<Button
 						variant="ghost"
 						size="sm"
-						class="gap-1.5 hover:text-success {hasReposted ?
+						class="gap-1.5 h-9 px-2 hover:text-success {hasReposted ?
 							'text-success'
 						:	''}"
 						onclick={() => (showRepostMenu = !showRepostMenu)}
@@ -336,7 +336,7 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-1.5 hover:text-destructive {hasReacted ?
+					class="gap-1.5 h-9 px-2 hover:text-destructive {hasReacted ?
 						'text-destructive'
 					:	''}"
 					onclick={handleReact}
@@ -357,9 +357,9 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-1.5 hover:text-warning {author?.lud16 ? '' : (
-						'opacity-50'
-					)}"
+					class="gap-1.5 h-9 px-2 hover:text-warning {author?.lud16 ?
+						''
+					:	'opacity-50'}"
 					onclick={handleZap}
 					disabled={!author?.lud16}
 					aria-label={author?.lud16 ? 'Send zap' : (
@@ -378,7 +378,7 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="hover:text-accent"
+					class="h-9 px-2 hover:text-accent"
 					onclick={handleShare}
 					aria-label="Share note"
 				>

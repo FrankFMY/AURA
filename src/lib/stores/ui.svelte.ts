@@ -42,6 +42,7 @@ function createUIStore() {
 	let modal = $state<ModalContext>({ type: null });
 	let searchOpen = $state(false);
 	let commandPaletteOpen = $state(false);
+	let bottomNavVisible = $state(true);
 	let isOnline = $state(browser ? navigator.onLine : true);
 	let isReducedMotion = $state(false);
 	let breakpoint = $state<Breakpoint>('lg');
@@ -185,6 +186,11 @@ function createUIStore() {
 		commandPaletteOpen = !commandPaletteOpen;
 	}
 
+	/** Set bottom nav visibility */
+	function setBottomNavVisible(visible: boolean) {
+		bottomNavVisible = visible;
+	}
+
 	/** Check if device is mobile */
 	const isMobile = $derived(['xs', 'sm'].includes(breakpoint));
 
@@ -203,6 +209,7 @@ function createUIStore() {
 		get modal() { return modal; },
 		get searchOpen() { return searchOpen; },
 		get commandPaletteOpen() { return commandPaletteOpen; },
+		get bottomNavVisible() { return bottomNavVisible; },
 		get isOnline() { return isOnline; },
 		get isReducedMotion() { return isReducedMotion; },
 		get breakpoint() { return breakpoint; },
@@ -220,7 +227,8 @@ function createUIStore() {
 		confirmModal,
 		openSearch,
 		closeSearch,
-		toggleCommandPalette
+		toggleCommandPalette,
+		setBottomNavVisible
 	};
 }
 

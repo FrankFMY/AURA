@@ -200,7 +200,7 @@
 	<title>Settings | AURA</title>
 </svelte:head>
 
-<div class="min-h-screen pb-16 md:pb-0">
+<div class="min-h-screen pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
 	<header
 		class="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur"
 	>
@@ -209,9 +209,9 @@
 		</div>
 	</header>
 
-	<div class="mx-auto max-w-2xl space-y-6 p-4">
+	<div class="mx-auto max-w-2xl md:max-w-5xl grid gap-6 md:grid-cols-2 p-4">
 		<!-- Profile Edit -->
-		<Card>
+		<Card class="md:col-span-2">
 			<CardHeader>
 				<div class="flex items-center gap-2">
 					<User class="h-5 w-5" />
@@ -472,7 +472,7 @@
 		</Card>
 
 		<!-- Relays -->
-		<Card>
+		<Card class="md:col-span-2">
 			<CardHeader>
 				<div class="flex items-center gap-2">
 					<Server class="h-5 w-5" />

@@ -129,7 +129,7 @@
 	<title>Notifications | AURA</title>
 </svelte:head>
 
-<div class="min-h-screen pb-16 md:pb-0">
+<div class="min-h-screen pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
 	<!-- Header -->
 	<header
 		class="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur"

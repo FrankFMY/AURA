@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { authStore } from '$stores/auth.svelte';
 	import { feedStore } from '$stores/feed.svelte';
+	import { uiStore } from '$stores/ui.svelte';
 	import NoteCard from '$components/feed/NoteCard.svelte';
 	import CreateNote from '$components/feed/CreateNote.svelte';
 	import NoteSkeleton from '$components/feed/NoteSkeleton.svelte';
@@ -21,6 +22,7 @@
 	let virtualList: ReturnType<typeof VirtualList> | undefined = $state();
 	let showScrollTop = $state(false);
 	let scrollPosition = $state(0);
+	let lastScrollPos = 0;
 
 	// Estimated height for note cards (will vary, but this is average)
 	const ESTIMATED_NOTE_HEIGHT = 180;
@@ -31,6 +33,8 @@
 
 	onDestroy(() => {
 		feedStore.cleanup();
+		// Ensure nav is visible when leaving
+		uiStore.setBottomNavVisible(true);
 	});
 
 	async function handleRefresh() {
@@ -54,6 +58,23 @@
 		virtualList?.scrollToTop();
 	}
 
+	function handleScroll(pos: number) {
+		scrollPosition = pos;
+
+		if (pos <= 0) {
+			uiStore.setBottomNavVisible(true);
+			lastScrollPos = pos;
+			return;
+		}
+
+		if (pos > lastScrollPos && pos > 50) {
+			uiStore.setBottomNavVisible(false);
+		} else {
+			uiStore.setBottomNavVisible(true);
+		}
+		lastScrollPos = pos;
+	}
+
 	// Track scroll position for scroll-to-top button visibility
 	$effect(() => {
 		showScrollTop = scrollPosition > 500;
@@ -64,7 +85,9 @@
 	<title>Feed | AURA</title>
 </svelte:head>
 
-<div class="flex h-screen flex-col pb-16 md:pb-0">
+<div
+	class="flex h-screen flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"
+>
 	<!-- Header -->
 	<header
 		class="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
@@ -182,7 +205,7 @@
 				onEndReached={handleEndReached}
 				endReachedThreshold={400}
 				getKey={(item) => item.event.id}
-				onScroll={(pos) => (scrollPosition = pos)}
+				onScroll={handleScroll}
 				class="h-full"
 			>
 				{#snippet children({ item: feedEvent })}

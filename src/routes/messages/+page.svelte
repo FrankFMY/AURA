@@ -87,10 +87,10 @@
 	<title>Messages | AURA</title>
 </svelte:head>
 
-<div class="flex h-screen pb-16 md:pb-0">
+<div class="flex h-dvh pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
 	<!-- Conversation list -->
 	<div
-		class="w-full border-r border-border md:w-80 {(
+		class="w-full border-r border-border md:w-80 lg:w-96 {(
 			messagesStore.activeConversation
 		) ?
 			'hidden md:block'

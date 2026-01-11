@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$stores/auth.svelte';
 	import { walletStore } from '$stores/wallet.svelte';
+	import { uiStore } from '$stores/ui.svelte';
 	import ndkService, { eventPublisher } from '$services/ndk';
 	import { dbHelpers } from '$db';
 	import { browser } from '$app/environment';
@@ -138,10 +139,28 @@
 		goto('/login');
 	}
 
+	let lastScrollY = 0;
+	function handleScroll() {
+		const currentScrollY = window.scrollY;
+		if (currentScrollY <= 0) {
+			uiStore.setBottomNavVisible(true);
+			return;
+		}
+
+		if (currentScrollY > lastScrollY && currentScrollY > 50) {
+			uiStore.setBottomNavVisible(false);
+		} else {
+			uiStore.setBottomNavVisible(true);
+		}
+		lastScrollY = currentScrollY;
+	}
+
 	const avatarInitials = $derived(
 		(authStore.displayName || 'A').slice(0, 2).toUpperCase(),
 	);
 </script>
+
+<svelte:window onscroll={handleScroll} />
 
 <svelte:head>
 	<title>AURA - Decentralized Social</title>
@@ -301,7 +320,11 @@
 
 		<!-- Mobile bottom nav -->
 		<nav
-			class="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/90 backdrop-blur-lg supports-backdrop-filter:bg-background/70 md:hidden safe-area-pb"
+			class="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/90 backdrop-blur-lg supports-backdrop-filter:bg-background/70 md:hidden safe-area-pb transition-transform duration-300 {(
+				uiStore.bottomNavVisible
+			) ?
+				'translate-y-0'
+			:	'translate-y-full'}"
 		>
 			<div class="flex items-center justify-around py-2 px-2">
 				{#each navItems as item}
