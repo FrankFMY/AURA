@@ -9,6 +9,7 @@
 	import { Spinner } from '$components/ui/spinner';
 	import { Badge } from '$components/ui/badge';
 	import { Skeleton } from '$components/ui/skeleton';
+	import { EmptyState } from '$components/ui/empty-state';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import Send from 'lucide-svelte/icons/send';
@@ -16,6 +17,7 @@
 	import Search from 'lucide-svelte/icons/search';
 	import Lock from 'lucide-svelte/icons/lock';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
+	import MessageSquare from 'lucide-svelte/icons/message-square';
 
 	let messageInput = $state('');
 	let searchQuery = $state('');
@@ -151,15 +153,15 @@
 					</div>
 				{/each}
 			{:else if filteredConversations.length === 0}
-				<div class="p-8 text-center">
-					<Lock class="mx-auto h-12 w-12 text-muted-foreground" />
-					<p class="mt-4 text-muted-foreground">
-						No conversations yet
-					</p>
-					<p class="text-sm text-muted-foreground">
-						Start a new encrypted chat
-					</p>
-				</div>
+				<EmptyState
+					icon={Lock}
+					title="No conversations yet"
+					description="Start a new encrypted chat with someone on Nostr"
+					variant="accent"
+					size="md"
+					actionLabel="New Chat"
+					onAction={() => (showNewConversation = true)}
+				/>
 			{:else}
 				{#each filteredConversations as conversation (conversation.pubkey)}
 					<button
@@ -323,13 +325,13 @@
 		{:else}
 			<!-- No conversation selected -->
 			<div class="flex flex-1 items-center justify-center">
-				<div class="text-center">
-					<Lock class="mx-auto h-16 w-16 text-muted-foreground" />
-					<h2 class="mt-4 text-xl font-semibold">Private Messages</h2>
-					<p class="mt-2 text-muted-foreground">
-						Select a conversation or start a new one
-					</p>
-				</div>
+				<EmptyState
+					icon={MessageSquare}
+					title="Private Messages"
+					description="Select a conversation from the list or start a new encrypted chat"
+					variant="muted"
+					size="lg"
+				/>
 			</div>
 		{/if}
 	</div>

@@ -169,7 +169,7 @@
 	<div class="flex min-h-screen bg-background">
 		<!-- Desktop Sidebar -->
 		<aside
-			class="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block"
+			class="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar/95 backdrop-blur-sm md:block"
 		>
 			<div class="flex h-full flex-col">
 				<!-- Logo -->
@@ -177,7 +177,7 @@
 					class="flex h-16 items-center gap-3 border-b border-sidebar-border px-6"
 				>
 					<div
-						class="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-primary to-accent"
+						class="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-primary to-accent shadow-lg shadow-primary/20 animate-pulse-glow"
 					>
 						<span class="text-lg font-bold text-primary-foreground"
 							>A</span
@@ -193,12 +193,18 @@
 					{#each navItems as item}
 						<a
 							href={item.href}
-							class="flex items-center gap-3 rounded-lg px-4 py-3 text-sidebar-foreground transition-all duration-200
+							class="group/nav flex items-center gap-3 rounded-lg px-4 py-3 text-sidebar-foreground transition-all duration-200
 								{isActive(item.href) ?
-								'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-							:	'hover:bg-sidebar-accent/50'}"
+								'bg-primary/15 text-primary font-medium border-l-2 border-primary shadow-sm'
+							:	'hover:bg-sidebar-accent/60 hover:translate-x-1'}"
 						>
-							<item.icon class="h-5 w-5" />
+							<item.icon
+								class="h-5 w-5 transition-transform group-hover/nav:scale-110 {(
+									isActive(item.href)
+								) ?
+									'text-primary'
+								:	''}"
+							/>
 							<span>{item.label}</span>
 							{#if item.href === '/messages'}
 								<!-- Unread indicator would go here -->
@@ -295,17 +301,32 @@
 
 		<!-- Mobile bottom nav -->
 		<nav
-			class="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 md:hidden"
+			class="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/90 backdrop-blur-lg supports-backdrop-filter:bg-background/70 md:hidden safe-area-pb"
 		>
-			<div class="flex items-center justify-around py-2">
+			<div class="flex items-center justify-around py-2 px-2">
 				{#each navItems as item}
 					<a
 						href={item.href}
-						class="flex flex-col items-center gap-1 px-4 py-2 transition-colors
-							{isActive(item.href) ? 'text-primary' : 'text-muted-foreground'}"
+						class="group/mobile relative flex flex-col items-center gap-0.5 px-3 py-2 transition-all duration-200 rounded-xl
+							{isActive(item.href) ? 'text-primary' : (
+							'text-muted-foreground hover:text-foreground'
+						)}"
 					>
-						<item.icon class="h-5 w-5" />
-						<span class="text-xs">{item.label}</span>
+						{#if isActive(item.href)}
+							<span
+								class="absolute inset-0 bg-primary/10 rounded-xl"
+							></span>
+						{/if}
+						<item.icon
+							class="relative h-5 w-5 transition-transform group-hover/mobile:scale-110 {(
+								isActive(item.href)
+							) ?
+								'drop-shadow-[0_0_8px_var(--primary)]'
+							:	''}"
+						/>
+						<span class="relative text-[10px] font-medium"
+							>{item.label}</span
+						>
 					</a>
 				{/each}
 			</div>

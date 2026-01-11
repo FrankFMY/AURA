@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { authStore } from '$stores/auth.svelte';
 	import {
 		socialNotificationsStore,
@@ -10,6 +11,7 @@
 	import { Button } from '$components/ui/button';
 	import { Badge } from '$components/ui/badge';
 	import { Skeleton } from '$components/ui/skeleton';
+	import { EmptyState } from '$components/ui/empty-state';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import Bell from 'lucide-svelte/icons/bell';
 	import Heart from 'lucide-svelte/icons/heart';
@@ -20,6 +22,7 @@
 	import AtSign from 'lucide-svelte/icons/at-sign';
 	import Check from 'lucide-svelte/icons/check';
 	import CheckCheck from 'lucide-svelte/icons/check-check';
+	import LogIn from 'lucide-svelte/icons/log-in';
 
 	type FilterType = 'all' | SocialNotificationType;
 	let activeFilter = $state<FilterType>('all');
@@ -174,24 +177,15 @@
 
 	<div class="mx-auto max-w-2xl">
 		{#if !authStore.isAuthenticated}
-			<div
-				class="flex flex-col items-center justify-center p-8 text-center"
-			>
-				<Bell class="mb-4 h-12 w-12 text-muted-foreground" />
-				<h2 class="text-lg font-semibold">
-					Login to see notifications
-				</h2>
-				<p class="text-muted-foreground">
-					Connect your Nostr account to receive notifications
-				</p>
-				<Button
-					variant="glow"
-					class="mt-4"
-					href="/login"
-				>
-					Login
-				</Button>
-			</div>
+			<EmptyState
+				icon={LogIn}
+				title="Login to see notifications"
+				description="Connect your Nostr account to receive notifications when people interact with you"
+				variant="default"
+				size="lg"
+				actionLabel="Login"
+				onAction={() => goto('/login')}
+			/>
 		{:else if socialNotificationsStore.isLoading && filteredNotifications.length === 0}
 			<!-- Loading skeletons -->
 			<div class="divide-y divide-border">
@@ -206,17 +200,15 @@
 				{/each}
 			</div>
 		{:else if filteredNotifications.length === 0}
-			<div
-				class="flex flex-col items-center justify-center p-8 text-center"
-			>
-				<Bell class="mb-4 h-12 w-12 text-muted-foreground" />
-				<h2 class="text-lg font-semibold">No notifications yet</h2>
-				<p class="text-muted-foreground">
-					{activeFilter === 'all' ?
-						"When someone interacts with you, you'll see it here"
-					:	`No ${activeFilter} notifications`}
-				</p>
-			</div>
+			<EmptyState
+				icon={Bell}
+				title="No notifications yet"
+				description={activeFilter === 'all' ?
+					"When someone interacts with you, you'll see it here"
+				:	`No ${activeFilter} notifications`}
+				variant="muted"
+				size="md"
+			/>
 		{:else}
 			<div class="divide-y divide-border">
 				{#each filteredNotifications as notification (notification.id)}

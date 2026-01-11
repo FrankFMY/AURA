@@ -1,4 +1,7 @@
-<script lang="ts" generics="T">
+<script
+	lang="ts"
+	generics="T"
+>
 	import { onMount, onDestroy, tick } from 'svelte';
 
 	interface Props {
@@ -17,7 +20,11 @@
 		/** Key function to get unique key for each item */
 		getKey?: (item: T, index: number) => string | number;
 		/** Snippet to render each item */
-		children: import('svelte').Snippet<[{ item: T; index: number; style: string }]>;
+		children: import('svelte').Snippet<
+			[{ item: T; index: number; style: string }]
+		>;
+		/** Callback on scroll with current scroll position */
+		onScroll?: (scrollTop: number) => void;
 		/** Class for the container */
 		class?: string;
 	}
@@ -31,7 +38,8 @@
 		endReachedThreshold = 200,
 		getKey = (_: T, index: number) => index,
 		children,
-		class: className = ''
+		onScroll,
+		class: className = '',
 	}: Props = $props();
 
 	let container: HTMLDivElement;
@@ -40,16 +48,21 @@
 
 	// Calculate virtual window
 	const totalHeight = $derived(items.length * itemHeight);
-	const startIndex = $derived(Math.max(0, Math.floor(scrollTop / itemHeight) - overscan));
+	const startIndex = $derived(
+		Math.max(0, Math.floor(scrollTop / itemHeight) - overscan),
+	);
 	const endIndex = $derived(
-		Math.min(items.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan)
+		Math.min(
+			items.length,
+			Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan,
+		),
 	);
 	const visibleItems = $derived(
 		items.slice(startIndex, endIndex).map((item, i) => ({
 			item,
 			index: startIndex + i,
-			key: getKey(item, startIndex + i)
-		}))
+			key: getKey(item, startIndex + i),
+		})),
 	);
 	const offsetY = $derived(startIndex * itemHeight);
 
@@ -59,6 +72,9 @@
 	function handleScroll() {
 		if (!container) return;
 		scrollTop = container.scrollTop;
+
+		// Notify scroll position
+		onScroll?.(scrollTop);
 
 		// Check for end reached
 		if (onEndReached && !endReachedCalled) {
@@ -97,11 +113,14 @@
 	});
 
 	/** Scroll to a specific index */
-	export function scrollToIndex(index: number, behavior: ScrollBehavior = 'smooth') {
+	export function scrollToIndex(
+		index: number,
+		behavior: ScrollBehavior = 'smooth',
+	) {
 		if (container) {
 			container.scrollTo({
 				top: index * itemHeight,
-				behavior
+				behavior,
 			});
 		}
 	}
@@ -129,7 +148,11 @@
 		<!-- Visible items container -->
 		<div style="transform: translateY({offsetY}px);">
 			{#each visibleItems as { item, index, key } (key)}
-				{@render children({ item, index, style: `height: ${itemHeight}px;` })}
+				{@render children({
+					item,
+					index,
+					style: `height: ${itemHeight}px;`,
+				})}
 			{/each}
 		</div>
 	</div>

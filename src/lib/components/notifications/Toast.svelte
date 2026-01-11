@@ -25,10 +25,12 @@
 	};
 
 	const styles: Record<NotificationType, string> = {
-		info: 'bg-card border-border text-foreground',
-		success: 'bg-success/10 border-success/30 text-success',
-		warning: 'bg-warning/10 border-warning/30 text-warning',
-		error: 'bg-destructive/10 border-destructive/30 text-destructive',
+		info: 'bg-card/95 backdrop-blur-sm border-border text-foreground shadow-lg',
+		success:
+			'bg-success/10 backdrop-blur-sm border-success/40 text-success shadow-lg shadow-success/10',
+		warning:
+			'bg-warning/10 backdrop-blur-sm border-warning/40 text-warning shadow-lg shadow-warning/10',
+		error: 'bg-destructive/10 backdrop-blur-sm border-destructive/40 text-destructive shadow-lg shadow-destructive/10',
 	};
 
 	const Icon = $derived(icons[toast.type]);

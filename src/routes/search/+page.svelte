@@ -13,11 +13,13 @@
 	import { Card } from '$components/ui/card';
 	import { Badge } from '$components/ui/badge';
 	import { Skeleton } from '$components/ui/skeleton';
+	import { EmptyState } from '$components/ui/empty-state';
 	import { truncatePubkey } from '$lib/utils';
 	import Search from 'lucide-svelte/icons/search';
 	import TrendingUp from 'lucide-svelte/icons/trending-up';
 	import Hash from 'lucide-svelte/icons/hash';
 	import User from 'lucide-svelte/icons/user';
+	import SearchX from 'lucide-svelte/icons/search-x';
 
 	type SearchTab = 'notes' | 'users' | 'hashtags';
 
@@ -256,12 +258,13 @@
 		{:else if activeTab === 'notes'}
 			<!-- Note results -->
 			{#if noteResults.length === 0}
-				<div class="p-8 text-center">
-					<Search class="mx-auto h-12 w-12 text-muted-foreground" />
-					<p class="mt-4 text-muted-foreground">
-						No notes found for "{query}"
-					</p>
-				</div>
+				<EmptyState
+					icon={SearchX}
+					title="No notes found"
+					description={`No notes found for "${query}". Try different keywords or check trending hashtags.`}
+					variant="muted"
+					size="md"
+				/>
 			{:else}
 				{#each noteResults as note (note.id)}
 					<NoteCard
@@ -276,12 +279,13 @@
 		{:else if activeTab === 'users'}
 			<!-- User results -->
 			{#if userResults.length === 0}
-				<div class="p-8 text-center">
-					<User class="mx-auto h-12 w-12 text-muted-foreground" />
-					<p class="mt-4 text-muted-foreground">
-						No users found for "{query}"
-					</p>
-				</div>
+				<EmptyState
+					icon={User}
+					title="No users found"
+					description={`No users found for "${query}". Try searching by name or npub.`}
+					variant="muted"
+					size="md"
+				/>
 			{:else}
 				<div class="divide-y divide-border">
 					{#each userResults as user (user.pubkey)}

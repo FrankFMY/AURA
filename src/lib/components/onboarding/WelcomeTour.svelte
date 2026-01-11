@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, fly, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { Button } from '$components/ui/button';
 	import { dbHelpers } from '$db';
 	import Globe from 'lucide-svelte/icons/globe';
@@ -85,6 +87,7 @@
 
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm"
+	transition:fade={{ duration: 300 }}
 >
 	<!-- Skip button -->
 	<button
@@ -95,45 +98,67 @@
 		<span class="sr-only">Skip tour</span>
 	</button>
 
-	<div class="w-full max-w-lg px-4">
+	<div
+		class="w-full max-w-lg px-4"
+		in:scale={{ duration: 400, start: 0.9, easing: cubicOut, delay: 100 }}
+	>
 		<!-- Slide content -->
 		<div
-			class="relative min-h-[400px] overflow-hidden rounded-2xl border border-border bg-card p-8 shadow-xl"
+			class="relative min-h-[400px] overflow-hidden rounded-2xl border border-border bg-card p-8 shadow-xl card-elevated-xl"
 		>
 			<!-- Decorative gradient -->
 			<div
 				class="absolute -top-20 -right-20 h-40 w-40 rounded-full blur-3xl opacity-30 {currentSlideData.bgColor}"
 			></div>
 
-			<!-- Icon -->
-			<div
-				class="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl {currentSlideData.bgColor}"
-			>
-				{#if currentSlide === 0}
-					<Globe class="h-10 w-10 {currentSlideData.color}" />
-				{:else if currentSlide === 1}
-					<Key class="h-10 w-10 {currentSlideData.color}" />
-				{:else if currentSlide === 2}
-					<Zap class="h-10 w-10 {currentSlideData.color}" />
-				{:else}
-					<Shield class="h-10 w-10 {currentSlideData.color}" />
-				{/if}
-			</div>
+			{#key currentSlide}
+				<!-- Icon -->
+				<div
+					class="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl {currentSlideData.bgColor} transition-colors duration-300"
+					in:scale={{ duration: 300, start: 0.8, easing: cubicOut }}
+				>
+					{#if currentSlide === 0}
+						<Globe class="h-10 w-10 {currentSlideData.color}" />
+					{:else if currentSlide === 1}
+						<Key class="h-10 w-10 {currentSlideData.color}" />
+					{:else if currentSlide === 2}
+						<Zap class="h-10 w-10 {currentSlideData.color}" />
+					{:else}
+						<Shield class="h-10 w-10 {currentSlideData.color}" />
+					{/if}
+				</div>
 
-			<!-- Title -->
-			<div class="text-center mb-6">
-				<h2 class="text-2xl font-bold mb-2">
-					{currentSlideData.title}
-				</h2>
-				<p class="text-sm font-medium {currentSlideData.color}">
-					{currentSlideData.subtitle}
+				<!-- Title -->
+				<div
+					class="text-center mb-6"
+					in:fly={{
+						y: 10,
+						duration: 300,
+						delay: 50,
+						easing: cubicOut,
+					}}
+				>
+					<h2 class="text-2xl font-bold mb-2">
+						{currentSlideData.title}
+					</h2>
+					<p class="text-sm font-medium {currentSlideData.color}">
+						{currentSlideData.subtitle}
+					</p>
+				</div>
+
+				<!-- Description -->
+				<p
+					class="text-center text-muted-foreground leading-relaxed"
+					in:fly={{
+						y: 10,
+						duration: 300,
+						delay: 100,
+						easing: cubicOut,
+					}}
+				>
+					{currentSlideData.description}
 				</p>
-			</div>
-
-			<!-- Description -->
-			<p class="text-center text-muted-foreground leading-relaxed">
-				{currentSlideData.description}
-			</p>
+			{/key}
 
 			<!-- Progress dots -->
 			<div class="mt-8 flex justify-center gap-2">

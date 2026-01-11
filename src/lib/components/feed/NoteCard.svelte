@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
 	import type { UserProfile } from '$db';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
@@ -178,7 +180,7 @@
 </script>
 
 <article
-	class="group border-b border-border p-4 transition-colors hover:bg-card/50"
+	class="group relative border-b border-border p-4 transition-all duration-300 hover:bg-card/60 hover:border-primary/20"
 	aria-label="Note by {displayName}"
 >
 	<div class="flex gap-3">
@@ -258,20 +260,22 @@
 
 			<!-- Actions -->
 			<div
-				class="flex items-center justify-between text-muted-foreground"
+				class="flex items-center justify-between text-muted-foreground -mx-1"
 				role="group"
 				aria-label="Note actions"
 			>
 				<a
 					href="/note/{event.id}"
-					class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:text-primary hover:bg-accent/10 transition-colors"
+					class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 group/action"
 					aria-label="View thread{replyCount > 0 ?
 						`, ${replyCount} replies`
 					:	''}"
 				>
-					<MessageCircle class="h-4 w-4" />
+					<MessageCircle
+						class="h-4 w-4 transition-transform group-hover/action:scale-110"
+					/>
 					{#if replyCount > 0}
-						<span class="text-xs">{replyCount}</span>
+						<span class="text-xs font-medium">{replyCount}</span>
 					{/if}
 				</a>
 
@@ -303,6 +307,11 @@
 						<div
 							class="absolute bottom-full left-0 mb-1 w-40 rounded-lg border border-border bg-background shadow-lg z-10"
 							role="menu"
+							transition:scale={{
+								duration: 150,
+								start: 0.95,
+								easing: cubicOut,
+							}}
 						>
 							<button
 								class="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
@@ -400,11 +409,15 @@
 		onkeydown={(e) => e.key === 'Escape' && (showQuoteModal = false)}
 		role="button"
 		tabindex="-1"
+		transition:fade={{ duration: 200 }}
 	></div>
 	<div
 		class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 p-4"
+		transition:scale={{ duration: 250, start: 0.95, easing: cubicOut }}
 	>
-		<div class="rounded-lg border border-border bg-background shadow-lg">
+		<div
+			class="rounded-lg border border-border bg-background shadow-xl card-elevated-lg"
+		>
 			<div
 				class="flex items-center justify-between border-b border-border p-4"
 			>
@@ -463,8 +476,44 @@
 {/if}
 
 <style>
-	/* Ensure note content links are styled properly */
+	/* Note content link styling */
 	:global(.note-content a) {
 		word-break: break-all;
+		color: var(--accent);
+		text-decoration: none;
+		transition:
+			color 0.2s ease,
+			text-decoration 0.2s ease;
+	}
+
+	:global(.note-content a:hover) {
+		color: var(--primary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	/* Hashtag styling */
+	:global(.note-content .hashtag) {
+		color: var(--primary);
+		font-weight: 500;
+		transition: color 0.2s ease;
+	}
+
+	:global(.note-content .hashtag:hover) {
+		color: var(--accent);
+	}
+
+	/* Mention styling */
+	:global(.note-content .mention) {
+		color: var(--accent);
+		font-weight: 500;
+		background: oklch(0.7 0.18 195 / 0.1);
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		transition: background 0.2s ease;
+	}
+
+	:global(.note-content .mention:hover) {
+		background: oklch(0.7 0.18 195 / 0.2);
 	}
 </style>

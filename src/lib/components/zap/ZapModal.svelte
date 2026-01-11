@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { zapService, type ZapResult } from '$services/zap';
 	import { Button } from '$components/ui/button';
 	import { Input } from '$components/ui/input';
@@ -127,13 +129,17 @@
 		onkeydown={(e) => e.key === 'Escape' && onclose()}
 		role="button"
 		tabindex="-1"
+		transition:fade={{ duration: 200 }}
 	></div>
 
 	<!-- Modal -->
 	<div
 		class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4"
+		transition:scale={{ duration: 250, start: 0.95, easing: cubicOut }}
 	>
-		<div class="rounded-lg border border-border bg-background shadow-lg">
+		<div
+			class="rounded-lg border border-border bg-background shadow-xl card-elevated-lg"
+		>
 			<!-- Header -->
 			<div
 				class="flex items-center justify-between border-b border-border p-4"

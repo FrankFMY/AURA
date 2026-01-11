@@ -5,15 +5,25 @@
 	import NoteCard from '$components/feed/NoteCard.svelte';
 	import CreateNote from '$components/feed/CreateNote.svelte';
 	import NoteSkeleton from '$components/feed/NoteSkeleton.svelte';
+	import { VirtualList } from '$components/ui/virtual-list';
+	import { EmptyState } from '$components/ui/empty-state';
+	import { ScrollToTop } from '$components/ui/scroll-to-top';
 	import { Button } from '$components/ui/button';
 	import { Spinner } from '$components/ui/spinner';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import TrendingUp from 'lucide-svelte/icons/trending-up';
 	import Users from 'lucide-svelte/icons/users';
 	import Globe from 'lucide-svelte/icons/globe';
+	import UserPlus from 'lucide-svelte/icons/user-plus';
+	import LogIn from 'lucide-svelte/icons/log-in';
 
 	let feedTab = $state<'global' | 'following'>('global');
-	let feedContainer: HTMLElement;
+	let virtualList: ReturnType<typeof VirtualList> | undefined = $state();
+	let showScrollTop = $state(false);
+	let scrollPosition = $state(0);
+
+	// Estimated height for note cards (will vary, but this is average)
+	const ESTIMATED_NOTE_HEIGHT = 180;
 
 	onMount(() => {
 		feedStore.load('global');
@@ -25,26 +35,29 @@
 
 	async function handleRefresh() {
 		await feedStore.refresh();
+		virtualList?.scrollToTop();
 	}
 
 	async function handleTabChange(tab: 'global' | 'following') {
 		feedTab = tab;
 		await feedStore.load(tab);
+		virtualList?.scrollToTop('instant');
 	}
 
-	// Infinite scroll
-	function handleScroll() {
-		if (!feedContainer) return;
-
-		const { scrollTop, scrollHeight, clientHeight } = feedContainer;
-		if (
-			scrollHeight - scrollTop - clientHeight < 500 &&
-			!feedStore.isLoading &&
-			feedStore.hasMore
-		) {
+	function handleEndReached() {
+		if (!feedStore.isLoading && feedStore.hasMore) {
 			feedStore.loadMore();
 		}
 	}
+
+	function handleScrollToTop() {
+		virtualList?.scrollToTop();
+	}
+
+	// Track scroll position for scroll-to-top button visibility
+	$effect(() => {
+		showScrollTop = scrollPosition > 500;
+	});
 </script>
 
 <svelte:head>
@@ -103,70 +116,118 @@
 	{/if}
 
 	<!-- Feed -->
-	<div
-		bind:this={feedContainer}
-		class="flex-1 overflow-y-auto"
-		onscroll={handleScroll}
-	>
+	<div class="flex-1 overflow-hidden relative">
 		{#if feedStore.error}
-			<div class="p-8 text-center">
-				<p class="text-destructive">{feedStore.error}</p>
+			<div class="p-8 text-center animate-fade-in">
+				<div
+					class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 mb-4"
+				>
+					<TrendingUp class="h-8 w-8 text-destructive" />
+				</div>
+				<p class="text-destructive font-medium">{feedStore.error}</p>
 				<Button
 					variant="outline"
-					class="mt-4"
+					class="mt-4 hover-glow-primary"
 					onclick={handleRefresh}
 				>
+					<RefreshCw class="h-4 w-4 mr-2" />
 					Try again
 				</Button>
 			</div>
 		{:else if feedStore.events.length === 0 && feedStore.isLoading}
-			<!-- Loading skeletons -->
-			{#each Array(5) as _}
-				<NoteSkeleton />
-			{/each}
-		{:else if feedStore.events.length === 0}
-			<div class="p-8 text-center">
-				<TrendingUp class="mx-auto h-12 w-12 text-muted-foreground" />
-				<h3 class="mt-4 text-lg font-medium">
-					{#if feedTab === 'following'}
-						No posts from people you follow
-					{:else}
-						No posts yet
-					{/if}
-				</h3>
-				<p class="mt-2 text-muted-foreground">
-					{#if feedTab === 'following'}
-						Follow some users to see their posts here!
-					{:else if authStore.isAuthenticated}
-						Be the first to post something!
-					{:else}
-						Login to see personalized content
-					{/if}
-				</p>
+			<!-- Loading skeletons with stagger animation -->
+			<div class="animate-fade-in">
+				{#each Array(5) as _, i}
+					<div class="stagger-{i + 1}">
+						<NoteSkeleton />
+					</div>
+				{/each}
 			</div>
-		{:else}
-			{#each feedStore.events as feedEvent (feedEvent.event.id)}
-				<NoteCard
-					event={feedEvent.event}
-					author={feedEvent.author}
-					replyCount={feedEvent.replyCount}
-					reactionCount={feedEvent.reactionCount}
-					repostCount={feedEvent.repostCount}
-					hasReacted={feedEvent.hasReacted}
-					hasReposted={feedEvent.hasReposted}
+		{:else if feedStore.events.length === 0}
+			{#if feedTab === 'following'}
+				<EmptyState
+					icon={UserPlus}
+					title="No posts from people you follow"
+					description="Follow some users to see their posts here! Discover interesting people in the Global feed."
+					variant="accent"
+					size="lg"
+					actionLabel="Explore Global"
+					onAction={() => handleTabChange('global')}
 				/>
-			{/each}
+			{:else if authStore.isAuthenticated}
+				<EmptyState
+					icon={TrendingUp}
+					title="No posts yet"
+					description="Be the first to post something! Share your thoughts with the Nostr community."
+					variant="default"
+					size="lg"
+				/>
+			{:else}
+				<EmptyState
+					icon={LogIn}
+					title="Welcome to AURA"
+					description="Login to see personalized content and connect with the decentralized social network."
+					variant="default"
+					size="lg"
+				/>
+			{/if}
+		{:else}
+			<!-- Virtualized feed list -->
+			<VirtualList
+				bind:this={virtualList}
+				items={feedStore.events}
+				itemHeight={ESTIMATED_NOTE_HEIGHT}
+				overscan={3}
+				height="100%"
+				onEndReached={handleEndReached}
+				endReachedThreshold={400}
+				getKey={(item) => item.event.id}
+				onScroll={(pos) => (scrollPosition = pos)}
+				class="h-full"
+			>
+				{#snippet children({ item: feedEvent })}
+					<NoteCard
+						event={feedEvent.event}
+						author={feedEvent.author}
+						replyCount={feedEvent.replyCount}
+						reactionCount={feedEvent.reactionCount}
+						repostCount={feedEvent.repostCount}
+						hasReacted={feedEvent.hasReacted}
+						hasReposted={feedEvent.hasReposted}
+					/>
+				{/snippet}
+			</VirtualList>
 
-			<!-- Load more indicator -->
+			<!-- Load more indicator (overlay at bottom) -->
 			{#if feedStore.isLoading}
-				<div class="flex items-center justify-center p-4">
-					<Spinner />
+				<div
+					class="absolute bottom-0 left-0 right-0 flex items-center justify-center p-4 bg-linear-to-t from-background via-background/80 to-transparent"
+				>
+					<div
+						class="flex items-center gap-2 px-4 py-2 rounded-full bg-card border border-border shadow-lg"
+					>
+						<Spinner size="sm" />
+						<span class="text-sm text-muted-foreground"
+							>Loading more...</span
+						>
+					</div>
 				</div>
-			{:else if !feedStore.hasMore}
-				<div class="p-8 text-center text-muted-foreground">
-					You've reached the end
+			{:else if !feedStore.hasMore && feedStore.events.length > 0}
+				<div
+					class="absolute bottom-0 left-0 right-0 p-6 text-center bg-linear-to-t from-background to-transparent"
+				>
+					<span class="text-sm text-muted-foreground"
+						>You've reached the end</span
+					>
 				</div>
 			{/if}
 		{/if}
+
+		<!-- Scroll to top button -->
+		<ScrollToTop
+			show={showScrollTop}
+			onClick={handleScrollToTop}
+			bottom="6rem"
+		/>
 	</div>
 </div>

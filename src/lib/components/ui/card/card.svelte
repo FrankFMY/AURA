@@ -16,7 +16,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		class={cn(
-			'rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all duration-200 cursor-pointer',
+			'rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all duration-200 cursor-pointer hover:border-primary/30 hover:shadow-md hover:shadow-primary/5 active:scale-[0.99]',
 			className,
 		)}
 		{onclick}
@@ -31,7 +31,7 @@
 {:else}
 	<div
 		class={cn(
-			'rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all duration-200',
+			'rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:border-border/80',
 			className,
 		)}
 		{...restProps}

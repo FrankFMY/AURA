@@ -19,7 +19,7 @@
 
 <span
 	class={cn(
-		'relative flex shrink-0 overflow-hidden rounded-full',
+		'relative flex shrink-0 overflow-hidden rounded-full transition-all duration-200 ring-2 ring-transparent hover:ring-primary/20',
 		sizeClasses[size],
 		className,
 	)}

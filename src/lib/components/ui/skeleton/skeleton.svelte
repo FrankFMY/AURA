@@ -1,7 +1,18 @@
 <script lang="ts">
 	import { cn } from '$lib/utils';
 
-	let { class: className }: { class?: string } = $props();
+	interface Props {
+		class?: string;
+		shimmer?: boolean;
+	}
+
+	let { class: className, shimmer = true }: Props = $props();
 </script>
 
-<div class={cn('animate-pulse rounded-md bg-muted', className)}></div>
+<div
+	class={cn(
+		'rounded-md bg-muted',
+		shimmer ? 'animate-shimmer' : 'animate-pulse',
+		className,
+	)}
+></div>

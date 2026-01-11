@@ -83,9 +83,14 @@
 	}
 </script>
 
-<div class="border-b border-border p-4">
+<div
+	class="border-b border-border bg-card/30 p-4 transition-colors hover:bg-card/50"
+>
 	<div class="flex gap-3">
-		<Avatar size="md">
+		<Avatar
+			size="md"
+			class="ring-2 ring-primary/20 ring-offset-2 ring-offset-background"
+		>
 			<AvatarImage
 				src={authStore.avatar}
 				alt={authStore.displayName}
@@ -98,7 +103,7 @@
 				bind:value={content}
 				{placeholder}
 				rows={3}
-				class="mb-3 resize-none border-none bg-transparent p-0 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
+				class="mb-3 resize-none border-none bg-transparent p-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
 				onkeydown={handleKeydown}
 			/>
 
