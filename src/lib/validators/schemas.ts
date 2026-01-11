@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nip19 } from 'nostr-tools';
 
 /**
  * Nostr public key validation (64 char hex)
@@ -16,10 +17,11 @@ export const npubSchema = z
 
 /**
  * Nostr nsec validation (bech32 encoded private key)
+ * Note: We use a more lenient regex and rely on actual decoding for validation
  */
 export const nsecSchema = z
 	.string()
-	.regex(/^nsec1[a-z0-9]{58}$/i, 'Invalid nsec format');
+	.regex(/^nsec1[a-z0-9]{50,70}$/i, 'Invalid nsec format');
 
 /**
  * Nostr private key validation (64 char hex or nsec)
@@ -193,7 +195,6 @@ export function validatePubkey(input: string): string | null {
 	// Try npub format
 	if (npubSchema.safeParse(input).success) {
 		try {
-			const { nip19 } = require('nostr-tools');
 			const decoded = nip19.decode(input);
 			if (decoded.type === 'npub') {
 				return decoded.data as string;
@@ -215,19 +216,24 @@ export function validatePrivateKey(input: string): string | null {
 		return input;
 	}
 
-	// Try nsec format
-	if (nsecSchema.safeParse(input).success) {
+	// Try nsec format - attempt to decode regardless of exact length
+	// This handles edge cases where bech32 encoding might vary slightly
+	if (input.toLowerCase().startsWith('nsec1')) {
 		try {
-			const { nip19 } = require('nostr-tools');
 			const decoded = nip19.decode(input);
 			if (decoded.type === 'nsec') {
 				// Convert Uint8Array to hex
 				const bytes = decoded.data as Uint8Array;
-				return Array.from(bytes)
+				const hex = Array.from(bytes)
 					.map((b) => b.toString(16).padStart(2, '0'))
 					.join('');
+				// Verify the result is a valid 64-char hex key
+				if (/^[0-9a-fA-F]{64}$/.test(hex)) {
+					return hex;
+				}
 			}
-		} catch {
+		} catch (e) {
+			console.warn('Failed to decode nsec:', e);
 			return null;
 		}
 	}

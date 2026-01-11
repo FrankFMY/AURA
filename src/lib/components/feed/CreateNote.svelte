@@ -3,10 +3,13 @@
 	import { Button } from '$components/ui/button';
 	import { Textarea } from '$components/ui/textarea';
 	import { Spinner } from '$components/ui/spinner';
+	import { MediaUpload } from '$components/media';
 	import { authStore } from '$stores/auth.svelte';
 	import { feedStore } from '$stores/feed.svelte';
+	import type { MediaUploadResult } from '$services/media';
 	import ImagePlus from 'lucide-svelte/icons/image-plus';
 	import Send from 'lucide-svelte/icons/send';
+	import X from 'lucide-svelte/icons/x';
 
 	interface Props {
 		replyTo?: import('@nostr-dev-kit/ndk').NDKEvent;
@@ -23,9 +26,23 @@
 	let content = $state('');
 	let isSubmitting = $state(false);
 	let error = $state<string | null>(null);
+	let attachedImages = $state<string[]>([]);
+	let showMediaUpload = $state(false);
 
 	const charCount = $derived(content.length);
-	const canSubmit = $derived(content.trim().length > 0 && !isSubmitting);
+	const canSubmit = $derived(
+		(content.trim().length > 0 || attachedImages.length > 0) &&
+			!isSubmitting,
+	);
+
+	function handleMediaUpload(result: MediaUploadResult) {
+		attachedImages = [...attachedImages, result.url];
+		showMediaUpload = false;
+	}
+
+	function removeImage(url: string) {
+		attachedImages = attachedImages.filter((u) => u !== url);
+	}
 
 	const avatarInitials = $derived(
 		(authStore.displayName || 'A').slice(0, 2).toUpperCase(),
@@ -38,8 +55,18 @@
 		error = null;
 
 		try {
-			await feedStore.publishNote(content, replyTo);
+			// Append image URLs to content
+			let fullContent = content;
+			if (attachedImages.length > 0) {
+				if (fullContent.trim()) {
+					fullContent += '\n\n';
+				}
+				fullContent += attachedImages.join('\n');
+			}
+
+			await feedStore.publishNote(fullContent, replyTo);
 			content = '';
+			attachedImages = [];
 			onSuccess?.();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to publish';
@@ -75,6 +102,35 @@
 				onkeydown={handleKeydown}
 			/>
 
+			<!-- Attached images preview -->
+			{#if attachedImages.length > 0}
+				<div class="mb-3 flex flex-wrap gap-2">
+					{#each attachedImages as imageUrl}
+						<div class="relative">
+							<img
+								src={imageUrl}
+								alt="Attached"
+								class="h-20 w-20 rounded-lg object-cover"
+							/>
+							<button
+								class="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+								onclick={() => removeImage(imageUrl)}
+								aria-label="Remove image"
+							>
+								<X class="h-3 w-3" />
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Media upload dropdown -->
+			{#if showMediaUpload}
+				<div class="mb-3">
+					<MediaUpload onUpload={handleMediaUpload} />
+				</div>
+			{/if}
+
 			{#if error}
 				<p class="mb-2 text-sm text-destructive">{error}</p>
 			{/if}
@@ -84,12 +140,20 @@
 					<Button
 						variant="ghost"
 						size="icon"
-						disabled
+						onclick={() => (showMediaUpload = !showMediaUpload)}
+						class={showMediaUpload ? 'text-primary' : ''}
 					>
-						<ImagePlus class="h-5 w-5 text-muted-foreground" />
+						<ImagePlus class="h-5 w-5" />
 					</Button>
 					<span class="text-xs text-muted-foreground">
 						{charCount} characters
+						{#if attachedImages.length > 0}
+							· {attachedImages.length} image{(
+								attachedImages.length > 1
+							) ?
+								's'
+							:	''}
+						{/if}
 					</span>
 				</div>
 

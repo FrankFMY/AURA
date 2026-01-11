@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { authStore } from '$stores/auth.svelte';
 	import ndkService from '$services/ndk';
+	import { contactsService } from '$services/contacts';
 	import { dbHelpers, type UserProfile } from '$db';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
 	import NoteCard from '$components/feed/NoteCard.svelte';
@@ -11,6 +12,7 @@
 	import { Button } from '$components/ui/button';
 	import { Badge } from '$components/ui/badge';
 	import { Skeleton } from '$components/ui/skeleton';
+	import { Spinner } from '$components/ui/spinner';
 	import { truncatePubkey, copyToClipboard } from '$lib/utils';
 	import { nip19 } from 'nostr-tools';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
@@ -20,12 +22,20 @@
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
 	import Zap from 'lucide-svelte/icons/zap';
 	import Calendar from 'lucide-svelte/icons/calendar';
+	import UserPlus from 'lucide-svelte/icons/user-plus';
+	import UserMinus from 'lucide-svelte/icons/user-minus';
+	import { ZapModal } from '$components/zap';
 
 	let profile = $state<UserProfile | null>(null);
+	let showZapModal = $state(false);
 	let notes = $state<NDKEvent[]>([]);
 	let isLoading = $state(true);
 	let isLoadingNotes = $state(true);
 	let copied = $state(false);
+	let isFollowing = $state(false);
+	let isFollowLoading = $state(false);
+	let followingCount = $state(0);
+	let followerCount = $state(0);
 
 	const pubkey = $derived($page.params.pubkey ?? '');
 	const isOwnProfile = $derived(authStore.pubkey === pubkey);
@@ -45,6 +55,12 @@
 		if (cached) {
 			profile = cached;
 			isLoading = false;
+		}
+
+		// Check if following
+		if (authStore.pubkey && authStore.pubkey !== pubkey) {
+			await contactsService.fetchContacts(authStore.pubkey);
+			isFollowing = contactsService.isFollowing(pubkey);
 		}
 
 		// Fetch fresh profile
@@ -76,6 +92,22 @@
 		} finally {
 			isLoadingNotes = false;
 		}
+
+		// Fetch following/follower counts
+		try {
+			// Following count (their kind:3 contact list)
+			const followingFilter = { kinds: [3], authors: [pubkey], limit: 1 };
+			const followingEvents =
+				await ndkService.ndk.fetchEvents(followingFilter);
+			const followingEvent = Array.from(followingEvents)[0];
+			if (followingEvent) {
+				followingCount = followingEvent.tags.filter(
+					(t) => t[0] === 'p',
+				).length;
+			}
+		} catch (e) {
+			console.error('Failed to fetch follow counts:', e);
+		}
 	});
 
 	async function handleCopyNpub() {
@@ -87,6 +119,25 @@
 	function handleMessage() {
 		// Navigate to messages with this user
 		window.location.href = `/messages?start=${pubkey}`;
+	}
+
+	async function handleFollow() {
+		if (!authStore.isAuthenticated || !pubkey) return;
+
+		isFollowLoading = true;
+		try {
+			if (isFollowing) {
+				await contactsService.unfollow(pubkey);
+				isFollowing = false;
+			} else {
+				await contactsService.follow(pubkey);
+				isFollowing = true;
+			}
+		} catch (e) {
+			console.error('Failed to update follow status:', e);
+		} finally {
+			isFollowLoading = false;
+		}
 	}
 </script>
 
@@ -134,23 +185,46 @@
 		<!-- Actions -->
 		<div class="flex justify-end pt-4">
 			{#if isOwnProfile}
-				<Button variant="outline">Edit Profile</Button>
-			{:else}
+				<Button
+					variant="outline"
+					href="/settings">Edit Profile</Button
+				>
+			{:else if authStore.isAuthenticated}
 				<div class="flex gap-2">
 					<Button
 						variant="outline"
 						size="icon"
 						onclick={handleMessage}
+						title="Send message"
 					>
 						<MessageCircle class="h-4 w-4" />
 					</Button>
+					{#if profile?.lud16}
+						<Button
+							variant="outline"
+							size="icon"
+							title="Send zap"
+							onclick={() => (showZapModal = true)}
+						>
+							<Zap class="h-4 w-4" />
+						</Button>
+					{/if}
 					<Button
-						variant="outline"
-						size="icon"
+						variant={isFollowing ? 'outline' : 'glow'}
+						onclick={handleFollow}
+						disabled={isFollowLoading}
+						class="min-w-24"
 					>
-						<Zap class="h-4 w-4" />
+						{#if isFollowLoading}
+							<Spinner class="h-4 w-4" />
+						{:else if isFollowing}
+							<UserMinus class="mr-1 h-4 w-4" />
+							Unfollow
+						{:else}
+							<UserPlus class="mr-1 h-4 w-4" />
+							Follow
+						{/if}
 					</Button>
-					<Button variant="glow">Follow</Button>
 				</div>
 			{/if}
 		</div>
@@ -226,7 +300,10 @@
 						<span class="font-bold">{notes.length}</span>
 						<span class="text-muted-foreground"> notes</span>
 					</div>
-					<!-- Following/Followers would need additional queries -->
+					<div>
+						<span class="font-bold">{followingCount}</span>
+						<span class="text-muted-foreground"> following</span>
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -275,3 +352,14 @@
 		</div>
 	</div>
 </div>
+
+<!-- Zap Modal -->
+{#if profile?.lud16 && pubkey}
+	<ZapModal
+		open={showZapModal}
+		recipientPubkey={pubkey}
+		recipientName={displayName}
+		lnurl={profile.lud16}
+		onclose={() => (showZapModal = false)}
+	/>
+{/if}

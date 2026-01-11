@@ -168,6 +168,14 @@ function createFeedStore() {
 		hasMore = true;
 
 		try {
+			// Load contacts if we need them for following feed
+			if (type === 'following') {
+				const authPubkey = (await import('./auth.svelte')).default.pubkey;
+				if (authPubkey) {
+					await contactsService.fetchContacts(authPubkey);
+				}
+			}
+
 			const filter = buildFilter();
 
 			// First load from cache for instant display

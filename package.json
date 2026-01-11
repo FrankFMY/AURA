@@ -1,6 +1,6 @@
 {
   "name": "aura-nostr",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "AURA - A decentralized social messenger built on the Nostr protocol. Censorship-resistant, privacy-focused, and truly free.",
   "keywords": [
     "nostr",

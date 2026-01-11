@@ -87,7 +87,18 @@ function createAuthStore() {
 
 		try {
 			const pk = await ndkService.loginWithExtension();
-			await ndkService.connect();
+			
+			// Connect with timeout - don't block login if relays are slow
+			const connectPromise = ndkService.connect();
+			const timeoutPromise = new Promise((_, reject) =>
+				setTimeout(() => reject(new Error('Connection timeout')), 10000)
+			);
+			
+			try {
+				await Promise.race([connectPromise, timeoutPromise]);
+			} catch (e) {
+				console.warn('Relay connection slow, continuing login anyway:', e);
+			}
 
 			pubkey = pk;
 			npub = nip19.npubEncode(pk);
@@ -129,7 +140,17 @@ function createAuthStore() {
 				throw new Error('Key derivation resulted in invalid public key');
 			}
 			
-			await ndkService.connect();
+			// Connect with timeout - don't block login if relays are slow
+			const connectPromise = ndkService.connect();
+			const timeoutPromise = new Promise((_, reject) =>
+				setTimeout(() => reject(new Error('Connection timeout')), 10000)
+			);
+			
+			try {
+				await Promise.race([connectPromise, timeoutPromise]);
+			} catch (e) {
+				console.warn('Relay connection slow, continuing login anyway:', e);
+			}
 
 			pubkey = pk;
 			npub = nip19.npubEncode(pk);
@@ -158,7 +179,18 @@ function createAuthStore() {
 
 		try {
 			const result = await ndkService.loginWithNewKeypair();
-			await ndkService.connect();
+			
+			// Connect with timeout - don't block login if relays are slow
+			const connectPromise = ndkService.connect();
+			const timeoutPromise = new Promise((_, reject) =>
+				setTimeout(() => reject(new Error('Connection timeout')), 10000)
+			);
+			
+			try {
+				await Promise.race([connectPromise, timeoutPromise]);
+			} catch (e) {
+				console.warn('Relay connection slow, continuing login anyway:', e);
+			}
 
 			pubkey = result.pubkey;
 			npub = result.npub;

@@ -3,16 +3,20 @@
 	import type { UserProfile } from '$db';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
+	import { Textarea } from '$components/ui/textarea';
+	import { Spinner } from '$components/ui/spinner';
+	import { ZapModal } from '$components/zap';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { parseNoteContent, sanitizeUrl } from '$lib/validators/sanitize';
 	import { feedStore } from '$stores/feed.svelte';
-	import { walletStore } from '$stores/wallet.svelte';
 	import Heart from 'lucide-svelte/icons/heart';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
 	import Repeat2 from 'lucide-svelte/icons/repeat-2';
 	import Zap from 'lucide-svelte/icons/zap';
 	import Share from 'lucide-svelte/icons/share';
 	import ImageOff from 'lucide-svelte/icons/image-off';
+	import X from 'lucide-svelte/icons/x';
+	import Send from 'lucide-svelte/icons/send';
 
 	interface Props {
 		event: NDKEvent;
@@ -20,6 +24,7 @@
 		replyCount?: number;
 		reactionCount?: number;
 		repostCount?: number;
+		zapCount?: number;
 		hasReacted?: boolean;
 		hasReposted?: boolean;
 		onReply?: () => void;
@@ -31,6 +36,7 @@
 		replyCount = 0,
 		reactionCount = 0,
 		repostCount = 0,
+		zapCount = 0,
 		hasReacted = false,
 		hasReposted = false,
 		onReply,
@@ -38,7 +44,10 @@
 
 	let isReacting = $state(false);
 	let isReposting = $state(false);
-	let isZapping = $state(false);
+	let showZapModal = $state(false);
+	let showRepostMenu = $state(false);
+	let showQuoteModal = $state(false);
+	let quoteContent = $state('');
 	let imageErrors = $state<Set<string>>(new Set());
 
 	// Parse content safely using DOMPurify-based sanitization
@@ -75,6 +84,7 @@
 	async function handleRepost() {
 		if (isReposting || hasReposted) return;
 		isReposting = true;
+		showRepostMenu = false;
 		try {
 			await feedStore.repost(event);
 		} finally {
@@ -82,21 +92,33 @@
 		}
 	}
 
-	async function handleZap() {
-		if (!walletStore.isConnected) {
-			// Could show a modal to connect wallet
-			alert('Please connect a wallet first in Settings');
-			return;
-		}
+	async function handleQuoteRepost() {
+		showRepostMenu = false;
+		showQuoteModal = true;
+	}
 
-		isZapping = true;
+	async function submitQuoteRepost() {
+		if (!quoteContent.trim()) return;
+
+		isReposting = true;
 		try {
-			await walletStore.zapNote(event, 21); // Default 21 sats
-		} catch (e) {
-			console.error('Zap failed:', e);
+			// Create quote post with nostr:nevent reference
+			const noteId = event.id;
+			const quotedContent = `${quoteContent}\n\nnostr:nevent1${noteId}`;
+			await feedStore.publishNote(quotedContent);
+			quoteContent = '';
+			showQuoteModal = false;
 		} finally {
-			isZapping = false;
+			isReposting = false;
 		}
+	}
+
+	function handleZap() {
+		// Check if author has lightning address
+		if (!author?.lud16) {
+			// Still open modal - it will show error
+		}
+		showZapModal = true;
 	}
 
 	async function handleShare() {
@@ -230,12 +252,10 @@
 				role="group"
 				aria-label="Note actions"
 			>
-				<Button
-					variant="ghost"
-					size="sm"
-					class="gap-1.5 hover:text-primary"
-					onclick={onReply}
-					aria-label="Reply to note{replyCount > 0 ?
+				<a
+					href="/note/{event.id}"
+					class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:text-primary hover:bg-accent/10 transition-colors"
+					aria-label="View thread{replyCount > 0 ?
 						`, ${replyCount} replies`
 					:	''}"
 				>
@@ -243,28 +263,56 @@
 					{#if replyCount > 0}
 						<span class="text-xs">{replyCount}</span>
 					{/if}
-				</Button>
+				</a>
 
-				<Button
-					variant="ghost"
-					size="sm"
-					class="gap-1.5 hover:text-success {hasReposted ?
-						'text-success'
-					:	''}"
-					onclick={handleRepost}
-					disabled={isReposting}
-					aria-label="{hasReposted ? 'Reposted' : 'Repost'}{(
-						repostCount > 0
-					) ?
-						`, ${repostCount} reposts`
-					:	''}"
-					aria-pressed={hasReposted}
-				>
-					<Repeat2 class="h-4 w-4" />
-					{#if repostCount > 0}
-						<span class="text-xs">{repostCount}</span>
+				<div class="relative">
+					<Button
+						variant="ghost"
+						size="sm"
+						class="gap-1.5 hover:text-success {hasReposted ?
+							'text-success'
+						:	''}"
+						onclick={() => (showRepostMenu = !showRepostMenu)}
+						disabled={isReposting}
+						aria-label="{hasReposted ? 'Reposted' : 'Repost'}{(
+							repostCount > 0
+						) ?
+							`, ${repostCount} reposts`
+						:	''}"
+						aria-pressed={hasReposted}
+						aria-expanded={showRepostMenu}
+					>
+						<Repeat2 class="h-4 w-4" />
+						{#if repostCount > 0}
+							<span class="text-xs">{repostCount}</span>
+						{/if}
+					</Button>
+
+					<!-- Repost menu dropdown -->
+					{#if showRepostMenu}
+						<div
+							class="absolute bottom-full left-0 mb-1 w-40 rounded-lg border border-border bg-background shadow-lg z-10"
+							role="menu"
+						>
+							<button
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
+								onclick={handleRepost}
+								role="menuitem"
+							>
+								<Repeat2 class="h-4 w-4" />
+								Repost
+							</button>
+							<button
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
+								onclick={handleQuoteRepost}
+								role="menuitem"
+							>
+								<MessageCircle class="h-4 w-4" />
+								Quote
+							</button>
+						</div>
 					{/if}
-				</Button>
+				</div>
 
 				<Button
 					variant="ghost"
@@ -290,12 +338,22 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-1.5 hover:text-warning"
+					class="gap-1.5 hover:text-warning {author?.lud16 ? '' : (
+						'opacity-50'
+					)}"
 					onclick={handleZap}
-					disabled={isZapping}
-					aria-label="Send zap"
+					disabled={!author?.lud16}
+					aria-label={author?.lud16 ? 'Send zap' : (
+						'User cannot receive zaps'
+					)}
+					title={author?.lud16 ? 'Send zap' : (
+						'User has no lightning address'
+					)}
 				>
-					<Zap class="h-4 w-4 {isZapping ? 'animate-pulse' : ''}" />
+					<Zap class="h-4 w-4" />
+					{#if zapCount > 0}
+						<span class="text-xs">{zapCount}</span>
+					{/if}
 				</Button>
 
 				<Button
@@ -311,6 +369,88 @@
 		</div>
 	</div>
 </article>
+
+<!-- Zap Modal -->
+{#if author?.lud16}
+	<ZapModal
+		open={showZapModal}
+		recipientPubkey={event.pubkey}
+		recipientName={displayName}
+		lnurl={author.lud16}
+		eventId={event.id}
+		onclose={() => (showZapModal = false)}
+	/>
+{/if}
+
+<!-- Quote Modal -->
+{#if showQuoteModal}
+	<div
+		class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
+		onclick={() => (showQuoteModal = false)}
+		onkeydown={(e) => e.key === 'Escape' && (showQuoteModal = false)}
+		role="button"
+		tabindex="-1"
+	></div>
+	<div
+		class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 p-4"
+	>
+		<div class="rounded-lg border border-border bg-background shadow-lg">
+			<div
+				class="flex items-center justify-between border-b border-border p-4"
+			>
+				<h2 class="font-semibold">Quote this note</h2>
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={() => (showQuoteModal = false)}
+				>
+					<X class="h-4 w-4" />
+				</Button>
+			</div>
+			<div class="p-4">
+				<Textarea
+					bind:value={quoteContent}
+					placeholder="Add your thoughts..."
+					rows={3}
+					class="mb-3"
+				/>
+				<!-- Quoted note preview -->
+				<div class="rounded-lg border border-border p-3 bg-muted/50">
+					<div class="flex items-center gap-2 mb-2">
+						<Avatar size="sm">
+							<AvatarImage src={author?.picture} />
+							<AvatarFallback>{avatarInitials}</AvatarFallback>
+						</Avatar>
+						<span class="text-sm font-medium">{displayName}</span>
+					</div>
+					<p class="text-sm text-muted-foreground line-clamp-3">
+						{event.content.slice(0, 200)}{(
+							event.content.length > 200
+						) ?
+							'...'
+						:	''}
+					</p>
+				</div>
+			</div>
+			<div class="border-t border-border p-4">
+				<Button
+					variant="glow"
+					class="w-full"
+					onclick={submitQuoteRepost}
+					disabled={isReposting || !quoteContent.trim()}
+				>
+					{#if isReposting}
+						<Spinner class="mr-2 h-4 w-4" />
+						Posting...
+					{:else}
+						<Send class="mr-2 h-4 w-4" />
+						Post Quote
+					{/if}
+				</Button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	/* Ensure note content links are styled properly */

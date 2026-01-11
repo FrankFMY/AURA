@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { authStore } from '$stores/auth.svelte';
+	import { profileStore } from '$stores/profile.svelte';
 	import { walletStore } from '$stores/wallet.svelte';
 	import ndkService from '$services/ndk';
 	import { db, dbHelpers } from '$db';
 	import { Button } from '$components/ui/button';
 	import { Input } from '$components/ui/input';
+	import { Textarea } from '$components/ui/textarea';
 	import {
 		Card,
 		CardHeader,
@@ -15,6 +17,8 @@
 	} from '$components/ui/card';
 	import { Badge } from '$components/ui/badge';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
+	import { Spinner } from '$components/ui/spinner';
+	import { notificationsStore } from '$stores/notifications.svelte';
 	import Settings from 'lucide-svelte/icons/settings';
 	import User from 'lucide-svelte/icons/user';
 	import Server from 'lucide-svelte/icons/server';
@@ -25,6 +29,9 @@
 	import X from 'lucide-svelte/icons/x';
 	import Shield from 'lucide-svelte/icons/shield';
 	import Globe from 'lucide-svelte/icons/globe';
+	import Save from 'lucide-svelte/icons/save';
+	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import Image from 'lucide-svelte/icons/image';
 	import { onMount } from 'svelte';
 
 	let relays = $state<
@@ -57,7 +64,31 @@
 
 		// Load DB stats
 		dbStats = await dbHelpers.getStats();
+
+		// Load profile for editing
+		if (authStore.isAuthenticated) {
+			await profileStore.load();
+		}
 	});
+
+	async function handleSaveProfile() {
+		const success = await profileStore.save();
+		if (success) {
+			notificationsStore.success(
+				'Profile saved',
+				'Your profile has been updated',
+			);
+		} else {
+			notificationsStore.error(
+				'Failed to save',
+				profileStore.error || 'Unknown error',
+			);
+		}
+	}
+
+	async function handleResetProfile() {
+		await profileStore.reset();
+	}
 
 	async function addRelay() {
 		if (!newRelayUrl.trim() || !newRelayUrl.startsWith('wss://')) return;
@@ -112,51 +143,262 @@
 	</header>
 
 	<div class="mx-auto max-w-2xl space-y-6 p-4">
-		<!-- Profile -->
+		<!-- Profile Edit -->
 		<Card>
 			<CardHeader>
 				<div class="flex items-center gap-2">
 					<User class="h-5 w-5" />
-					<CardTitle>Profile</CardTitle>
+					<CardTitle>Edit Profile</CardTitle>
 				</div>
-				<CardDescription>Your Nostr identity</CardDescription>
+				<CardDescription
+					>Update your Nostr identity (kind:0 metadata)</CardDescription
+				>
 			</CardHeader>
 			<CardContent>
 				{#if authStore.isAuthenticated}
-					<div class="flex items-center gap-4">
-						<Avatar size="xl">
-							<AvatarImage src={authStore.avatar} />
-							<AvatarFallback>{avatarInitials}</AvatarFallback>
-						</Avatar>
-						<div>
-							<p class="text-lg font-semibold">
-								{authStore.displayName}
-							</p>
-							<p class="font-mono text-sm text-muted-foreground">
-								{authStore.npub?.slice(0, 20)}...
-							</p>
-							{#if authStore.profile?.nip05}
-								<Badge
-									variant="success"
-									class="mt-1"
-								>
-									<Check class="mr-1 h-3 w-3" />
-									{authStore.profile.nip05}
-								</Badge>
-							{/if}
+					{#if profileStore.isLoading}
+						<div class="flex justify-center py-8">
+							<Spinner />
 						</div>
-					</div>
+					{:else}
+						<div class="space-y-6">
+							<!-- Avatar & Banner Preview -->
+							<div class="relative">
+								<div
+									class="h-24 rounded-lg bg-linear-to-br from-primary/20 to-accent/20 overflow-hidden"
+								>
+									{#if profileStore.profile.banner}
+										<img
+											src={profileStore.profile.banner}
+											alt="Banner"
+											class="h-full w-full object-cover"
+										/>
+									{/if}
+								</div>
+								<Avatar
+									size="xl"
+									class="absolute -bottom-8 left-4 h-20 w-20 border-4 border-background"
+								>
+									<AvatarImage
+										src={profileStore.profile.picture}
+									/>
+									<AvatarFallback
+										>{avatarInitials}</AvatarFallback
+									>
+								</Avatar>
+							</div>
+
+							<div class="pt-10 grid gap-4">
+								<!-- Display Name -->
+								<div class="space-y-2">
+									<label
+										for="display_name"
+										class="text-sm font-medium"
+										>Display Name</label
+									>
+									<Input
+										id="display_name"
+										value={profileStore.profile
+											.display_name || ''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'display_name',
+												e.currentTarget.value,
+											)}
+										placeholder="Your display name"
+									/>
+								</div>
+
+								<!-- Username -->
+								<div class="space-y-2">
+									<label
+										for="name"
+										class="text-sm font-medium"
+										>Username</label
+									>
+									<Input
+										id="name"
+										value={profileStore.profile.name || ''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'name',
+												e.currentTarget.value,
+											)}
+										placeholder="username"
+									/>
+								</div>
+
+								<!-- About -->
+								<div class="space-y-2">
+									<label
+										for="about"
+										class="text-sm font-medium">About</label
+									>
+									<Textarea
+										id="about"
+										value={profileStore.profile.about || ''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'about',
+												e.currentTarget.value,
+											)}
+										placeholder="Tell us about yourself..."
+										rows={3}
+									/>
+								</div>
+
+								<!-- Picture URL -->
+								<div class="space-y-2">
+									<label
+										for="picture"
+										class="text-sm font-medium"
+									>
+										<Image class="inline h-4 w-4 mr-1" />
+										Avatar URL
+									</label>
+									<Input
+										id="picture"
+										value={profileStore.profile.picture ||
+											''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'picture',
+												e.currentTarget.value,
+											)}
+										placeholder="https://example.com/avatar.jpg"
+									/>
+								</div>
+
+								<!-- Banner URL -->
+								<div class="space-y-2">
+									<label
+										for="banner"
+										class="text-sm font-medium"
+									>
+										<Image class="inline h-4 w-4 mr-1" />
+										Banner URL
+									</label>
+									<Input
+										id="banner"
+										value={profileStore.profile.banner ||
+											''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'banner',
+												e.currentTarget.value,
+											)}
+										placeholder="https://example.com/banner.jpg"
+									/>
+								</div>
+
+								<!-- Website -->
+								<div class="space-y-2">
+									<label
+										for="website"
+										class="text-sm font-medium"
+										>Website</label
+									>
+									<Input
+										id="website"
+										value={profileStore.profile.website ||
+											''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'website',
+												e.currentTarget.value,
+											)}
+										placeholder="https://yourwebsite.com"
+									/>
+								</div>
+
+								<!-- NIP-05 -->
+								<div class="space-y-2">
+									<label
+										for="nip05"
+										class="text-sm font-medium"
+									>
+										<Check
+											class="inline h-4 w-4 mr-1 text-success"
+										/>
+										NIP-05 Verification
+									</label>
+									<Input
+										id="nip05"
+										value={profileStore.profile.nip05 || ''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'nip05',
+												e.currentTarget.value,
+											)}
+										placeholder="you@example.com"
+									/>
+									<p class="text-xs text-muted-foreground">
+										Verify your identity with a NIP-05
+										identifier
+									</p>
+								</div>
+
+								<!-- Lightning Address -->
+								<div class="space-y-2">
+									<label
+										for="lud16"
+										class="text-sm font-medium"
+									>
+										⚡ Lightning Address
+									</label>
+									<Input
+										id="lud16"
+										value={profileStore.profile.lud16 || ''}
+										oninput={(e) =>
+											profileStore.updateField(
+												'lud16',
+												e.currentTarget.value,
+											)}
+										placeholder="you@getalby.com"
+									/>
+									<p class="text-xs text-muted-foreground">
+										Receive Bitcoin via Lightning Network
+									</p>
+								</div>
+							</div>
+						</div>
+					{/if}
 				{:else}
-					<p class="text-muted-foreground">Not logged in</p>
+					<p class="text-muted-foreground">
+						Please login to edit your profile
+					</p>
 				{/if}
 			</CardContent>
-			{#if authStore.isAuthenticated}
-				<CardFooter>
+			{#if authStore.isAuthenticated && !profileStore.isLoading}
+				<CardFooter class="flex gap-3">
 					<Button
-						variant="outline"
+						variant="glow"
+						onclick={handleSaveProfile}
+						disabled={profileStore.isSaving ||
+							!profileStore.isDirty}
+					>
+						{#if profileStore.isSaving}
+							<Spinner class="mr-2 h-4 w-4" />
+							Saving...
+						{:else}
+							<Save class="mr-2 h-4 w-4" />
+							Save Profile
+						{/if}
+					</Button>
+					{#if profileStore.isDirty}
+						<Button
+							variant="outline"
+							onclick={handleResetProfile}
+						>
+							<RotateCcw class="mr-2 h-4 w-4" />
+							Reset
+						</Button>
+					{/if}
+					<Button
+						variant="ghost"
 						href="/profile/{authStore.pubkey}"
 					>
-						Edit Profile
+						View Profile
 					</Button>
 				</CardFooter>
 			{/if}
@@ -354,7 +596,7 @@
 				</p>
 				<p>
 					<a
-						href="https://github.com/your-repo/aura"
+						href="https://github.com/FrankFMY/AURA"
 						target="_blank"
 						rel="noopener"
 						class="text-accent hover:underline"

@@ -14,6 +14,7 @@
 	import Home from 'lucide-svelte/icons/home';
 	import Search from 'lucide-svelte/icons/search';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
+	import Bell from 'lucide-svelte/icons/bell';
 	import Wallet from 'lucide-svelte/icons/wallet';
 	import Settings from 'lucide-svelte/icons/settings';
 	import User from 'lucide-svelte/icons/user';
@@ -29,6 +30,7 @@
 	const navItems = [
 		{ href: '/', icon: Home, label: 'Feed' },
 		{ href: '/search', icon: Search, label: 'Search' },
+		{ href: '/notifications', icon: Bell, label: 'Alerts' },
 		{ href: '/messages', icon: MessageCircle, label: 'Messages' },
 		{ href: '/wallet', icon: Wallet, label: 'Wallet' },
 		{ href: '/settings', icon: Settings, label: 'Settings' },
