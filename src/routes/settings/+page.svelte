@@ -32,6 +32,10 @@
 	import Save from 'lucide-svelte/icons/save';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Image from 'lucide-svelte/icons/image';
+	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
+	import Zap from 'lucide-svelte/icons/zap';
+	import Heart from 'lucide-svelte/icons/heart';
+	import Coffee from 'lucide-svelte/icons/coffee';
 	import { onMount } from 'svelte';
 
 	let relays = $state<
@@ -48,6 +52,18 @@
 		profiles: number;
 		conversations: number;
 	} | null>(null);
+
+	// Panic Button state
+	let showPanicConfirm = $state(false);
+	let isPanicWiping = $state(false);
+	let panicConfirmText = $state('');
+	const PANIC_CONFIRM_PHRASE = 'WIPE ALL DATA';
+
+	// Developer support state
+	let showDonateModal = $state(false);
+	let donateAmount = $state(2100);
+	const DEVELOPER_LN_ADDRESS = 'classywallaby932694@getalby.com';
+	const PRESET_AMOUNTS = [21, 210, 2100, 21000];
 
 	onMount(async () => {
 		// Load relays
@@ -127,6 +143,42 @@
 	const avatarInitials = $derived(
 		(authStore.displayName || 'A').slice(0, 2).toUpperCase(),
 	);
+
+	const canConfirmPanic = $derived(panicConfirmText === PANIC_CONFIRM_PHRASE);
+
+	async function handlePanicWipe() {
+		if (!canConfirmPanic) return;
+		isPanicWiping = true;
+		await authStore.panicWipe();
+	}
+
+	async function handleDonate() {
+		if (!walletStore.isConnected) {
+			notificationsStore.error(
+				'Wallet not connected',
+				'Please connect your wallet first',
+			);
+			return;
+		}
+
+		try {
+			await walletStore.sendToAddress(
+				DEVELOPER_LN_ADDRESS,
+				donateAmount,
+				'Support AURA Development ⚡',
+			);
+			notificationsStore.success(
+				'Thank you! 💜',
+				`You sent ${donateAmount} sats to support AURA`,
+			);
+			showDonateModal = false;
+		} catch (e) {
+			notificationsStore.error(
+				'Donation failed',
+				e instanceof Error ? e.message : 'Unknown error',
+			);
+		}
+	}
 </script>
 
 <svelte:head>
@@ -567,6 +619,120 @@
 			</CardContent>
 		</Card>
 
+		<!-- Panic Button -->
+		<Card class="border-destructive/50">
+			<CardHeader>
+				<div class="flex items-center gap-2">
+					<AlertTriangle class="h-5 w-5 text-destructive" />
+					<CardTitle class="text-destructive"
+						>Emergency Wipe</CardTitle
+					>
+				</div>
+				<CardDescription>
+					Instantly delete all local data for security
+				</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<div
+					class="rounded-lg bg-destructive/10 p-4 border border-destructive/20"
+				>
+					<p class="text-sm text-destructive font-medium mb-2">
+						⚠️ This action cannot be undone!
+					</p>
+					<p class="text-sm text-muted-foreground">
+						This will permanently delete:
+					</p>
+					<ul
+						class="text-sm text-muted-foreground mt-2 space-y-1 list-disc list-inside"
+					>
+						<li>All cached events and profiles</li>
+						<li>
+							Your login session (you'll need to re-enter keys)
+						</li>
+						<li>All local settings and preferences</li>
+						<li>Service Worker cache</li>
+					</ul>
+				</div>
+			</CardContent>
+			<CardFooter>
+				<Button
+					variant="destructive"
+					onclick={() => (showPanicConfirm = true)}
+					class="w-full"
+				>
+					<AlertTriangle class="mr-2 h-4 w-4" />
+					Emergency Wipe
+				</Button>
+			</CardFooter>
+		</Card>
+
+		<!-- Developer Support -->
+		<Card
+			class="border-primary/30 bg-linear-to-br from-primary/5 to-accent/5"
+		>
+			<CardHeader>
+				<div class="flex items-center gap-2">
+					<Heart class="h-5 w-5 text-primary" />
+					<CardTitle>Support AURA Development</CardTitle>
+				</div>
+				<CardDescription>
+					Help keep AURA free and open source
+				</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<div
+					class="flex items-start gap-3 rounded-lg bg-background/50 p-4"
+				>
+					<Coffee class="mt-0.5 h-5 w-5 text-warning" />
+					<div>
+						<p class="font-medium">Value 4 Value</p>
+						<p class="text-sm text-muted-foreground">
+							AURA is built with love and runs on community
+							support. If you find it useful, consider sending
+							some sats!
+						</p>
+					</div>
+				</div>
+
+				<div class="space-y-3">
+					<p class="text-sm font-medium">⚡ Lightning Address</p>
+					<div
+						class="flex items-center gap-2 rounded-lg bg-muted p-3 font-mono text-sm"
+					>
+						<Zap class="h-4 w-4 text-warning" />
+						<span class="flex-1 truncate"
+							>{DEVELOPER_LN_ADDRESS}</span
+						>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => {
+								navigator.clipboard.writeText(
+									DEVELOPER_LN_ADDRESS,
+								);
+								notificationsStore.success(
+									'Copied!',
+									'Lightning address copied to clipboard',
+								);
+							}}
+						>
+							Copy
+						</Button>
+					</div>
+				</div>
+			</CardContent>
+			<CardFooter>
+				<Button
+					variant="glow"
+					onclick={() => (showDonateModal = true)}
+					class="w-full"
+				>
+					<Zap class="mr-2 h-4 w-4" />
+					Send Sats ⚡
+				</Button>
+			</CardFooter>
+		</Card>
+
 		<!-- About -->
 		<Card>
 			<CardHeader>
@@ -608,3 +774,167 @@
 		</Card>
 	</div>
 </div>
+
+<!-- Panic Confirm Modal -->
+{#if showPanicConfirm}
+	<div
+		class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
+		onclick={() => (showPanicConfirm = false)}
+		onkeydown={(e) => e.key === 'Escape' && (showPanicConfirm = false)}
+		role="button"
+		tabindex="-1"
+	></div>
+	<div
+		class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4"
+	>
+		<div
+			class="rounded-lg border border-destructive bg-background shadow-lg"
+		>
+			<div class="p-6 text-center">
+				<AlertTriangle class="mx-auto h-12 w-12 text-destructive" />
+				<h2 class="mt-4 text-xl font-bold text-destructive">
+					Emergency Data Wipe
+				</h2>
+				<p class="mt-2 text-sm text-muted-foreground">
+					This will permanently delete ALL local data. This action
+					cannot be undone.
+				</p>
+			</div>
+			<div class="border-t border-border p-4">
+				<label
+					for="panic-confirm-input"
+					class="block text-sm font-medium mb-2"
+				>
+					Type "{PANIC_CONFIRM_PHRASE}" to confirm:
+				</label>
+				<Input
+					id="panic-confirm-input"
+					bind:value={panicConfirmText}
+					placeholder={PANIC_CONFIRM_PHRASE}
+					class="mb-4 font-mono"
+				/>
+				<div class="flex gap-3">
+					<Button
+						variant="outline"
+						class="flex-1"
+						onclick={() => {
+							showPanicConfirm = false;
+							panicConfirmText = '';
+						}}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant="destructive"
+						class="flex-1"
+						disabled={!canConfirmPanic || isPanicWiping}
+						onclick={handlePanicWipe}
+					>
+						{#if isPanicWiping}
+							<Spinner class="mr-2 h-4 w-4" />
+							Wiping...
+						{:else}
+							Wipe Everything
+						{/if}
+					</Button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Donate Modal -->
+{#if showDonateModal}
+	<div
+		class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
+		onclick={() => (showDonateModal = false)}
+		onkeydown={(e) => e.key === 'Escape' && (showDonateModal = false)}
+		role="button"
+		tabindex="-1"
+	></div>
+	<div
+		class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4"
+	>
+		<div class="rounded-lg border border-border bg-background shadow-lg">
+			<div class="p-6 text-center">
+				<div
+					class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10"
+				>
+					<Zap class="h-6 w-6 text-warning" />
+				</div>
+				<h2 class="mt-4 text-xl font-bold">Support AURA ⚡</h2>
+				<p class="mt-2 text-sm text-muted-foreground">
+					Every sat helps keep AURA free and open source
+				</p>
+			</div>
+			<div class="border-t border-border p-4 space-y-4">
+				<!-- Preset amounts -->
+				<div class="grid grid-cols-4 gap-2">
+					{#each PRESET_AMOUNTS as amount}
+						<Button
+							variant={donateAmount === amount ? 'default' : (
+								'outline'
+							)}
+							size="sm"
+							onclick={() => (donateAmount = amount)}
+							class="font-mono"
+						>
+							{amount}
+						</Button>
+					{/each}
+				</div>
+
+				<!-- Custom amount -->
+				<div class="space-y-2">
+					<label
+						for="donate-amount-input"
+						class="text-sm font-medium">Custom amount (sats)</label
+					>
+					<Input
+						id="donate-amount-input"
+						type="number"
+						value={String(donateAmount)}
+						oninput={(e) => {
+							const val = parseInt(e.currentTarget.value);
+							if (!isNaN(val) && val > 0) donateAmount = val;
+						}}
+						min="1"
+						class="font-mono"
+					/>
+				</div>
+
+				<!-- Action buttons -->
+				<div class="flex gap-3 pt-2">
+					<Button
+						variant="outline"
+						class="flex-1"
+						onclick={() => (showDonateModal = false)}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant="glow"
+						class="flex-1"
+						onclick={handleDonate}
+						disabled={!walletStore.isConnected}
+					>
+						<Zap class="mr-2 h-4 w-4" />
+						Send {donateAmount} sats
+					</Button>
+				</div>
+
+				{#if !walletStore.isConnected}
+					<p class="text-xs text-center text-muted-foreground">
+						<a
+							href="/wallet"
+							class="text-accent hover:underline"
+						>
+							Connect your wallet
+						</a>
+						to send sats directly
+					</p>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

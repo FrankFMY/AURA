@@ -6,6 +6,7 @@
 	import { Textarea } from '$components/ui/textarea';
 	import { Spinner } from '$components/ui/spinner';
 	import { ZapModal } from '$components/zap';
+	import MediaEmbed from './MediaEmbed.svelte';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { parseNoteContent, sanitizeUrl } from '$lib/validators/sanitize';
 	import { feedStore } from '$stores/feed.svelte';
@@ -14,7 +15,6 @@
 	import Repeat2 from 'lucide-svelte/icons/repeat-2';
 	import Zap from 'lucide-svelte/icons/zap';
 	import Share from 'lucide-svelte/icons/share';
-	import ImageOff from 'lucide-svelte/icons/image-off';
 	import X from 'lucide-svelte/icons/x';
 	import Send from 'lucide-svelte/icons/send';
 
@@ -48,16 +48,40 @@
 	let showRepostMenu = $state(false);
 	let showQuoteModal = $state(false);
 	let quoteContent = $state('');
-	let imageErrors = $state<Set<string>>(new Set());
 
 	// Parse content safely using DOMPurify-based sanitization
 	const parsedContent = $derived(parseNoteContent(event.content));
 	const safeHtml = $derived(parsedContent.html);
-	const imageUrls = $derived(
-		parsedContent.imageUrls
-			.map(sanitizeUrl)
-			.filter((url) => url && !imageErrors.has(url)),
-	);
+
+	// Extract all media URLs from content (images, videos, YouTube)
+	const mediaUrls = $derived(extractMediaUrls(event.content));
+
+	function extractMediaUrls(content: string): string[] {
+		const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+		const urls = content.match(urlRegex) || [];
+
+		// Filter to media-like URLs
+		return urls.filter((url) => {
+			const lower = url.toLowerCase();
+			return (
+				// Images
+				/\.(jpg|jpeg|png|gif|webp|avif|svg)(\?.*)?$/i.test(lower) ||
+				// Videos
+				/\.(mp4|webm|mov)(\?.*)?$/i.test(lower) ||
+				// YouTube
+				lower.includes('youtube.com/watch') ||
+				lower.includes('youtu.be/') ||
+				lower.includes('youtube.com/shorts/') ||
+				// Image hosting services
+				lower.includes('nostr.build') ||
+				lower.includes('imgbb.com') ||
+				lower.includes('imgur.com') ||
+				lower.includes('i.imgur.com') ||
+				lower.includes('primal.b-cdn.net') ||
+				lower.includes('void.cat')
+			);
+		});
+	}
 
 	const displayName = $derived(
 		author?.display_name || author?.name || truncatePubkey(event.pubkey),
@@ -66,10 +90,6 @@
 	const avatarInitials = $derived(
 		(author?.display_name || author?.name || 'A').slice(0, 2).toUpperCase(),
 	);
-
-	function handleImageError(url: string) {
-		imageErrors = new Set([...imageErrors, url]);
-	}
 
 	async function handleReact() {
 		if (isReacting || hasReacted) return;
@@ -198,51 +218,23 @@
 				{@html safeHtml}
 			</div>
 
-			<!-- Images with error handling -->
-			{#if imageUrls.length > 0}
+			<!-- Media embeds (images, videos, YouTube) -->
+			{#if mediaUrls.length > 0}
 				<div
-					class="mb-3 grid gap-2 {imageUrls.length > 1 ?
+					class="mb-3 grid gap-2 {mediaUrls.length > 1 ?
 						'grid-cols-2'
 					:	'grid-cols-1'}"
 				>
-					{#each imageUrls.slice(0, 4) as imageUrl (imageUrl)}
-						<a
-							href={imageUrl}
-							target="_blank"
-							rel="noopener noreferrer"
-							class="relative block overflow-hidden rounded-lg bg-muted"
-						>
-							<img
-								src={imageUrl}
-								alt=""
-								class="max-h-80 w-full rounded-lg object-cover transition-opacity hover:opacity-90"
-								loading="lazy"
-								decoding="async"
-								onerror={() => handleImageError(imageUrl)}
-							/>
-						</a>
+					{#each mediaUrls.slice(0, 4) as mediaUrl (mediaUrl)}
+						<MediaEmbed url={mediaUrl} />
 					{/each}
-					{#if imageUrls.length > 4}
+					{#if mediaUrls.length > 4}
 						<div
-							class="flex items-center justify-center rounded-lg bg-muted text-muted-foreground"
+							class="flex items-center justify-center rounded-lg bg-muted text-muted-foreground p-4"
 						>
-							+{imageUrls.length - 4} more
+							+{mediaUrls.length - 4} more
 						</div>
 					{/if}
-				</div>
-			{/if}
-
-			<!-- Broken image indicators -->
-			{#if imageErrors.size > 0}
-				<div
-					class="mb-3 flex items-center gap-2 text-xs text-muted-foreground"
-				>
-					<ImageOff class="h-3 w-3" />
-					<span
-						>{imageErrors.size} image{imageErrors.size > 1 ?
-							's'
-						:	''} failed to load</span
-					>
 				</div>
 			{/if}
 

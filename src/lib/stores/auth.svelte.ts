@@ -1,6 +1,6 @@
 import { nip19 } from 'nostr-tools';
 import ndkService from '$services/ndk';
-import { dbHelpers, type UserProfile } from '$db';
+import { db, dbHelpers, type UserProfile } from '$db';
 import { validatePrivateKey, pubkeySchema } from '$lib/validators/schemas';
 
 /** Auth method used for login */
@@ -261,6 +261,82 @@ function createAuthStore() {
 		return typeof window !== 'undefined' && !!window.nostr;
 	}
 
+	/**
+	 * PANIC WIPE - Security feature
+	 * Completely wipes all local data including:
+	 * - Keys and authentication
+	 * - IndexedDB (Dexie)
+	 * - localStorage
+	 * - sessionStorage
+	 * - Service Worker caches
+	 */
+	async function panicWipe(): Promise<void> {
+		isLoading = true;
+
+		try {
+			// 1. Logout from NDK
+			ndkService.logout();
+
+			// 2. Clear IndexedDB (Dexie tables)
+			await db.events.clear();
+			await db.profiles.clear();
+			await db.conversations.clear();
+			await db.contacts.clear();
+			await db.relays.clear();
+			await db.settings.clear();
+			await db.drafts.clear();
+			await db.mutes.clear();
+			await db.outbox.clear();
+
+			// 3. Clear localStorage
+			if (typeof localStorage !== 'undefined') {
+				localStorage.clear();
+			}
+
+			// 4. Clear sessionStorage
+			if (typeof sessionStorage !== 'undefined') {
+				sessionStorage.clear();
+			}
+
+			// 5. Clear Service Worker caches
+			if ('caches' in window) {
+				const cacheNames = await caches.keys();
+				await Promise.all(
+					cacheNames.map((cacheName) => caches.delete(cacheName))
+				);
+			}
+
+			// 6. Unregister Service Workers
+			if ('serviceWorker' in navigator) {
+				const registrations = await navigator.serviceWorker.getRegistrations();
+				await Promise.all(
+					registrations.map((registration) => registration.unregister())
+				);
+			}
+
+			// 7. Reset store state
+			isAuthenticated = false;
+			pubkey = null;
+			npub = null;
+			method = null;
+			profile = null;
+			error = null;
+
+			// 8. Redirect to login
+			if (typeof window !== 'undefined') {
+				window.location.href = '/login';
+			}
+		} catch (e) {
+			console.error('Panic wipe failed:', e);
+			// Even if some steps fail, try to redirect
+			if (typeof window !== 'undefined') {
+				window.location.href = '/login';
+			}
+		} finally {
+			isLoading = false;
+		}
+	}
+
 	return {
 		// State (readonly)
 		get isAuthenticated() {
@@ -298,7 +374,8 @@ function createAuthStore() {
 		generateAndLogin,
 		fetchProfile,
 		logout,
-		hasExtension
+		hasExtension,
+		panicWipe
 	};
 }
 

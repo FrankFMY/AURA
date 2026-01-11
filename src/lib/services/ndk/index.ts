@@ -269,6 +269,9 @@ class NDKService {
 		event.kind = 1;
 		event.content = content;
 
+		// Add client tag for brand visibility
+		event.tags.push(['client', 'AURA']);
+
 		if (replyTo) {
 			event.tags.push(['e', replyTo.id, '', 'reply']);
 			event.tags.push(['p', replyTo.pubkey]);
@@ -324,7 +327,8 @@ class NDKService {
 		event.content = reaction;
 		event.tags = [
 			['e', targetEvent.id],
-			['p', targetEvent.pubkey]
+			['p', targetEvent.pubkey],
+			['client', 'AURA']
 		];
 
 		await this.publish(event);
@@ -338,7 +342,8 @@ class NDKService {
 		event.content = JSON.stringify(targetEvent.rawEvent());
 		event.tags = [
 			['e', targetEvent.id, '', 'mention'],
-			['p', targetEvent.pubkey]
+			['p', targetEvent.pubkey],
+			['client', 'AURA']
 		];
 
 		await this.publish(event);
