@@ -130,16 +130,14 @@ function createFeedStore() {
 					filter.authors = [feedParam];
 				}
 				break;
-			case 'following':
-				// Get following list from NIP-02 contact list
-				const followingPubkeys = contactsService.getContactPubkeys();
-				if (followingPubkeys.length > 0) {
-					filter.authors = followingPubkeys;
-				} else {
-					// If no contacts, show nothing (or could fall back to global)
-					filter.authors = ['nonexistent']; // Will return no results
-				}
-				break;
+		case 'following':
+			// Get following list from NIP-02 contact list
+			const followingPubkeys = contactsService.getContactPubkeys();
+			if (followingPubkeys.length > 0) {
+				filter.authors = followingPubkeys;
+			}
+			// If no contacts, filter stays without authors (handled in load())
+			break;
 			case 'hashtag':
 				if (feedParam) {
 					filter['#t'] = [feedParam];
@@ -172,7 +170,19 @@ function createFeedStore() {
 			if (type === 'following') {
 				const authPubkey = (await import('./auth.svelte')).default.pubkey;
 				if (authPubkey) {
-					await contactsService.fetchContacts(authPubkey);
+					try {
+						await contactsService.fetchContacts(authPubkey);
+					} catch (e) {
+						console.warn('Failed to fetch contacts, showing empty following feed:', e);
+					}
+				}
+				
+				// If user has no contacts, show empty state (not an error)
+				const contacts = contactsService.getContactPubkeys();
+				if (contacts.length === 0) {
+					isLoading = false;
+					hasMore = false;
+					return; // Show empty state, not error
 				}
 			}
 

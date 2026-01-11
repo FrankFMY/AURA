@@ -127,9 +127,17 @@
 		{:else if feedStore.events.length === 0}
 			<div class="p-8 text-center">
 				<TrendingUp class="mx-auto h-12 w-12 text-muted-foreground" />
-				<h3 class="mt-4 text-lg font-medium">No posts yet</h3>
+				<h3 class="mt-4 text-lg font-medium">
+					{#if feedTab === 'following'}
+						No posts from people you follow
+					{:else}
+						No posts yet
+					{/if}
+				</h3>
 				<p class="mt-2 text-muted-foreground">
-					{#if authStore.isAuthenticated}
+					{#if feedTab === 'following'}
+						Follow some users to see their posts here!
+					{:else if authStore.isAuthenticated}
 						Be the first to post something!
 					{:else}
 						Login to see personalized content
