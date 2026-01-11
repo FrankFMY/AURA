@@ -160,7 +160,6 @@ self.addEventListener('sync', (event) => {
 });
 
 async function syncMessages() {
-	// This would sync any pending outgoing messages
-	// stored in IndexedDB when back online
-	console.log('Syncing messages...');
+	// TODO: Sync pending outgoing messages from IndexedDB
+	// This is a placeholder for offline-first sync functionality
 }

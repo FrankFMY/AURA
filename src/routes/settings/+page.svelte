@@ -831,6 +831,14 @@
 						View Source Code
 					</a>
 				</p>
+				<p
+					class="mt-4 pt-4 border-t border-border text-xs text-muted-foreground/70"
+				>
+					AURA is a client-side interface for the Nostr protocol. We
+					do not host, store, or control any user content. All keys
+					are stored locally on your device. Content is fetched from
+					decentralized relays operated by third parties.
+				</p>
 			</CardContent>
 		</Card>
 	</div>

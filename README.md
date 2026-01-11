@@ -263,6 +263,20 @@ This means you can:
 
 ---
 
+## ⚖️ Legal Disclaimer
+
+**AURA is a client-side interface for the Nostr protocol.** We do not host, store, or control any user content. All cryptographic keys are stored locally on the user's device. Content displayed in AURA is fetched from decentralized relays operated by independent third parties.
+
+The developers of AURA:
+- Do not have access to user private keys or messages
+- Cannot modify or delete content published by users
+- Are not responsible for content published on the Nostr network
+- Cannot comply with takedown requests as we do not host content
+
+For concerns about specific content, please contact the relay operators directly.
+
+---
+
 ## 💜 Support the Project
 
 If AURA has helped you, consider supporting its development:
