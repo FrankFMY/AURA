@@ -5,7 +5,7 @@
  * https://github.com/nostr-protocol/nips/blob/master/47.md
  */
 
-import { nip04, nip19 } from 'nostr-tools';
+import { nip04, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { WalletError, ErrorCode } from '$lib/core/errors';
 
 /** NWC connection info parsed from connection string */
@@ -109,6 +109,8 @@ export interface TransactionsResponse {
  */
 export class NWCClient {
 	private _connectionInfo: NWCConnectionInfo | null = null;
+	private _ourPubkey: string | null = null;
+	private _secretKeyBytes: Uint8Array | null = null;
 	private _ws: WebSocket | null = null;
 	private _pendingRequests: Map<string, {
 		resolve: (value: unknown) => void;
@@ -177,6 +179,17 @@ export class NWCClient {
 	 */
 	async connect(connectionString: string): Promise<WalletInfo> {
 		this._connectionInfo = NWCClient.parseConnectionString(connectionString);
+		
+		// Derive our pubkey from the secret
+		try {
+			this._secretKeyBytes = this.hexToBytes(this._connectionInfo.secret);
+			this._ourPubkey = getPublicKey(this._secretKeyBytes);
+		} catch (e) {
+			throw new WalletError('Invalid NWC secret key', {
+				code: ErrorCode.NWC_CONNECTION_FAILED,
+				cause: e instanceof Error ? e : undefined
+			});
+		}
 		
 		return new Promise((resolve, reject) => {
 			try {
@@ -298,30 +311,33 @@ export class NWCClient {
 	// Private methods
 
 	private async sendRequest<T>(method: NWCMethod, params: Record<string, unknown>): Promise<T> {
-		if (!this.isConnected || !this._connectionInfo) {
+		if (!this.isConnected || !this._connectionInfo || !this._secretKeyBytes) {
 			throw new WalletError('Wallet not connected', { code: ErrorCode.WALLET_NOT_CONNECTED });
 		}
 
 		const requestId = this.generateRequestId();
 		const request: NWCRequest = { method, params };
 
-		// Encrypt the request
+		// Encrypt the request using NIP-04
 		const encryptedContent = await nip04.encrypt(
 			this._connectionInfo.secret,
 			this._connectionInfo.walletPubkey,
 			JSON.stringify(request)
 		);
 
-		// Create the request event
-		const event = {
+		// Create and sign the request event (kind 23194)
+		const eventTemplate = {
 			kind: 23194,
 			created_at: Math.floor(Date.now() / 1000),
 			tags: [['p', this._connectionInfo.walletPubkey]],
 			content: encryptedContent
 		};
 
+		// Sign the event with our secret key
+		const signedEvent = finalizeEvent(eventTemplate, this._secretKeyBytes);
+
 		// Send to relay
-		const eventMessage = JSON.stringify(['EVENT', event]);
+		const eventMessage = JSON.stringify(['EVENT', signedEvent]);
 		this._ws!.send(eventMessage);
 
 		// Wait for response
@@ -415,13 +431,19 @@ export class NWCClient {
 	}
 
 	private getOurPubkey(): string {
-		// Derive pubkey from secret
-		// In a real implementation, this would use proper key derivation
-		return this._connectionInfo?.walletPubkey || '';
+		return this._ourPubkey || '';
 	}
 
 	private generateRequestId(): string {
 		return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	}
+
+	private hexToBytes(hex: string): Uint8Array {
+		const bytes = new Uint8Array(hex.length / 2);
+		for (let i = 0; i < bytes.length; i++) {
+			bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+		}
+		return bytes;
 	}
 
 	private emit(event: NWCEvent): void {
