@@ -1,0 +1,170 @@
+{
+	"app": {
+		"name": "AURA",
+		"tagline": "Decentralized Social Messenger"
+	},
+	"nav": {
+		"feed": "Feed",
+		"search": "Search",
+		"messages": "Messages",
+		"wallet": "Wallet",
+		"settings": "Settings",
+		"profile": "Profile",
+		"logout": "Logout"
+	},
+	"auth": {
+		"welcome": "Welcome to Aura",
+		"description": "Your decentralized social wallet and messenger.",
+		"loginExtension": "Login with Browser Extension (NIP-07)",
+		"loginPrivateKey": "Login with Private Key",
+		"generateKey": "Generate New Key",
+		"privateKeyPlaceholder": "Enter your private key (nsec or hex)",
+		"or": "OR",
+		"newKeyGenerated": "Your new private key (nsec):",
+		"saveKeyWarning": "IMPORTANT: Save this key securely! It will not be shown again.",
+		"copy": "Copy",
+		"copied": "Copied!",
+		"errors": {
+			"invalidKey": "Invalid private key format",
+			"noExtension": "No NIP-07 extension found. Please install Alby, nos2x, or similar.",
+			"loginFailed": "Login failed. Please try again."
+		}
+	},
+	"feed": {
+		"title": "Feed",
+		"global": "Global",
+		"following": "Following",
+		"compose": "What's on your mind?",
+		"publish": "Post",
+		"publishing": "Publishing...",
+		"empty": "No posts yet. Be the first to share something!",
+		"loadMore": "Load more",
+		"loading": "Loading...",
+		"errors": {
+			"loadFailed": "Failed to load feed",
+			"publishFailed": "Failed to publish post"
+		}
+	},
+	"note": {
+		"reply": "Reply",
+		"repost": "Repost",
+		"like": "Like",
+		"zap": "Zap",
+		"share": "Share",
+		"replies": "{count, plural, =0 {No replies} one {# reply} other {# replies}}",
+		"likes": "{count, plural, =0 {No likes} one {# like} other {# likes}}",
+		"reposts": "{count, plural, =0 {No reposts} one {# repost} other {# reposts}}"
+	},
+	"messages": {
+		"title": "Messages",
+		"newConversation": "New Conversation",
+		"searchPlaceholder": "Search conversations...",
+		"recipientPlaceholder": "Recipient pubkey (hex)",
+		"startChat": "Start Chat",
+		"typePlaceholder": "Type your message...",
+		"send": "Send",
+		"empty": "No conversations yet",
+		"selectOrStart": "Select a conversation or start a new one"
+	},
+	"wallet": {
+		"title": "Wallet",
+		"balance": "Balance",
+		"connect": "Connect Wallet",
+		"disconnect": "Disconnect",
+		"connectionString": "NWC Connection String",
+		"connectionPlaceholder": "nostr+walletconnect://...",
+		"send": "Send",
+		"receive": "Receive",
+		"transactions": "Transactions",
+		"noTransactions": "No transactions yet",
+		"errors": {
+			"notConnected": "Wallet not connected",
+			"connectionFailed": "Failed to connect wallet",
+			"paymentFailed": "Payment failed"
+		}
+	},
+	"profile": {
+		"title": "Profile",
+		"edit": "Edit Profile",
+		"follow": "Follow",
+		"unfollow": "Unfollow",
+		"followers": "Followers",
+		"following": "Following",
+		"notes": "Notes",
+		"noNotes": "No notes yet",
+		"verified": "Verified",
+		"fields": {
+			"name": "Name",
+			"displayName": "Display Name",
+			"about": "About",
+			"website": "Website",
+			"nip05": "NIP-05 Identifier",
+			"lightning": "Lightning Address",
+			"picture": "Profile Picture URL",
+			"banner": "Banner Image URL"
+		}
+	},
+	"settings": {
+		"title": "Settings",
+		"appearance": "Appearance",
+		"theme": "Theme",
+		"themes": {
+			"light": "Light",
+			"dark": "Dark",
+			"system": "System"
+		},
+		"language": "Language",
+		"relays": "Relays",
+		"addRelay": "Add Relay",
+		"relayUrl": "Relay URL",
+		"read": "Read",
+		"write": "Write",
+		"connected": "Connected",
+		"disconnected": "Disconnected",
+		"data": "Data",
+		"export": "Export Data",
+		"import": "Import Data",
+		"clearCache": "Clear Cache",
+		"privacy": "Privacy",
+		"about": "About",
+		"version": "Version"
+	},
+	"search": {
+		"title": "Search",
+		"placeholder": "Search Nostr...",
+		"tabs": {
+			"notes": "Notes",
+			"users": "Users",
+			"hashtags": "Hashtags"
+		},
+		"noResults": "No results found"
+	},
+	"common": {
+		"loading": "Loading...",
+		"error": "Error",
+		"retry": "Retry",
+		"cancel": "Cancel",
+		"save": "Save",
+		"delete": "Delete",
+		"confirm": "Confirm",
+		"close": "Close",
+		"back": "Back",
+		"next": "Next",
+		"done": "Done",
+		"online": "Online",
+		"offline": "Offline"
+	},
+	"time": {
+		"now": "just now",
+		"seconds": "{count}s ago",
+		"minutes": "{count}m ago",
+		"hours": "{count}h ago",
+		"days": "{count}d ago",
+		"weeks": "{count}w ago"
+	},
+	"errors": {
+		"generic": "Something went wrong. Please try again.",
+		"network": "Network error. Please check your connection.",
+		"notFound": "Not found"
+	}
+}

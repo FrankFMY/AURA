@@ -1,0 +1,170 @@
+{
+	"app": {
+		"name": "AURA",
+		"tagline": "Mensajero Social Descentralizado"
+	},
+	"nav": {
+		"feed": "Feed",
+		"search": "Buscar",
+		"messages": "Mensajes",
+		"wallet": "Cartera",
+		"settings": "Ajustes",
+		"profile": "Perfil",
+		"logout": "Cerrar sesión"
+	},
+	"auth": {
+		"welcome": "Bienvenido a Aura",
+		"description": "Tu cartera social y mensajero descentralizado.",
+		"loginExtension": "Iniciar sesión con extensión del navegador (NIP-07)",
+		"loginPrivateKey": "Iniciar sesión con clave privada",
+		"generateKey": "Generar nueva clave",
+		"privateKeyPlaceholder": "Introduce tu clave privada (nsec o hex)",
+		"or": "O",
+		"newKeyGenerated": "Tu nueva clave privada (nsec):",
+		"saveKeyWarning": "IMPORTANTE: ¡Guarda esta clave de forma segura! No se mostrará de nuevo.",
+		"copy": "Copiar",
+		"copied": "¡Copiado!",
+		"errors": {
+			"invalidKey": "Formato de clave privada inválido",
+			"noExtension": "No se encontró extensión NIP-07. Instala Alby, nos2x o similar.",
+			"loginFailed": "Error al iniciar sesión. Inténtalo de nuevo."
+		}
+	},
+	"feed": {
+		"title": "Feed",
+		"global": "Global",
+		"following": "Siguiendo",
+		"compose": "¿Qué estás pensando?",
+		"publish": "Publicar",
+		"publishing": "Publicando...",
+		"empty": "Aún no hay publicaciones. ¡Sé el primero en compartir algo!",
+		"loadMore": "Cargar más",
+		"loading": "Cargando...",
+		"errors": {
+			"loadFailed": "Error al cargar el feed",
+			"publishFailed": "Error al publicar"
+		}
+	},
+	"note": {
+		"reply": "Responder",
+		"repost": "Repostear",
+		"like": "Me gusta",
+		"zap": "Zap",
+		"share": "Compartir",
+		"replies": "{count, plural, =0 {Sin respuestas} one {# respuesta} other {# respuestas}}",
+		"likes": "{count, plural, =0 {Sin me gusta} one {# me gusta} other {# me gusta}}",
+		"reposts": "{count, plural, =0 {Sin reposts} one {# repost} other {# reposts}}"
+	},
+	"messages": {
+		"title": "Mensajes",
+		"newConversation": "Nueva conversación",
+		"searchPlaceholder": "Buscar conversaciones...",
+		"recipientPlaceholder": "Pubkey del destinatario (hex)",
+		"startChat": "Iniciar chat",
+		"typePlaceholder": "Escribe tu mensaje...",
+		"send": "Enviar",
+		"empty": "Aún no hay conversaciones",
+		"selectOrStart": "Selecciona una conversación o inicia una nueva"
+	},
+	"wallet": {
+		"title": "Cartera",
+		"balance": "Saldo",
+		"connect": "Conectar cartera",
+		"disconnect": "Desconectar",
+		"connectionString": "Cadena de conexión NWC",
+		"connectionPlaceholder": "nostr+walletconnect://...",
+		"send": "Enviar",
+		"receive": "Recibir",
+		"transactions": "Transacciones",
+		"noTransactions": "Aún no hay transacciones",
+		"errors": {
+			"notConnected": "Cartera no conectada",
+			"connectionFailed": "Error al conectar cartera",
+			"paymentFailed": "Error en el pago"
+		}
+	},
+	"profile": {
+		"title": "Perfil",
+		"edit": "Editar perfil",
+		"follow": "Seguir",
+		"unfollow": "Dejar de seguir",
+		"followers": "Seguidores",
+		"following": "Siguiendo",
+		"notes": "Notas",
+		"noNotes": "Aún no hay notas",
+		"verified": "Verificado",
+		"fields": {
+			"name": "Nombre",
+			"displayName": "Nombre para mostrar",
+			"about": "Acerca de",
+			"website": "Sitio web",
+			"nip05": "Identificador NIP-05",
+			"lightning": "Dirección Lightning",
+			"picture": "URL de foto de perfil",
+			"banner": "URL de imagen de banner"
+		}
+	},
+	"settings": {
+		"title": "Ajustes",
+		"appearance": "Apariencia",
+		"theme": "Tema",
+		"themes": {
+			"light": "Claro",
+			"dark": "Oscuro",
+			"system": "Sistema"
+		},
+		"language": "Idioma",
+		"relays": "Relays",
+		"addRelay": "Añadir relay",
+		"relayUrl": "URL del relay",
+		"read": "Lectura",
+		"write": "Escritura",
+		"connected": "Conectado",
+		"disconnected": "Desconectado",
+		"data": "Datos",
+		"export": "Exportar datos",
+		"import": "Importar datos",
+		"clearCache": "Limpiar caché",
+		"privacy": "Privacidad",
+		"about": "Acerca de",
+		"version": "Versión"
+	},
+	"search": {
+		"title": "Buscar",
+		"placeholder": "Buscar en Nostr...",
+		"tabs": {
+			"notes": "Notas",
+			"users": "Usuarios",
+			"hashtags": "Hashtags"
+		},
+		"noResults": "No se encontraron resultados"
+	},
+	"common": {
+		"loading": "Cargando...",
+		"error": "Error",
+		"retry": "Reintentar",
+		"cancel": "Cancelar",
+		"save": "Guardar",
+		"delete": "Eliminar",
+		"confirm": "Confirmar",
+		"close": "Cerrar",
+		"back": "Atrás",
+		"next": "Siguiente",
+		"done": "Hecho",
+		"online": "En línea",
+		"offline": "Sin conexión"
+	},
+	"time": {
+		"now": "ahora mismo",
+		"seconds": "hace {count}s",
+		"minutes": "hace {count}m",
+		"hours": "hace {count}h",
+		"days": "hace {count}d",
+		"weeks": "hace {count}sem"
+	},
+	"errors": {
+		"generic": "Algo salió mal. Inténtalo de nuevo.",
+		"network": "Error de red. Comprueba tu conexión.",
+		"notFound": "No encontrado"
+	}
+}

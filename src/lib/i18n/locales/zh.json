@@ -1,0 +1,170 @@
+{
+	"app": {
+		"name": "AURA",
+		"tagline": "去中心化社交通讯"
+	},
+	"nav": {
+		"feed": "动态",
+		"search": "搜索",
+		"messages": "消息",
+		"wallet": "钱包",
+		"settings": "设置",
+		"profile": "个人资料",
+		"logout": "退出"
+	},
+	"auth": {
+		"welcome": "欢迎使用 Aura",
+		"description": "您的去中心化社交钱包和通讯工具。",
+		"loginExtension": "使用浏览器扩展登录 (NIP-07)",
+		"loginPrivateKey": "使用私钥登录",
+		"generateKey": "生成新密钥",
+		"privateKeyPlaceholder": "输入您的私钥 (nsec 或 hex)",
+		"or": "或",
+		"newKeyGenerated": "您的新私钥 (nsec)：",
+		"saveKeyWarning": "重要：请安全保存此密钥！它不会再次显示。",
+		"copy": "复制",
+		"copied": "已复制！",
+		"errors": {
+			"invalidKey": "私钥格式无效",
+			"noExtension": "未找到 NIP-07 扩展。请安装 Alby、nos2x 或类似扩展。",
+			"loginFailed": "登录失败。请重试。"
+		}
+	},
+	"feed": {
+		"title": "动态",
+		"global": "全球",
+		"following": "关注",
+		"compose": "有什么想法？",
+		"publish": "发布",
+		"publishing": "发布中...",
+		"empty": "还没有帖子。成为第一个分享的人！",
+		"loadMore": "加载更多",
+		"loading": "加载中...",
+		"errors": {
+			"loadFailed": "加载动态失败",
+			"publishFailed": "发布失败"
+		}
+	},
+	"note": {
+		"reply": "回复",
+		"repost": "转发",
+		"like": "喜欢",
+		"zap": "打赏",
+		"share": "分享",
+		"replies": "{count, plural, =0 {无回复} other {# 条回复}}",
+		"likes": "{count, plural, =0 {无喜欢} other {# 个喜欢}}",
+		"reposts": "{count, plural, =0 {无转发} other {# 次转发}}"
+	},
+	"messages": {
+		"title": "消息",
+		"newConversation": "新对话",
+		"searchPlaceholder": "搜索对话...",
+		"recipientPlaceholder": "收件人公钥 (hex)",
+		"startChat": "开始聊天",
+		"typePlaceholder": "输入消息...",
+		"send": "发送",
+		"empty": "还没有对话",
+		"selectOrStart": "选择一个对话或开始新对话"
+	},
+	"wallet": {
+		"title": "钱包",
+		"balance": "余额",
+		"connect": "连接钱包",
+		"disconnect": "断开连接",
+		"connectionString": "NWC 连接字符串",
+		"connectionPlaceholder": "nostr+walletconnect://...",
+		"send": "发送",
+		"receive": "接收",
+		"transactions": "交易记录",
+		"noTransactions": "还没有交易",
+		"errors": {
+			"notConnected": "钱包未连接",
+			"connectionFailed": "连接钱包失败",
+			"paymentFailed": "支付失败"
+		}
+	},
+	"profile": {
+		"title": "个人资料",
+		"edit": "编辑资料",
+		"follow": "关注",
+		"unfollow": "取消关注",
+		"followers": "粉丝",
+		"following": "关注",
+		"notes": "笔记",
+		"noNotes": "还没有笔记",
+		"verified": "已验证",
+		"fields": {
+			"name": "名称",
+			"displayName": "显示名称",
+			"about": "简介",
+			"website": "网站",
+			"nip05": "NIP-05 标识符",
+			"lightning": "闪电网络地址",
+			"picture": "头像 URL",
+			"banner": "横幅图片 URL"
+		}
+	},
+	"settings": {
+		"title": "设置",
+		"appearance": "外观",
+		"theme": "主题",
+		"themes": {
+			"light": "浅色",
+			"dark": "深色",
+			"system": "跟随系统"
+		},
+		"language": "语言",
+		"relays": "中继",
+		"addRelay": "添加中继",
+		"relayUrl": "中继 URL",
+		"read": "读取",
+		"write": "写入",
+		"connected": "已连接",
+		"disconnected": "已断开",
+		"data": "数据",
+		"export": "导出数据",
+		"import": "导入数据",
+		"clearCache": "清除缓存",
+		"privacy": "隐私",
+		"about": "关于",
+		"version": "版本"
+	},
+	"search": {
+		"title": "搜索",
+		"placeholder": "搜索 Nostr...",
+		"tabs": {
+			"notes": "笔记",
+			"users": "用户",
+			"hashtags": "话题"
+		},
+		"noResults": "未找到结果"
+	},
+	"common": {
+		"loading": "加载中...",
+		"error": "错误",
+		"retry": "重试",
+		"cancel": "取消",
+		"save": "保存",
+		"delete": "删除",
+		"confirm": "确认",
+		"close": "关闭",
+		"back": "返回",
+		"next": "下一步",
+		"done": "完成",
+		"online": "在线",
+		"offline": "离线"
+	},
+	"time": {
+		"now": "刚刚",
+		"seconds": "{count}秒前",
+		"minutes": "{count}分钟前",
+		"hours": "{count}小时前",
+		"days": "{count}天前",
+		"weeks": "{count}周前"
+	},
+	"errors": {
+		"generic": "出了点问题。请重试。",
+		"network": "网络错误。请检查您的连接。",
+		"notFound": "未找到"
+	}
+}

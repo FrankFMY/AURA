@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" class="dark">
+	<head>
+		<meta charset="utf-8" />
+		
+		<!-- Security Headers (Meta Tag CSP for static hosting) -->
+		<!-- Note: unsafe-eval is required by NDK's tseep dependency -->
+		<meta http-equiv="Content-Security-Policy" content="
+			default-src 'self';
+			script-src 'self' 'unsafe-inline' 'unsafe-eval';
+			style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+			font-src 'self' https://fonts.gstatic.com;
+			img-src 'self' data: https: blob:;
+			media-src 'self' https: blob:;
+			connect-src 'self' https: wss: ws:;
+			base-uri 'self';
+			form-action 'self';
+		" />
+		<meta http-equiv="X-Content-Type-Options" content="nosniff" />
+		<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+		<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()" />
+		
+		<!-- Base Meta -->
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#0f0f23" media="(prefers-color-scheme: dark)" />
+		<meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
+		<meta name="description" content="AURA - Decentralized Social Messenger on Nostr Protocol. Private, censorship-resistant communication." />
+		<meta name="keywords" content="nostr, decentralized, social, messenger, bitcoin, lightning, privacy" />
+		
+		<!-- PWA -->
+		<link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="apple-mobile-web-app-title" content="AURA" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/icon-192.svg" />
+		
+		<!-- Open Graph / Social -->
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content="AURA - Decentralized Social" />
+		<meta property="og:description" content="Private, censorship-resistant social messaging on Nostr" />
+		<meta property="og:image" content="%sveltekit.assets%/icon-192.svg" />
+		<meta name="twitter:card" content="summary" />
+		
+		<!-- Fonts with display swap for performance -->
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+		
+		<!-- Prevent FOUC + Register Service Worker -->
+		<script>
+			// Apply dark mode before page renders to prevent flash
+			(function() {
+				const stored = localStorage.getItem('theme');
+				const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				const theme = stored || (prefersDark ? 'dark' : 'light');
+				document.documentElement.classList.toggle('dark', theme === 'dark');
+			})();
+			
+			// Register Service Worker for PWA
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', function() {
+					navigator.serviceWorker.register('/sw.js')
+						.then(function(registration) {
+							console.log('SW registered:', registration.scope);
+						})
+						.catch(function(error) {
+							console.log('SW registration failed:', error);
+						});
+				});
+			}
+		</script>
+		
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<!-- Skip link for accessibility -->
+		<a href="#main-content" class="skip-link">Skip to main content</a>
+		
+		<div style="display: contents" id="main-content">%sveltekit.body%</div>
+		
+		<!-- Noscript fallback -->
+		<noscript>
+			<div style="padding: 2rem; text-align: center; font-family: system-ui, sans-serif;">
+				<h1>JavaScript Required</h1>
+				<p>AURA requires JavaScript to function. Please enable JavaScript in your browser settings.</p>
+			</div>
+		</noscript>
+	</body>
+</html>

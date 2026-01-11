@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="aura-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="50%" style="stop-color:#a855f7"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="192" height="192" rx="32" fill="#0f0f23"/>
+  
+  <!-- Gradient circle -->
+  <circle cx="96" cy="96" r="70" fill="url(#aura-grad)"/>
+  
+  <!-- Inner dark circle -->
+  <circle cx="96" cy="96" r="55" fill="#0f0f23"/>
+  
+  <!-- A letter -->
+  <path d="M96 45 L70 140 L85 140 L90 118 L102 118 L107 140 L122 140 L96 45 Z M96 70 L100 105 L92 105 L96 70 Z" 
+        fill="url(#aura-grad)"/>
+  
+  <!-- Decorative dots -->
+  <circle cx="96" cy="20" r="4" fill="#06b6d4"/>
+  <circle cx="172" cy="96" r="4" fill="#8b5cf6"/>
+  <circle cx="96" cy="172" r="4" fill="#a855f7"/>
+  <circle cx="20" cy="96" r="4" fill="#06b6d4"/>
+</svg>

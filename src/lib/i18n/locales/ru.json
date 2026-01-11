@@ -1,0 +1,170 @@
+{
+	"app": {
+		"name": "AURA",
+		"tagline": "Децентрализованный социальный мессенджер"
+	},
+	"nav": {
+		"feed": "Лента",
+		"search": "Поиск",
+		"messages": "Сообщения",
+		"wallet": "Кошелёк",
+		"settings": "Настройки",
+		"profile": "Профиль",
+		"logout": "Выход"
+	},
+	"auth": {
+		"welcome": "Добро пожаловать в Aura",
+		"description": "Ваш децентрализованный социальный кошелёк и мессенджер.",
+		"loginExtension": "Войти через расширение браузера (NIP-07)",
+		"loginPrivateKey": "Войти с приватным ключом",
+		"generateKey": "Создать новый ключ",
+		"privateKeyPlaceholder": "Введите приватный ключ (nsec или hex)",
+		"or": "ИЛИ",
+		"newKeyGenerated": "Ваш новый приватный ключ (nsec):",
+		"saveKeyWarning": "ВАЖНО: Сохраните этот ключ в безопасном месте! Он больше не будет показан.",
+		"copy": "Копировать",
+		"copied": "Скопировано!",
+		"errors": {
+			"invalidKey": "Неверный формат приватного ключа",
+			"noExtension": "Расширение NIP-07 не найдено. Установите Alby, nos2x или аналогичное.",
+			"loginFailed": "Ошибка входа. Попробуйте снова."
+		}
+	},
+	"feed": {
+		"title": "Лента",
+		"global": "Глобальная",
+		"following": "Подписки",
+		"compose": "О чём думаете?",
+		"publish": "Опубликовать",
+		"publishing": "Публикация...",
+		"empty": "Пока нет постов. Будьте первым!",
+		"loadMore": "Загрузить ещё",
+		"loading": "Загрузка...",
+		"errors": {
+			"loadFailed": "Не удалось загрузить ленту",
+			"publishFailed": "Не удалось опубликовать пост"
+		}
+	},
+	"note": {
+		"reply": "Ответить",
+		"repost": "Репост",
+		"like": "Нравится",
+		"zap": "Zap",
+		"share": "Поделиться",
+		"replies": "{count, plural, =0 {Нет ответов} one {# ответ} few {# ответа} other {# ответов}}",
+		"likes": "{count, plural, =0 {Нет лайков} one {# лайк} few {# лайка} other {# лайков}}",
+		"reposts": "{count, plural, =0 {Нет репостов} one {# репост} few {# репоста} other {# репостов}}"
+	},
+	"messages": {
+		"title": "Сообщения",
+		"newConversation": "Новый диалог",
+		"searchPlaceholder": "Поиск диалогов...",
+		"recipientPlaceholder": "Pubkey получателя (hex)",
+		"startChat": "Начать чат",
+		"typePlaceholder": "Введите сообщение...",
+		"send": "Отправить",
+		"empty": "Пока нет диалогов",
+		"selectOrStart": "Выберите диалог или начните новый"
+	},
+	"wallet": {
+		"title": "Кошелёк",
+		"balance": "Баланс",
+		"connect": "Подключить кошелёк",
+		"disconnect": "Отключить",
+		"connectionString": "Строка подключения NWC",
+		"connectionPlaceholder": "nostr+walletconnect://...",
+		"send": "Отправить",
+		"receive": "Получить",
+		"transactions": "Транзакции",
+		"noTransactions": "Пока нет транзакций",
+		"errors": {
+			"notConnected": "Кошелёк не подключён",
+			"connectionFailed": "Не удалось подключить кошелёк",
+			"paymentFailed": "Ошибка платежа"
+		}
+	},
+	"profile": {
+		"title": "Профиль",
+		"edit": "Редактировать профиль",
+		"follow": "Подписаться",
+		"unfollow": "Отписаться",
+		"followers": "Подписчики",
+		"following": "Подписки",
+		"notes": "Заметки",
+		"noNotes": "Пока нет заметок",
+		"verified": "Подтверждён",
+		"fields": {
+			"name": "Имя",
+			"displayName": "Отображаемое имя",
+			"about": "О себе",
+			"website": "Сайт",
+			"nip05": "Идентификатор NIP-05",
+			"lightning": "Lightning адрес",
+			"picture": "URL аватара",
+			"banner": "URL баннера"
+		}
+	},
+	"settings": {
+		"title": "Настройки",
+		"appearance": "Внешний вид",
+		"theme": "Тема",
+		"themes": {
+			"light": "Светлая",
+			"dark": "Тёмная",
+			"system": "Системная"
+		},
+		"language": "Язык",
+		"relays": "Реле",
+		"addRelay": "Добавить реле",
+		"relayUrl": "URL реле",
+		"read": "Чтение",
+		"write": "Запись",
+		"connected": "Подключено",
+		"disconnected": "Отключено",
+		"data": "Данные",
+		"export": "Экспорт данных",
+		"import": "Импорт данных",
+		"clearCache": "Очистить кэш",
+		"privacy": "Приватность",
+		"about": "О приложении",
+		"version": "Версия"
+	},
+	"search": {
+		"title": "Поиск",
+		"placeholder": "Искать в Nostr...",
+		"tabs": {
+			"notes": "Заметки",
+			"users": "Пользователи",
+			"hashtags": "Хэштеги"
+		},
+		"noResults": "Ничего не найдено"
+	},
+	"common": {
+		"loading": "Загрузка...",
+		"error": "Ошибка",
+		"retry": "Повторить",
+		"cancel": "Отмена",
+		"save": "Сохранить",
+		"delete": "Удалить",
+		"confirm": "Подтвердить",
+		"close": "Закрыть",
+		"back": "Назад",
+		"next": "Далее",
+		"done": "Готово",
+		"online": "В сети",
+		"offline": "Не в сети"
+	},
+	"time": {
+		"now": "только что",
+		"seconds": "{count}с назад",
+		"minutes": "{count}м назад",
+		"hours": "{count}ч назад",
+		"days": "{count}д назад",
+		"weeks": "{count}н назад"
+	},
+	"errors": {
+		"generic": "Что-то пошло не так. Попробуйте снова.",
+		"network": "Ошибка сети. Проверьте подключение.",
+		"notFound": "Не найдено"
+	}
+}

@@ -1,0 +1,35 @@
+{
+	"name": "AURA",
+	"short_name": "AURA",
+	"description": "Decentralized Social Messenger on Nostr Protocol",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#0f0f23",
+	"theme_color": "#8b5cf6",
+	"orientation": "portrait-primary",
+	"icons": [
+		{
+			"src": "/favicon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml"
+		},
+		{
+			"src": "/icon-192.svg",
+			"sizes": "192x192",
+			"type": "image/svg+xml"
+		}
+	],
+	"categories": ["social", "communication"],
+	"shortcuts": [
+		{
+			"name": "Messages",
+			"url": "/messages",
+			"description": "Open your private messages"
+		},
+		{
+			"name": "New Post",
+			"url": "/feed?compose=true",
+			"description": "Create a new post"
+		}
+	]
+}
