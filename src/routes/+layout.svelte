@@ -5,8 +5,9 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$stores/auth.svelte';
 	import { walletStore } from '$stores/wallet.svelte';
-	import ndkService from '$services/ndk';
+	import ndkService, { eventPublisher } from '$services/ndk';
 	import { dbHelpers } from '$db';
+	import { browser } from '$app/environment';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
 	import { Badge } from '$components/ui/badge';
@@ -88,6 +89,34 @@
 			);
 			if (!welcomeCompleted && authStore.isAuthenticated) {
 				showWelcomeTour = true;
+			}
+
+			// Listen for service worker sync messages
+			if (browser && navigator.serviceWorker) {
+				navigator.serviceWorker.addEventListener(
+					'message',
+					async (event) => {
+						if (event.data?.type === 'SYNC_OUTBOX') {
+							const processed =
+								await eventPublisher.processOutbox();
+							if (processed > 0) {
+								console.info(
+									`[AURA] Synced ${processed} offline events`,
+								);
+							}
+						}
+					},
+				);
+
+				// Also sync when coming back online
+				window.addEventListener('online', async () => {
+					const processed = await eventPublisher.processOutbox();
+					if (processed > 0) {
+						console.info(
+							`[AURA] Synced ${processed} offline events after reconnect`,
+						);
+					}
+				});
 			}
 		} catch (e) {
 			console.error('Initialization failed:', e);

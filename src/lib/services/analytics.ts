@@ -189,38 +189,29 @@ class AnalyticsService {
 		}
 	}
 
-	/** Flush events to server */
+	/** 
+	 * Flush events (local only - privacy first).
+	 * 
+	 * AURA is a privacy-focused app. We do NOT send analytics to any server.
+	 * This method only logs events locally in development mode for debugging.
+	 * Users' activity data never leaves their device.
+	 */
 	private async flush(): Promise<void> {
 		if (!this.enabled || this.eventQueue.length === 0 || !this.session) return;
 
 		const events = [...this.eventQueue];
 		this.eventQueue = [];
 
-		// In a real implementation, this would send to an analytics server
-		// For now, we just log to console in development
+		// Development only: log events for debugging
 		if (import.meta.env.DEV) {
-			console.log('[Analytics] Flushing events:', {
+			console.log('[Analytics] Local events:', {
 				sessionId: this.session.id,
-				deviceType: this.session.deviceType,
 				eventCount: events.length,
 				events: events.map(e => ({ type: e.type, name: e.name }))
 			});
 		}
 
-		// TODO: Send to privacy-respecting analytics endpoint
-		// await fetch('/api/analytics', {
-		//   method: 'POST',
-		//   headers: { 'Content-Type': 'application/json' },
-		//   body: JSON.stringify({
-		//     session: {
-		//       id: this.session.id,
-		//       deviceType: this.session.deviceType,
-		//       locale: this.session.locale,
-		//       theme: this.session.theme
-		//     },
-		//     events
-		//   })
-		// });
+		// Privacy note: No server reporting. All data stays on device.
 	}
 
 	/** Get session info (for debugging) */

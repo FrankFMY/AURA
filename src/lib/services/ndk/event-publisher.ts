@@ -354,6 +354,50 @@ export class EventPublisher {
 		});
 	}
 
+	/**
+	 * Process pending events from IndexedDB outbox.
+	 * Called when coming back online after being offline.
+	 */
+	async processOutbox(): Promise<number> {
+		if (!this._ndk) {
+			return 0;
+		}
+
+		const pendingEvents = await dbHelpers.getOutboxEvents();
+		let processed = 0;
+
+		for (const item of pendingEvents) {
+			try {
+				// Parse stored event
+				const eventData = JSON.parse(item.event_json);
+				const event = new NDKEvent(this._ndk, eventData);
+
+				// Try to publish
+				const relays = await this.publish(event);
+
+				if (relays.size > 0) {
+					// Success - remove from outbox
+					await dbHelpers.removeFromOutbox(item.id);
+					processed++;
+				} else {
+					// Failed - increment retry count
+					await dbHelpers.updateOutboxEvent(item.id, 'No relays accepted the event');
+				}
+			} catch (error) {
+				// Update retry info
+				const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+				await dbHelpers.updateOutboxEvent(item.id, errorMsg);
+
+				// Remove if too many retries
+				if (item.retries >= this._config.maxRetries) {
+					await dbHelpers.removeFromOutbox(item.id);
+				}
+			}
+		}
+
+		return processed;
+	}
+
 	/** Helper: sleep */
 	private sleep(ms: number): Promise<void> {
 		return new Promise(resolve => setTimeout(resolve, ms));

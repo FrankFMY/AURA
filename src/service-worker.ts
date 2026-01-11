@@ -5,7 +5,22 @@
 
 import { build, files, version } from '$service-worker';
 
-const self = globalThis as unknown as ServiceWorkerGlobalScope;
+declare const self: ServiceWorkerGlobalScope;
+
+// Extended types for Service Worker APIs
+interface SyncEvent extends ExtendableEvent {
+	tag: string;
+}
+
+interface ExtendedNotificationOptions extends NotificationOptions {
+	actions?: NotificationAction[];
+}
+
+interface NotificationAction {
+	action: string;
+	title: string;
+	icon?: string;
+}
 
 // Unique cache name for this deployment
 const CACHE = `aura-cache-${version}`;
@@ -108,20 +123,24 @@ self.addEventListener('fetch', (event) => {
 	event.respondWith(respond());
 });
 
-// Handle push notifications (future feature)
+// Handle push notifications
 self.addEventListener('push', (event) => {
 	if (!event.data) return;
 
 	const data = event.data.json();
 
-	const options: NotificationOptions = {
+	const options: ExtendedNotificationOptions = {
 		body: data.body,
-		icon: '/icon-192.png',
-		badge: '/icon-192.png',
+		icon: '/icon-192.svg',
+		badge: '/icon-192.svg',
 		tag: data.tag || 'aura-notification',
-		data: data.data,
-		actions: data.actions
+		data: data.data
 	};
+
+	// Add actions if provided
+	if (data.actions) {
+		options.actions = data.actions;
+	}
 
 	event.waitUntil(
 		self.registration.showNotification(data.title || 'AURA', options)
@@ -151,15 +170,36 @@ self.addEventListener('notificationclick', (event) => {
 	);
 });
 
-// Background sync (future feature)
-self.addEventListener('sync', (event) => {
-	if (event.tag === 'sync-messages') {
-		// Sync pending messages when back online
-		event.waitUntil(syncMessages());
+// Background sync for offline messages
+self.addEventListener('sync', (event: Event) => {
+	const syncEvent = event as SyncEvent;
+	if (syncEvent.tag === 'sync-outbox') {
+		syncEvent.waitUntil(syncOutbox());
 	}
 });
 
-async function syncMessages() {
-	// TODO: Sync pending outgoing messages from IndexedDB
-	// This is a placeholder for offline-first sync functionality
+/**
+ * Sync pending outbox events when back online.
+ * Sends a message to the main thread to process queued events.
+ */
+async function syncOutbox(): Promise<void> {
+	const clients = await self.clients.matchAll({ type: 'window' });
+
+	if (clients.length === 0) {
+		// No active clients, can't process outbox
+		return;
+	}
+
+	// Send message to first available client to process outbox
+	clients[0].postMessage({
+		type: 'SYNC_OUTBOX',
+		timestamp: Date.now()
+	});
 }
+
+// Listen for messages from main thread
+self.addEventListener('message', (event) => {
+	if (event.data?.type === 'SKIP_WAITING') {
+		self.skipWaiting();
+	}
+});
