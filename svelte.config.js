@@ -20,7 +20,8 @@ const config = {
 			$services: 'src/lib/services',
 			$stores: 'src/lib/stores',
 			$db: 'src/lib/db',
-			$utils: 'src/lib/utils'
+			$utils: 'src/lib/utils',
+			$validators: 'src/lib/validators'
 		}
 	}
 };

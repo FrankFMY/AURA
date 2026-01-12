@@ -5,6 +5,7 @@
 	import ndkService from '$services/ndk';
 	import { dbHelpers, type UserProfile } from '$db';
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
+	import { validatePubkey } from '$lib/validators/schemas';
 	import NoteCard from '$components/feed/NoteCard.svelte';
 	import NoteSkeleton from '$components/feed/NoteSkeleton.svelte';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
@@ -72,28 +73,59 @@
 
 			// Search users
 			if (activeTab === 'users') {
-				// This is a simplified search - in production you'd use a search relay
-				const filter = {
-					kinds: [0],
-					search: query,
-					limit: 20,
-				};
-
-				const events = await ndkService.ndk.fetchEvents(filter);
-
-				for (const event of events) {
+				// Check if query is an npub or hex pubkey - direct lookup
+				const directPubkey = validatePubkey(query.trim());
+				if (directPubkey) {
+					// Direct profile lookup by pubkey
 					try {
-						const profile = JSON.parse(event.content);
+						await ndkService.fetchProfile(directPubkey);
+						const profile =
+							await dbHelpers.getProfile(directPubkey);
+						if (profile) {
+							userResults = [profile];
+						} else {
+							// Profile might not exist, but show the pubkey anyway
+							userResults = [
+								{
+									pubkey: directPubkey,
+									updated_at: Date.now(),
+								},
+							];
+						}
+					} catch (e) {
+						console.error('Direct profile lookup failed:', e);
+						// Still show the pubkey even if lookup fails
 						userResults = [
-							...userResults,
 							{
-								pubkey: event.pubkey,
-								...profile,
+								pubkey: directPubkey,
 								updated_at: Date.now(),
 							},
 						];
-					} catch {
-						// Invalid profile JSON
+					}
+				} else {
+					// Text search for profiles - requires NIP-50 compatible relay
+					const filter = {
+						kinds: [0],
+						search: query,
+						limit: 20,
+					};
+
+					const events = await ndkService.ndk.fetchEvents(filter);
+
+					for (const event of events) {
+						try {
+							const profile = JSON.parse(event.content);
+							userResults = [
+								...userResults,
+								{
+									pubkey: event.pubkey,
+									...profile,
+									updated_at: Date.now(),
+								},
+							];
+						} catch {
+							// Invalid profile JSON
+						}
 					}
 				}
 			}

@@ -2,6 +2,7 @@ import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
 import { dbHelpers, type Conversation, type UserProfile } from '$db';
 import authStore from './auth.svelte';
+import { validatePubkey } from '$lib/validators/schemas';
 
 /** Message with metadata */
 export interface Message {
@@ -314,7 +315,14 @@ function createMessagesStore() {
 	}
 
 	/** Open a conversation */
-	async function openConversation(pubkey: string): Promise<void> {
+	async function openConversation(pubkeyOrNpub: string): Promise<void> {
+		// Convert npub to hex if needed
+		const pubkey = validatePubkey(pubkeyOrNpub);
+		if (!pubkey) {
+			error = 'Invalid public key or npub format';
+			throw new Error('Invalid public key or npub format');
+		}
+
 		activeConversation = pubkey;
 
 		// Clear unread count in memory and DB
@@ -335,8 +343,15 @@ function createMessagesStore() {
 	}
 
 	/** Load message history for a conversation */
-	async function loadMessageHistory(pubkey: string): Promise<void> {
+	async function loadMessageHistory(pubkeyOrNpub: string): Promise<void> {
 		if (!authStore.pubkey) return;
+
+		// Convert npub to hex if needed (defensive - should already be hex from caller)
+		const pubkey = validatePubkey(pubkeyOrNpub);
+		if (!pubkey) {
+			console.error('Invalid pubkey in loadMessageHistory:', pubkeyOrNpub);
+			return;
+		}
 
 		isLoading = true;
 
@@ -376,8 +391,15 @@ function createMessagesStore() {
 	}
 
 	/** Send a message */
-	async function sendMessage(recipientPubkey: string, content: string): Promise<void> {
+	async function sendMessage(recipientPubkeyOrNpub: string, content: string): Promise<void> {
 		if (!authStore.pubkey) throw new Error('Not authenticated');
+
+		// Convert npub to hex if needed
+		const recipientPubkey = validatePubkey(recipientPubkeyOrNpub);
+		if (!recipientPubkey) {
+			error = 'Invalid recipient public key or npub format';
+			throw new Error('Invalid recipient public key or npub format');
+		}
 
 		isSending = true;
 
@@ -434,7 +456,14 @@ function createMessagesStore() {
 	}
 
 	/** Start a new conversation */
-	async function startConversation(pubkey: string): Promise<void> {
+	async function startConversation(pubkeyOrNpub: string): Promise<void> {
+		// Convert npub to hex if needed
+		const pubkey = validatePubkey(pubkeyOrNpub);
+		if (!pubkey) {
+			error = 'Invalid public key or npub format';
+			throw new Error('Invalid public key or npub format');
+		}
+
 		// Check if conversation already exists
 		const existing = conversations.find((c) => c.pubkey === pubkey);
 		if (existing) {
@@ -454,6 +483,9 @@ function createMessagesStore() {
 
 		conversations = [newConv, ...conversations];
 		activeConversation = pubkey;
+
+		// Load any existing message history
+		await loadMessageHistory(pubkey);
 	}
 
 	/** Close active conversation */
