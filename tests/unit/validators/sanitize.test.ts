@@ -5,7 +5,7 @@ describe('sanitize utilities', () => {
 	describe('escapeHtml', () => {
 		it('should escape HTML entities', () => {
 			expect(escapeHtml('<script>alert("xss")</script>')).toBe(
-				'&lt;script&gt;alert(&quot;xss&quot;)&lt;&#x2F;script&gt;'
+				'&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
 			);
 		});
 

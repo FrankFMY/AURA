@@ -117,6 +117,24 @@ Object.defineProperty(window, 'indexedDB', {
 	value: indexedDBMock
 });
 
+vi.mock('dompurify', () => {
+	// This is a mock of the DOMPurify library.
+	// We're creating a simple object that mimics the real library's API
+	// so that our tests can run without needing a real DOM.
+	const mockDOMPurify = {
+		sanitize: vi.fn((dirty) =>
+			typeof dirty === 'string' ? dirty.replace(/<script\b[^>]*>.*?<\/script>/gi, '') : dirty
+		),
+		addHook: vi.fn(),
+		removeHook: vi.fn()
+	};
+	return {
+		// The library uses a default export, so we mock it this way
+		__esModule: true, // This is important for ES modules
+		default: mockDOMPurify
+	};
+});
+
 import { afterEach } from 'vitest';
 
 // Clean up after each test

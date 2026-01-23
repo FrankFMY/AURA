@@ -2,7 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import { keyManager } from '$lib/services/crypto/key-manager';
 
 /** Database version for migrations */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /** Nostr event stored in local database */
 export interface StoredEvent {
@@ -95,6 +95,74 @@ export interface OutboxEvent {
 	error?: string;
 }
 
+/** Cashu proof (eCash token) - CRITICAL: Loss of proof = loss of funds! */
+export interface CashuProof {
+	/** Unique ID for this proof */
+	id: string;
+	/** Amount in satoshis */
+	amount: number;
+	/** Secret for spending */
+	secret: string;
+	/** Blinded signature from mint */
+	C: string;
+	/** Keyset ID */
+	keyset_id: string;
+	/** Mint URL this proof belongs to */
+	mint_url: string;
+	/** When this proof was received */
+	created_at: number;
+	/** Whether this proof has been spent */
+	spent: boolean;
+	/** If received from someone, their pubkey */
+	received_from?: string;
+	/** Optional memo/note */
+	memo?: string;
+}
+
+/** Cashu mint configuration */
+export interface CashuMint {
+	/** Mint URL (primary key) */
+	url: string;
+	/** Human-readable name */
+	name?: string;
+	/** Mint description */
+	description?: string;
+	/** Whether this mint is trusted by the user */
+	trusted: boolean;
+	/** Last time we connected to this mint */
+	last_connected_at?: number;
+	/** Supported NUTs (Cashu protocol features) */
+	supported_nuts?: number[];
+	/** Mint public key */
+	pubkey?: string;
+	/** When this mint was added */
+	added_at: number;
+}
+
+/** Cashu transaction history for UI */
+export interface CashuTransaction {
+	/** Unique ID */
+	id: string;
+	/** Transaction type */
+	type: 'mint' | 'melt' | 'send' | 'receive';
+	/** Amount in satoshis */
+	amount: number;
+	/** Mint URL */
+	mint_url: string;
+	/** Status */
+	status: 'pending' | 'completed' | 'failed';
+	/** Timestamp */
+	created_at: number;
+	/** If send/receive, the other party's pubkey */
+	counterparty_pubkey?: string;
+	/** Optional memo */
+	memo?: string;
+	/** Error message if failed */
+	error?: string;
+	/** Token string (for sent tokens that may not be claimed yet) */
+	token?: string;
+}
+
 /** AURA Database Schema */
 class AuraDatabase extends Dexie {
 	events!: EntityTable<StoredEvent, 'id'>;
@@ -106,6 +174,10 @@ class AuraDatabase extends Dexie {
 	contacts!: EntityTable<Contact, 'pubkey'>;
 	mutes!: EntityTable<MuteEntry, 'pubkey'>;
 	outbox!: EntityTable<OutboxEvent, 'id'>;
+	// Cashu eCash tables
+	cashuProofs!: EntityTable<CashuProof, 'id'>;
+	cashuMints!: EntityTable<CashuMint, 'url'>;
+	cashuTransactions!: EntityTable<CashuTransaction, 'id'>;
 
 	constructor() {
 		super('AuraDB');
@@ -140,6 +212,23 @@ class AuraDatabase extends Dexie {
 					await trans.table('events').update(event.id, { cached_at: now });
 				}
 			}
+		});
+
+		// Version 3: Add Cashu eCash tables
+		this.version(3).stores({
+			events: 'id, pubkey, kind, created_at, cached_at, [kind+pubkey], [kind+created_at]',
+			profiles: 'pubkey, name, nip05, updated_at',
+			conversations: 'pubkey, last_message_at',
+			relays: 'url',
+			settings: 'key',
+			drafts: 'id, updated_at',
+			contacts: 'pubkey, added_at',
+			mutes: 'pubkey, muted_at',
+			outbox: 'id, created_at, retries',
+			// Cashu eCash tables - CRITICAL for financial data
+			cashuProofs: 'id, mint_url, amount, spent, created_at, keyset_id, [mint_url+spent]',
+			cashuMints: 'url, trusted, added_at',
+			cashuTransactions: 'id, type, status, created_at, mint_url, [type+status]'
 		});
 	}
 }
@@ -576,6 +665,110 @@ export const dbHelpers = {
 		return this.importData(data);
 	},
 
+	// Cashu eCash helpers
+	/** Save Cashu proofs - CRITICAL: these are money! */
+	async saveCashuProofs(proofs: Omit<CashuProof, 'created_at' | 'spent'>[]): Promise<void> {
+		const now = Date.now();
+		const proofsWithMeta = proofs.map((p) => ({
+			...p,
+			created_at: now,
+			spent: false
+		}));
+		await db.cashuProofs.bulkPut(proofsWithMeta);
+	},
+
+	/** Get unspent proofs for a mint */
+	async getUnspentProofs(mintUrl: string): Promise<CashuProof[]> {
+		return db.cashuProofs
+			.where('[mint_url+spent]')
+			.equals([mintUrl, 0]) // 0 = false in IndexedDB
+			.toArray();
+	},
+
+	/** Get all unspent proofs */
+	async getAllUnspentProofs(): Promise<CashuProof[]> {
+		return db.cashuProofs.where('spent').equals(0).toArray();
+	},
+
+	/** Mark proofs as spent */
+	async markProofsSpent(proofIds: string[]): Promise<void> {
+		await db.cashuProofs.where('id').anyOf(proofIds).modify({ spent: true });
+	},
+
+	/** Get total balance across all mints */
+	async getCashuBalance(): Promise<number> {
+		const unspent = await this.getAllUnspentProofs();
+		return unspent.reduce((sum, p) => sum + p.amount, 0);
+	},
+
+	/** Get balance per mint */
+	async getCashuBalanceByMint(): Promise<Map<string, number>> {
+		const unspent = await this.getAllUnspentProofs();
+		const balances = new Map<string, number>();
+		for (const proof of unspent) {
+			const current = balances.get(proof.mint_url) || 0;
+			balances.set(proof.mint_url, current + proof.amount);
+		}
+		return balances;
+	},
+
+	/** Add or update a Cashu mint */
+	async saveCashuMint(mint: Omit<CashuMint, 'added_at'>): Promise<void> {
+		const existing = await db.cashuMints.get(mint.url);
+		await db.cashuMints.put({
+			...mint,
+			added_at: existing?.added_at || Date.now()
+		});
+	},
+
+	/** Get all trusted mints */
+	async getTrustedMints(): Promise<CashuMint[]> {
+		return db.cashuMints.where('trusted').equals(1).toArray();
+	},
+
+	/** Get all mints */
+	async getAllMints(): Promise<CashuMint[]> {
+		return db.cashuMints.toArray();
+	},
+
+	/** Save Cashu transaction */
+	async saveCashuTransaction(tx: Omit<CashuTransaction, 'id' | 'created_at'>): Promise<string> {
+		const id = `cashu-tx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		await db.cashuTransactions.put({
+			...tx,
+			id,
+			created_at: Date.now()
+		});
+		return id;
+	},
+
+	/** Get Cashu transactions */
+	async getCashuTransactions(limit: number = 50): Promise<CashuTransaction[]> {
+		return db.cashuTransactions
+			.orderBy('created_at')
+			.reverse()
+			.limit(limit)
+			.toArray();
+	},
+
+	/** Update transaction status */
+	async updateCashuTransactionStatus(
+		id: string,
+		status: CashuTransaction['status'],
+		error?: string
+	): Promise<void> {
+		await db.cashuTransactions.update(id, { status, error });
+	},
+
+	/** Delete all Cashu data - USE WITH CAUTION! */
+	async clearCashuData(): Promise<void> {
+		await Promise.all([
+			db.cashuProofs.clear(),
+			db.cashuMints.clear(),
+			db.cashuTransactions.clear()
+		]);
+	},
+
 	// Stats
 	/** Get database stats */
 	async getStats(): Promise<{
@@ -585,16 +778,24 @@ export const dbHelpers = {
 		contacts: number;
 		mutes: number;
 		outbox: number;
+		cashuProofs: number;
+		cashuMints: number;
+		cashuBalance: number;
 		estimatedSize: string;
 	}> {
-		const [events, profiles, conversations, contacts, mutes, outbox] = await Promise.all([
+		const [events, profiles, conversations, contacts, mutes, outbox, cashuProofs, cashuMints] = await Promise.all([
 			db.events.count(),
 			db.profiles.count(),
 			db.conversations.count(),
 			db.contacts.count(),
 			db.mutes.count(),
-			db.outbox.count()
+			db.outbox.count(),
+			db.cashuProofs.count(),
+			db.cashuMints.count()
 		]);
+
+		// Get Cashu balance
+		const cashuBalance = await this.getCashuBalance();
 
 		// Estimate storage size
 		let estimatedBytes = 0;
@@ -604,10 +805,12 @@ export const dbHelpers = {
 		estimatedBytes += contacts * 50;
 		estimatedBytes += mutes * 50;
 		estimatedBytes += outbox * 500;
+		estimatedBytes += cashuProofs * 300; // ~300 bytes per proof
+		estimatedBytes += cashuMints * 200;
 
 		const estimatedSize = formatBytes(estimatedBytes);
 
-		return { events, profiles, conversations, contacts, mutes, outbox, estimatedSize };
+		return { events, profiles, conversations, contacts, mutes, outbox, cashuProofs, cashuMints, cashuBalance, estimatedSize };
 	}
 };
 

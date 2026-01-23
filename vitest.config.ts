@@ -3,7 +3,15 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
 
 export default defineConfig({
-	plugins: [svelte({ hot: !process.env.VITEST })],
+	plugins: [
+		svelte({
+			hot: !process.env.VITEST,
+			compilerOptions: {
+				// Force DOM generation for tests, preventing SSR-related errors
+				generate: 'dom'
+			}
+		})
+	],
 	test: {
 		include: ['src/**/*.{test,spec}.{js,ts}', 'tests/unit/**/*.{test,spec}.{js,ts}'],
 		globals: true,

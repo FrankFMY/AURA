@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$stores/auth.svelte';
 	import { walletStore } from '$stores/wallet.svelte';
+	import { cashuStore } from '$stores/cashu.svelte';
 	import { uiStore } from '$stores/ui.svelte';
 	import { messagesStore } from '$stores/messages.svelte';
 	import ndkService, { eventPublisher } from '$services/ndk';
@@ -26,6 +27,7 @@
 	import User from 'lucide-svelte/icons/user';
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Zap from 'lucide-svelte/icons/zap';
+	import Coins from 'lucide-svelte/icons/coins';
 
 	let { children } = $props();
 
@@ -78,9 +80,11 @@
 			// Initialize auth state
 			await authStore.init();
 
-			// Initialize wallet and load messages if previously connected
+			// Initialize wallet, cashu, and load messages if previously connected
 			if (authStore.isAuthenticated) {
 				await walletStore.init();
+				// Initialize Cashu eCash
+				await cashuStore.init();
 				// Load conversations to track unread count
 				messagesStore.loadConversations();
 			}
@@ -243,18 +247,28 @@
 				{#if authStore.isAuthenticated}
 					<div class="border-t border-sidebar-border p-4">
 						<!-- Wallet status -->
-						{#if walletStore.isConnected}
-							<div
-								class="mb-4 flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-success"
-							>
-								<Zap class="h-4 w-4" />
-								<span class="text-sm font-medium">
-									{walletStore.formatSats(
-										walletStore.balance,
-									)}
-								</span>
-							</div>
-						{/if}
+						<div class="mb-4 space-y-2">
+							{#if walletStore.isConnected}
+								<div
+									class="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-success"
+								>
+									<Zap class="h-4 w-4" />
+									<span class="text-sm font-medium">
+										{walletStore.formatSats(walletStore.balance)}
+									</span>
+								</div>
+							{/if}
+							{#if cashuStore.isConnected && cashuStore.totalBalance > 0}
+								<div
+									class="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-amber-600 dark:text-amber-400"
+								>
+									<Coins class="h-4 w-4" />
+									<span class="text-sm font-medium">
+										{cashuStore.formattedBalance} eCash
+									</span>
+								</div>
+							{/if}
+						</div>
 
 						<!-- User profile -->
 						<div class="relative">

@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { messagesStore } from '$stores/messages.svelte';
 	import { authStore } from '$stores/auth.svelte';
+	import { cashuStore } from '$stores/cashu.svelte';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
 	import { Input } from '$components/ui/input';
@@ -10,6 +11,7 @@
 	import { Badge } from '$components/ui/badge';
 	import { Skeleton } from '$components/ui/skeleton';
 	import { EmptyState } from '$components/ui/empty-state';
+	import { CashuTokenBubble, SendCashuModal } from '$components/cashu';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import Send from 'lucide-svelte/icons/send';
@@ -18,14 +20,49 @@
 	import Lock from 'lucide-svelte/icons/lock';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
+	import Coins from 'lucide-svelte/icons/coins';
 
 	let messageInput = $state('');
 	let searchQuery = $state('');
 	let showNewConversation = $state(false);
 	let newConversationPubkey = $state('');
 	let messagesContainer: HTMLElement | undefined = $state(undefined);
+	let showSendCashu = $state(false);
 
 	const activeConv = $derived(messagesStore.getActiveConversation());
+	const hasCashuBalance = $derived(cashuStore.isConnected && cashuStore.totalBalance > 0);
+
+	/**
+	 * Check if a message content contains a Cashu token
+	 */
+	function containsCashuToken(content: string): boolean {
+		return cashuStore.looksLikeCashuToken(content);
+	}
+
+	/**
+	 * Extract Cashu token from message content
+	 */
+	function extractCashuToken(content: string): string | null {
+		return cashuStore.extractToken(content);
+	}
+
+	/**
+	 * Handle sending eCash token in chat
+	 */
+	async function handleSendCashu(token: string, amount: number) {
+		if (!messagesStore.activeConversation) return;
+
+		try {
+			// Send the token as a message
+			await messagesStore.sendMessage(
+				messagesStore.activeConversation,
+				token
+			);
+			showSendCashu = false;
+		} catch (e) {
+			console.error('Failed to send eCash:', e);
+		}
+	}
 
 	onMount(() => {
 		// Only load if not already loaded (layout may have already loaded)
@@ -276,37 +313,50 @@
 							'justify-start'
 						)}"
 					>
-						<div
-							class="max-w-[80%] rounded-2xl px-4 py-2 {(
-								message.isOutgoing
-							) ?
-								'bg-primary text-primary-foreground'
-							:	'bg-muted'}"
-						>
-							{#if !message.decrypted}
-								<div
-									class="flex items-center gap-2 text-sm text-warning"
-								>
-									<AlertCircle class="h-4 w-4" />
-									<span>Failed to decrypt</span>
-								</div>
-							{:else}
-								<p
-									class="whitespace-pre-wrap wrap-break-words break-all"
-								>
-									{message.content}
-								</p>
+						{#if message.decrypted && containsCashuToken(message.content)}
+							<!-- Cashu Token Message -->
+							{@const token = extractCashuToken(message.content)}
+							{#if token}
+								<CashuTokenBubble
+									{token}
+									isOutgoing={message.isOutgoing}
+									senderPubkey={message.isOutgoing ? undefined : activeConv.pubkey}
+								/>
 							{/if}
-							<p
-								class="mt-1 text-right text-xs {(
+						{:else}
+							<!-- Regular Message -->
+							<div
+								class="max-w-[80%] rounded-2xl px-4 py-2 {(
 									message.isOutgoing
 								) ?
-									'text-primary-foreground/70'
-								:	'text-muted-foreground'}"
+									'bg-primary text-primary-foreground'
+								:	'bg-muted'}"
 							>
-								{formatRelativeTime(message.created_at)}
-							</p>
-						</div>
+								{#if !message.decrypted}
+									<div
+										class="flex items-center gap-2 text-sm text-warning"
+									>
+										<AlertCircle class="h-4 w-4" />
+										<span>Failed to decrypt</span>
+									</div>
+								{:else}
+									<p
+										class="whitespace-pre-wrap wrap-break-words break-all"
+									>
+										{message.content}
+									</p>
+								{/if}
+								<p
+									class="mt-1 text-right text-xs {(
+										message.isOutgoing
+									) ?
+										'text-primary-foreground/70'
+									:	'text-muted-foreground'}"
+								>
+									{formatRelativeTime(message.created_at)}
+								</p>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -314,6 +364,19 @@
 			<!-- Input -->
 			<div class="border-t border-border bg-background p-4">
 				<div class="flex items-end gap-2">
+					<!-- eCash button -->
+					{#if hasCashuBalance}
+						<Button
+							variant="ghost"
+							size="icon"
+							class="shrink-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10"
+							onclick={() => showSendCashu = true}
+							title="Send eCash"
+						>
+							<Coins class="h-5 w-5" />
+						</Button>
+					{/if}
+					
 					<Textarea
 						bind:value={messageInput}
 						placeholder="Type a message..."
@@ -350,3 +413,10 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Send eCash Modal -->
+<SendCashuModal
+	bind:open={showSendCashu}
+	onSend={handleSendCashu}
+	onClose={() => showSendCashu = false}
+/>
