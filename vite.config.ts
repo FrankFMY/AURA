@@ -12,8 +12,19 @@ export default defineConfig({
 			'clsx',
 			'tailwind-merge',
 			'tailwind-variants',
-			'dompurify'
-		]
+			'dompurify',
+			'@noble/curves',
+			'@noble/hashes',
+			'@noble/ciphers',
+			'@cashu/cashu-ts'
+		],
+		esbuildOptions: {
+			target: 'esnext'
+		}
+	},
+	ssr: {
+		// Don't externalize these packages in SSR
+		noExternal: ['@noble/curves', '@noble/hashes', '@noble/ciphers']
 	},
 	build: {
 		target: 'esnext',

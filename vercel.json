@@ -2,6 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "sveltekit",
   "outputDirectory": "build",
+  "installCommand": "bun install",
+  "buildCommand": "bun run build",
   "headers": [
     {
       "source": "/.well-known/nostr.json",
@@ -14,7 +16,7 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/200.html"
+      "destination": "/index.html"
     }
   ]
 }
