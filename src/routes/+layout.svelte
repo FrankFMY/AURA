@@ -28,6 +28,7 @@
 	import LogOut from 'lucide-svelte/icons/log-out';
 	import Zap from 'lucide-svelte/icons/zap';
 	import Coins from 'lucide-svelte/icons/coins';
+	import Store from 'lucide-svelte/icons/store';
 
 	let { children } = $props();
 
@@ -39,6 +40,7 @@
 	const navItems = [
 		{ href: '/', icon: Home, label: 'Feed' },
 		{ href: '/search', icon: Search, label: 'Search' },
+		{ href: '/marketplace', icon: Store, label: 'Market' },
 		{ href: '/notifications', icon: Bell, label: 'Alerts' },
 		{ href: '/messages', icon: MessageCircle, label: 'Messages' },
 		{ href: '/wallet', icon: Wallet, label: 'Wallet' },
