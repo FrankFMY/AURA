@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import CreateNote from '$lib/components/feed/CreateNote.svelte';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -26,6 +26,11 @@ describe('CreateNote.svelte', () => {
 	beforeEach(() => {
 		// mockPublishNote.mockClear() is also an option if you don't need to reset implementations
 		mockPublishNote.mockReset().mockResolvedValue(undefined);
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it('should render the component and handle text input', async () => {

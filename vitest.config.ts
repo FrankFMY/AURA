@@ -5,11 +5,7 @@ import { resolve } from 'path';
 export default defineConfig({
 	plugins: [
 		svelte({
-			hot: !process.env.VITEST,
-			compilerOptions: {
-				// Force DOM generation for tests, preventing SSR-related errors
-				generate: 'dom'
-			}
+			hot: !process.env.VITEST
 		})
 	],
 	test: {
@@ -43,6 +39,7 @@ export default defineConfig({
 		}
 	},
 	resolve: {
+		conditions: ['browser'],
 		alias: {
 			$lib: resolve('./src/lib'),
 			$stores: resolve('./src/lib/stores'),
