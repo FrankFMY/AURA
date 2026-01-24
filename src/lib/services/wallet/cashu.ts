@@ -40,9 +40,9 @@ export const DEFAULT_MINTS = [
 		description: 'Cashu mint by Coinos'
 	},
 	{
-		url: 'https://legend.lnbits.com/cashu/api/v1/AptDNABNBXv8gpuywhx6NV',
-		name: 'LNbits Legend',
-		description: 'LNbits Legend mint'
+		url: 'https://8333.space:3338',
+		name: '8333.space',
+		description: 'Reliable Cashu mint'
 	}
 ];
 

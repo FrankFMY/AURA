@@ -60,8 +60,9 @@ export const DEFAULT_RELAYS = [
 
 /** Backup relays */
 export const BACKUP_RELAYS = [
-	'wss://nostr.bitcoiner.social',
-	'wss://relay.damus.io'
+	'wss://relay.damus.io',
+	'wss://nostr.mom',
+	'wss://relay.nostr.net'
 ];
 
 /**
