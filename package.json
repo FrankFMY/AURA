@@ -43,6 +43,7 @@
   ],
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/patch-noble.js",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
