@@ -450,20 +450,36 @@ function createMessagesStore() {
 		isLoading = true;
 
 		try {
-			const filter: NDKFilter = {
+			// Load NIP-04 messages (kind:4)
+			const nip04Filter: NDKFilter = {
 				kinds: [4],
 				authors: [authStore.pubkey, pubkey],
 				'#p': [authStore.pubkey, pubkey],
 				limit: 100
 			};
 
-			const events = await ndkService.ndk.fetchEvents(filter);
+			const nip04Events = await ndkService.ndk.fetchEvents(nip04Filter);
 
-			for (const event of events) {
-				// Track seen events to prevent duplicate processing by subscription
+			for (const event of nip04Events) {
 				seenEventIds.add(event.id);
-				// Don't persist or increment unread for historical messages
-				await handleIncomingDM(event, false, false);
+				await handleIncomingDM(event, false, false, 'nip04');
+			}
+
+			// Load NIP-17 Gift Wraps (kind:1059) if private key available
+			if (ndkService.hasPrivateKey) {
+				const nip17Filter: NDKFilter = {
+					kinds: [1059],
+					'#p': [authStore.pubkey],
+					limit: 100
+				};
+
+				const nip17Events = await ndkService.ndk.fetchEvents(nip17Filter);
+
+				for (const event of nip17Events) {
+					if (seenEventIds.has(event.id)) continue;
+					seenEventIds.add(event.id);
+					await handleIncomingGiftWrap(event, false, false);
+				}
 			}
 
 			// Update conversation persistence after batch load
@@ -557,16 +573,16 @@ function createMessagesStore() {
 		}
 
 		const privkeyBytes = giftWrap.hexToPrivkey(privkey);
+		const NDKEvent = (await import('@nostr-dev-kit/ndk')).NDKEvent;
 		
-		// Create wrapped message
+		// Create wrapped message for recipient
 		const { giftWrap: wrappedEvent, rumor } = giftWrap.wrapMessage(
 			content,
 			privkeyBytes,
 			recipientPubkey
 		);
 
-		// Convert to NDK event and publish
-		const NDKEvent = (await import('@nostr-dev-kit/ndk')).NDKEvent;
+		// Convert to NDK event and publish for recipient
 		const event = new NDKEvent(ndkService.ndk);
 		event.kind = wrappedEvent.kind;
 		event.content = wrappedEvent.content;
@@ -575,8 +591,26 @@ function createMessagesStore() {
 		event.pubkey = wrappedEvent.pubkey;
 		event.sig = wrappedEvent.sig;
 
-		// Publish directly (already signed)
 		await event.publish();
+
+		// Also send a copy to ourselves for multi-device sync
+		// This allows other devices to see sent messages
+		const { giftWrap: selfWrap } = giftWrap.wrapMessage(
+			content,
+			privkeyBytes,
+			authStore.pubkey // wrap for ourselves
+		);
+
+		const selfEvent = new NDKEvent(ndkService.ndk);
+		selfEvent.kind = selfWrap.kind;
+		selfEvent.content = selfWrap.content;
+		selfEvent.tags = selfWrap.tags;
+		selfEvent.created_at = selfWrap.created_at;
+		selfEvent.pubkey = selfWrap.pubkey;
+		selfEvent.sig = selfWrap.sig;
+
+		// Publish self-wrap (fire and forget, don't block on this)
+		selfEvent.publish().catch(e => console.warn('Failed to publish self-wrap:', e));
 
 		return {
 			id: wrappedEvent.id,

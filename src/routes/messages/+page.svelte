@@ -365,9 +365,13 @@
 									:	'text-muted-foreground'}"
 								>
 									{#if message.protocol === 'nip17'}
-										<ShieldCheck class="h-3 w-3 text-green-500" title="Private (NIP-17)" />
+										<span title="Private (NIP-17)">
+											<ShieldCheck class="h-3 w-3 text-green-500" />
+										</span>
 									{:else if message.protocol === 'nip04'}
-										<Lock class="h-3 w-3 opacity-50" title="Encrypted (NIP-04)" />
+										<span title="Encrypted (NIP-04)">
+											<Lock class="h-3 w-3 opacity-50" />
+										</span>
 									{/if}
 									<span>{formatRelativeTime(message.created_at)}</span>
 								</div>
