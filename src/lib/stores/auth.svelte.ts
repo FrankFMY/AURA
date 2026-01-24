@@ -54,9 +54,37 @@ function createAuthStore() {
 			if (storedPubkey && storedMethod) {
 				// Try to restore session
 				if (storedMethod === 'extension') {
-					// Re-authenticate with extension
+					// Re-authenticate with extension (with timeout to prevent hanging)
 					if (window.nostr) {
-						await loginWithExtension();
+						try {
+							const extensionPromise = loginWithExtension();
+							const timeoutPromise = new Promise<never>((_, reject) =>
+								setTimeout(() => reject(new Error('Extension timeout')), 5000)
+							);
+							await Promise.race([extensionPromise, timeoutPromise]);
+						} catch (e) {
+							console.warn('Extension auth timed out or failed, using cached session:', e);
+							// Fall back to cached session without full extension auth
+							pubkey = storedPubkey;
+							npub = nip19.npubEncode(storedPubkey);
+							method = storedMethod;
+							isAuthenticated = true;
+							
+							const cachedProfile = await dbHelpers.getProfile(storedPubkey);
+							if (cachedProfile) {
+								profile = cachedProfile;
+							}
+						}
+					} else {
+						// No extension available, use cached data
+						pubkey = storedPubkey;
+						npub = nip19.npubEncode(storedPubkey);
+						method = storedMethod;
+						
+						const cachedProfile = await dbHelpers.getProfile(storedPubkey);
+						if (cachedProfile) {
+							profile = cachedProfile;
+						}
 					}
 				} else {
 					// For private key, we don't store it, user needs to re-enter
