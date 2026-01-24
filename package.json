@@ -55,9 +55,18 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "deploy:ipfs": "bun scripts/deploy-ipfs.js"
+    "deploy:ipfs": "bun scripts/deploy-ipfs.js",
+    "cap:sync": "cap sync",
+    "cap:android": "cap open android",
+    "cap:ios": "cap open ios",
+    "cap:build:android": "bun run build && cap sync android",
+    "cap:build:ios": "bun run build && cap sync ios"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.1",
+    "@capacitor/cli": "^8.0.1",
+    "@capacitor/core": "^8.0.1",
+    "@capacitor/ios": "^8.0.1",
     "@cashu/cashu-ts": "^3.3.0",
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",

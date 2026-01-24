@@ -11,6 +11,10 @@ dist/
 .netlify/
 .output/
 
+# Capacitor native platforms (generated)
+android/
+ios/
+
 # Environment files
 .env
 .env.*
