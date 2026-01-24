@@ -215,7 +215,7 @@
 			{#each dvmStore.messages as message (message.id)}
 				<div class="flex gap-3 {message.role === 'user' ? 'justify-end' : ''}">
 					{#if message.role !== 'user'}
-						<Avatar size="sm" class="flex-shrink-0">
+						<Avatar size="sm" class="shrink-0">
 							<AvatarFallback class="bg-primary/10 text-primary">
 								{#if message.role === 'system'}
 									<Sparkles class="h-4 w-4" />
@@ -252,7 +252,7 @@
 									<span>{message.error}</span>
 								</div>
 							{:else}
-								<p class="whitespace-pre-wrap break-words">{message.content}</p>
+								<p class="whitespace-pre-wrap wrap-break-word">{message.content}</p>
 							{/if}
 						</div>
 
@@ -273,7 +273,7 @@
 					</div>
 
 					{#if message.role === 'user'}
-						<Avatar size="sm" class="flex-shrink-0">
+						<Avatar size="sm" class="shrink-0">
 							<AvatarFallback class="bg-primary text-primary-foreground">
 								<User class="h-4 w-4" />
 							</AvatarFallback>
