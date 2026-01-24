@@ -18,6 +18,8 @@
 	import Plus from 'lucide-svelte/icons/plus';
 	import Search from 'lucide-svelte/icons/search';
 	import Lock from 'lucide-svelte/icons/lock';
+	import Shield from 'lucide-svelte/icons/shield';
+	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
 	import Coins from 'lucide-svelte/icons/coins';
@@ -292,12 +294,21 @@
 								activeConv.profile?.name ||
 								truncatePubkey(activeConv.pubkey)}
 						</p>
-						<div
-							class="flex items-center gap-1 text-xs text-success"
-						>
-							<Lock class="h-3 w-3" />
-							End-to-end encrypted
-						</div>
+						{#if messagesStore.preferNip17}
+							<div
+								class="flex items-center gap-1 text-xs text-success"
+							>
+								<ShieldCheck class="h-3 w-3" />
+								Private (NIP-17)
+							</div>
+						{:else}
+							<div
+								class="flex items-center gap-1 text-xs text-amber-500"
+							>
+								<Lock class="h-3 w-3" />
+								Encrypted (NIP-04)
+							</div>
+						{/if}
 					</div>
 				</a>
 			</div>
@@ -346,15 +357,20 @@
 										{message.content}
 									</p>
 								{/if}
-								<p
-									class="mt-1 text-right text-xs {(
+								<div
+									class="mt-1 flex items-center justify-end gap-1 text-xs {(
 										message.isOutgoing
 									) ?
 										'text-primary-foreground/70'
 									:	'text-muted-foreground'}"
 								>
-									{formatRelativeTime(message.created_at)}
-								</p>
+									{#if message.protocol === 'nip17'}
+										<ShieldCheck class="h-3 w-3 text-green-500" title="Private (NIP-17)" />
+									{:else if message.protocol === 'nip04'}
+										<Lock class="h-3 w-3 opacity-50" title="Encrypted (NIP-04)" />
+									{/if}
+									<span>{formatRelativeTime(message.created_at)}</span>
+								</div>
 							</div>
 						{/if}
 					</div>

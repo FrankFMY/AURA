@@ -59,6 +59,22 @@ class NDKService {
 		return this._pubkey;
 	}
 
+	/** 
+	 * Get private key if available (only for NDKPrivateKeySigner)
+	 * WARNING: Handle with care! Never log or expose this value.
+	 */
+	get privateKey(): string | null {
+		if (this._signer && 'privateKey' in this._signer) {
+			return (this._signer as NDKPrivateKeySigner).privateKey || null;
+		}
+		return null;
+	}
+
+	/** Check if private key is available for signing */
+	get hasPrivateKey(): boolean {
+		return this.privateKey !== null;
+	}
+
 	/** Get connection status */
 	get connectionStatus(): ConnectionStatus {
 		return this._connectionStatus;

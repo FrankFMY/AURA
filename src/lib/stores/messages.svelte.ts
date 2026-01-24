@@ -3,6 +3,13 @@ import ndkService from '$services/ndk';
 import { dbHelpers, type Conversation, type UserProfile } from '$db';
 import authStore from './auth.svelte';
 import { validatePubkey } from '$lib/validators/schemas';
+import {
+	giftWrap,
+	type giftWrap as GiftWrapModule
+} from '$lib/services/crypto';
+
+/** Encryption protocol used for a message */
+export type EncryptionProtocol = 'nip04' | 'nip17' | 'unknown';
 
 /** Message with metadata */
 export interface Message {
@@ -13,6 +20,8 @@ export interface Message {
 	isOutgoing: boolean;
 	decrypted: boolean;
 	error?: string;
+	/** Which encryption protocol was used */
+	protocol: EncryptionProtocol;
 }
 
 /** Conversation with messages */
@@ -29,6 +38,7 @@ function createMessagesStore() {
 	let isSending = $state(false);
 	let error = $state<string | null>(null);
 	let dmSubscriptionId: string | null = null;
+	let giftWrapSubscriptionId: string | null = null;
 	
 	// Track seen event IDs to prevent duplicate processing
 	const seenEventIds = new Set<string>();
@@ -36,6 +46,9 @@ function createMessagesStore() {
 	let initialLoadComplete = false;
 	// Timestamp when subscription started - events before this are historical
 	let subscriptionStartTime = 0;
+	
+	// User preference for NIP-17 (default true for new conversations)
+	let preferNip17 = $state(true);
 
 	// Profile cache
 	const profileCache = new Map<string, UserProfile>();
@@ -164,7 +177,7 @@ function createMessagesStore() {
 		}
 	}
 
-	/** Subscribe to incoming DMs */
+	/** Subscribe to incoming DMs (NIP-04 and NIP-17) */
 	function subscribeToDMs(): void {
 		if (!authStore.pubkey || dmSubscriptionId) return;
 
@@ -172,40 +185,111 @@ function createMessagesStore() {
 		subscriptionStartTime = Math.floor(Date.now() / 1000);
 		initialLoadComplete = false;
 
-		const filter: NDKFilter = {
-			kinds: [4], // NIP-04 DMs
+		// Subscribe to NIP-04 DMs (kind:4)
+		const nip04Filter: NDKFilter = {
+			kinds: [4],
 			'#p': [authStore.pubkey],
 			since: Math.floor(Date.now() / 1000) - 86400 // Last 24 hours
 		};
 
-		dmSubscriptionId = ndkService.subscribe(filter, { closeOnEose: false }, {
+		dmSubscriptionId = ndkService.subscribe(nip04Filter, { closeOnEose: false }, {
 			onEvent: async (event: NDKEvent) => {
-				// Skip if we've already seen this event
 				if (seenEventIds.has(event.id)) return;
 				seenEventIds.add(event.id);
 				
-				// Determine if this is a truly new message (arrived after subscription started)
 				const isNewMessage = initialLoadComplete && 
-					(event.created_at || 0) >= subscriptionStartTime - 5; // 5s tolerance
+					(event.created_at || 0) >= subscriptionStartTime - 5;
 				
-				await handleIncomingDM(event, true, isNewMessage);
+				await handleIncomingDM(event, true, isNewMessage, 'nip04');
 			},
 			onEose: () => {
-				// Initial load complete - future events are truly new
 				initialLoadComplete = true;
+			}
+		});
+
+		// Subscribe to NIP-17 Gift Wraps (kind:1059)
+		const nip17Filter: NDKFilter = {
+			kinds: [1059], // Gift Wrap
+			'#p': [authStore.pubkey],
+			since: Math.floor(Date.now() / 1000) - 86400
+		};
+
+		giftWrapSubscriptionId = ndkService.subscribe(nip17Filter, { closeOnEose: false }, {
+			onEvent: async (event: NDKEvent) => {
+				if (seenEventIds.has(event.id)) return;
+				seenEventIds.add(event.id);
+				
+				const isNewMessage = initialLoadComplete && 
+					(event.created_at || 0) >= subscriptionStartTime - 5;
+				
+				await handleIncomingGiftWrap(event, true, isNewMessage);
 			}
 		});
 	}
 
-	/** Handle incoming DM
+	/** Handle incoming NIP-17 Gift Wrap */
+	async function handleIncomingGiftWrap(
+		event: NDKEvent,
+		persist: boolean = true,
+		incrementUnread: boolean = false
+	): Promise<void> {
+		if (!authStore.pubkey || !ndkService.hasPrivateKey) return;
+
+		try {
+			// Convert event to format expected by gift-wrap module
+			const giftWrapEvent = {
+				id: event.id,
+				pubkey: event.pubkey,
+				created_at: event.created_at || Math.floor(Date.now() / 1000),
+				kind: event.kind,
+				tags: event.tags,
+				content: event.content,
+				sig: event.sig || ''
+			};
+
+			// Unwrap the gift wrap
+			const privkey = ndkService.privateKey;
+			if (!privkey) return;
+			const privkeyBytes = giftWrap.hexToPrivkey(privkey);
+			const { rumor, senderPubkey } = giftWrap.unwrapMessage(giftWrapEvent, privkeyBytes);
+
+			// Create message from rumor
+			const message: Message = {
+				id: event.id, // Use gift wrap ID as message ID
+				pubkey: senderPubkey,
+				content: rumor.content,
+				created_at: rumor.created_at,
+				isOutgoing: senderPubkey === authStore.pubkey,
+				decrypted: true,
+				protocol: 'nip17'
+			};
+
+			// Find the other party (recipient if outgoing, sender if incoming)
+			const otherPubkey = message.isOutgoing
+				? rumor.tags.find(t => t[0] === 'p')?.[1] || ''
+				: senderPubkey;
+
+			if (!otherPubkey) return;
+
+			// Add to conversation
+			await addMessageToConversation(message, otherPubkey, persist, incrementUnread);
+		} catch (e) {
+			console.error('Failed to unwrap gift wrap:', e);
+			// Don't throw - just skip this message
+		}
+	}
+
+	/** Handle incoming DM (NIP-04)
 	 * @param event - The NDK event
 	 * @param persist - Whether to persist to DB
 	 * @param incrementUnread - Whether to increment unread count (only for truly new messages)
+	 * @param protocol - Which protocol was used
 	 */
 	async function handleIncomingDM(
 		event: NDKEvent, 
 		persist: boolean = true,
-		incrementUnread: boolean = false
+		incrementUnread: boolean = false,
+		protocol: EncryptionProtocol = 'nip04'
 	): Promise<void> {
 		if (!authStore.pubkey) return;
 
@@ -236,10 +320,20 @@ function createMessagesStore() {
 			created_at: event.created_at || Math.floor(Date.now() / 1000),
 			isOutgoing: event.pubkey === authStore.pubkey,
 			decrypted,
-			error: decryptError
+			error: decryptError,
+			protocol
 		};
 
-		// Find or create conversation
+		await addMessageToConversation(message, otherPubkey, persist, incrementUnread);
+	}
+
+	/** Add message to conversation (shared by NIP-04 and NIP-17 handlers) */
+	async function addMessageToConversation(
+		message: Message,
+		otherPubkey: string,
+		persist: boolean = true,
+		incrementUnread: boolean = false
+	): Promise<void> {
 		const existingIndex = conversations.findIndex((c) => c.pubkey === otherPubkey);
 
 		if (existingIndex >= 0) {
@@ -261,7 +355,7 @@ function createMessagesStore() {
 				// Only update preview if this message is chronologically newer
 				const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0);
 				const newLastMessageAt = shouldUpdatePreview ? message.created_at : conv.last_message_at;
-				const newLastMessagePreview = shouldUpdatePreview ? (content || '').slice(0, 50) : conv.last_message_preview;
+				const newLastMessagePreview = shouldUpdatePreview ? (message.content || '').slice(0, 50) : conv.last_message_preview;
 				
 				conversations = [
 					{
@@ -296,7 +390,7 @@ function createMessagesStore() {
 				profile,
 				messages: [message],
 				last_message_at: message.created_at,
-				last_message_preview: (content || '').slice(0, 50),
+				last_message_preview: (message.content || '').slice(0, 50),
 				unread_count: newUnreadCount
 			};
 
@@ -307,7 +401,7 @@ function createMessagesStore() {
 				await dbHelpers.saveConversation({
 					pubkey: otherPubkey,
 					last_message_at: message.created_at,
-					last_message_preview: (content || '').slice(0, 50),
+					last_message_preview: (message.content || '').slice(0, 50),
 					unread_count: newConv.unread_count
 				});
 			}
@@ -390,7 +484,7 @@ function createMessagesStore() {
 		}
 	}
 
-	/** Send a message */
+	/** Send a message using NIP-17 (preferred) or NIP-04 (fallback) */
 	async function sendMessage(recipientPubkeyOrNpub: string, content: string): Promise<void> {
 		if (!authStore.pubkey) throw new Error('Not authenticated');
 
@@ -404,27 +498,27 @@ function createMessagesStore() {
 		isSending = true;
 
 		try {
-			// Encrypt the content
-			const encrypted = await encryptMessage(content, recipientPubkey);
+			let message: Message;
+			let usedProtocol: EncryptionProtocol = 'nip04';
 
-			// Create and publish the event
-			const event = new (await import('@nostr-dev-kit/ndk')).NDKEvent(ndkService.ndk);
-			event.kind = 4;
-			event.content = encrypted;
-			event.tags = [['p', recipientPubkey]];
+			// Try NIP-17 if we have a private key and prefer it
+			if (preferNip17 && ndkService.hasPrivateKey) {
+				try {
+					message = await sendNip17Message(recipientPubkey, content);
+					usedProtocol = 'nip17';
+				} catch (e) {
+					console.warn('NIP-17 failed, falling back to NIP-04:', e);
+					message = await sendNip04Message(recipientPubkey, content);
+					usedProtocol = 'nip04';
+				}
+			} else {
+				// Use NIP-04 (extension or legacy)
+				message = await sendNip04Message(recipientPubkey, content);
+			}
 
-			await ndkService.publish(event);
+			message.protocol = usedProtocol;
 
-			// Add to local messages
-			const message: Message = {
-				id: event.id,
-				pubkey: authStore.pubkey,
-				content,
-				created_at: event.created_at || Math.floor(Date.now() / 1000),
-				isOutgoing: true,
-				decrypted: true
-			};
-
+			// Add to conversation
 			const convIndex = conversations.findIndex((c) => c.pubkey === recipientPubkey);
 			if (convIndex >= 0) {
 				const updatedConv = {
@@ -453,6 +547,73 @@ function createMessagesStore() {
 		} finally {
 			isSending = false;
 		}
+	}
+
+	/** Send message using NIP-17 Gift Wrap */
+	async function sendNip17Message(recipientPubkey: string, content: string): Promise<Message> {
+		const privkey = ndkService.privateKey;
+		if (!privkey || !authStore.pubkey) {
+			throw new Error('Private key required for NIP-17');
+		}
+
+		const privkeyBytes = giftWrap.hexToPrivkey(privkey);
+		
+		// Create wrapped message
+		const { giftWrap: wrappedEvent, rumor } = giftWrap.wrapMessage(
+			content,
+			privkeyBytes,
+			recipientPubkey
+		);
+
+		// Convert to NDK event and publish
+		const NDKEvent = (await import('@nostr-dev-kit/ndk')).NDKEvent;
+		const event = new NDKEvent(ndkService.ndk);
+		event.kind = wrappedEvent.kind;
+		event.content = wrappedEvent.content;
+		event.tags = wrappedEvent.tags;
+		event.created_at = wrappedEvent.created_at;
+		event.pubkey = wrappedEvent.pubkey;
+		event.sig = wrappedEvent.sig;
+
+		// Publish directly (already signed)
+		await event.publish();
+
+		return {
+			id: wrappedEvent.id,
+			pubkey: authStore.pubkey,
+			content,
+			created_at: rumor.created_at,
+			isOutgoing: true,
+			decrypted: true,
+			protocol: 'nip17'
+		};
+	}
+
+	/** Send message using NIP-04 (legacy) */
+	async function sendNip04Message(recipientPubkey: string, content: string): Promise<Message> {
+		if (!authStore.pubkey) throw new Error('Not authenticated');
+
+		// Encrypt the content
+		const encrypted = await encryptMessage(content, recipientPubkey);
+
+		// Create and publish the event
+		const NDKEvent = (await import('@nostr-dev-kit/ndk')).NDKEvent;
+		const event = new NDKEvent(ndkService.ndk);
+		event.kind = 4;
+		event.content = encrypted;
+		event.tags = [['p', recipientPubkey]];
+
+		await ndkService.publish(event);
+
+		return {
+			id: event.id,
+			pubkey: authStore.pubkey,
+			content,
+			created_at: event.created_at || Math.floor(Date.now() / 1000),
+			isOutgoing: true,
+			decrypted: true,
+			protocol: 'nip04'
+		};
 	}
 
 	/** Start a new conversation */
@@ -505,10 +666,19 @@ function createMessagesStore() {
 			ndkService.unsubscribe(dmSubscriptionId);
 			dmSubscriptionId = null;
 		}
+		if (giftWrapSubscriptionId) {
+			ndkService.unsubscribe(giftWrapSubscriptionId);
+			giftWrapSubscriptionId = null;
+		}
 		activeConversation = null;
 		// Don't clear seenEventIds - we want to persist knowledge of seen events
 		// Reset initial load state so next subscription can properly track new vs old
 		initialLoadComplete = false;
+	}
+
+	/** Set preference for NIP-17 */
+	function setPreferNip17(value: boolean): void {
+		preferNip17 = value;
 	}
 
 	return {
@@ -531,6 +701,9 @@ function createMessagesStore() {
 		get totalUnreadCount() {
 			return conversations.reduce((sum, c) => sum + c.unread_count, 0);
 		},
+		get preferNip17() {
+			return preferNip17;
+		},
 
 		// Actions
 		loadConversations,
@@ -539,7 +712,8 @@ function createMessagesStore() {
 		startConversation,
 		closeConversation,
 		getActiveConversation,
-		cleanup
+		cleanup,
+		setPreferNip17
 	};
 }
 
