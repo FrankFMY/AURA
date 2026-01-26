@@ -18,6 +18,7 @@
 	let hasError = $state(false);
 	let isVideoPlaying = $state(false);
 	let showYouTubeEmbed = $state(false);
+	let isLoading = $state(true);
 
 	function detectMediaType(
 		url: string,
@@ -106,6 +107,16 @@
 
 	function handleImageError() {
 		hasError = true;
+		isLoading = false;
+	}
+
+	function handleVideoError() {
+		hasError = true;
+		isLoading = false;
+	}
+
+	function handleLoad() {
+		isLoading = false;
 	}
 
 	function handleYouTubeClick() {
@@ -116,22 +127,28 @@
 </script>
 
 {#if safeUrl && !hasError}
-	<div class="media-embed w-full max-w-full rounded-lg overflow-hidden bg-muted {className}">
+	<div class="media-embed relative w-full max-w-full rounded-lg overflow-hidden bg-muted {className}">
 		{#if mediaType === 'image'}
 			<!-- Image embed -->
 			<a
 				href={safeUrl}
 				target="_blank"
 				rel="noopener noreferrer"
-				class="block"
+				class="block relative"
 			>
+				{#if isLoading}
+					<div class="absolute inset-0 flex items-center justify-center bg-muted animate-pulse">
+						<ImageOff class="h-8 w-8 text-muted-foreground/30" />
+					</div>
+				{/if}
 				<img
 					src={safeUrl}
 					alt="Embedded media"
-					class="max-h-96 w-full object-contain hover:opacity-90 transition-opacity"
+					class="max-h-96 w-full object-contain hover:opacity-90 transition-opacity {isLoading ? 'opacity-0' : 'opacity-100'}"
 					loading="lazy"
 					decoding="async"
 					onerror={handleImageError}
+					onload={handleLoad}
 				/>
 			</a>
 		{:else if mediaType === 'video'}
@@ -142,6 +159,8 @@
 				preload="metadata"
 				class="max-h-96 w-full"
 				poster=""
+				onerror={handleVideoError}
+				onloadeddata={handleLoad}
 			>
 				<track kind="captions" />
 				Your browser does not support video playback.
