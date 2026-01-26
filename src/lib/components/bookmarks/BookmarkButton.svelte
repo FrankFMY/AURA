@@ -25,7 +25,8 @@
 
 	let isToggling = $state(false);
 
-	const isBookmarked = $derived(bookmarksStore.isBookmarked(eventId));
+	// Use reactive bookmarkIds set for proper reactivity
+	const isBookmarked = $derived(bookmarksStore.bookmarkIds.has(eventId));
 
 	async function handleToggle(e: MouseEvent) {
 		e.preventDefault();

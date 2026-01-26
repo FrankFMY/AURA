@@ -44,13 +44,33 @@
 		event,
 		author,
 		replyCount = 0,
-		reactionCount = 0,
-		repostCount = 0,
+		reactionCount: initialReactionCount = 0,
+		repostCount: initialRepostCount = 0,
 		zapCount = 0,
-		hasReacted = false,
-		hasReposted = false,
+		hasReacted: initialHasReacted = false,
+		hasReposted: initialHasReposted = false,
 		onReply,
 	}: Props = $props();
+
+	// Local state for reactions/reposts - tracks user's actions even if feed state doesn't update
+	let localHasReacted = $state(initialHasReacted);
+	let localHasReposted = $state(initialHasReposted);
+	let localReactionCount = $state(initialReactionCount);
+	let localRepostCount = $state(initialRepostCount);
+
+	// Sync with props when they change (e.g., when feed refreshes)
+	$effect(() => {
+		localHasReacted = initialHasReacted;
+	});
+	$effect(() => {
+		localHasReposted = initialHasReposted;
+	});
+	$effect(() => {
+		localReactionCount = initialReactionCount;
+	});
+	$effect(() => {
+		localRepostCount = initialRepostCount;
+	});
 
 	let isReacting = $state(false);
 	let isReposting = $state(false);
@@ -110,15 +130,23 @@
 	const isAuthor = $derived(ndkService.pubkey === event.pubkey);
 
 	async function handleReact() {
-		if (isReacting || hasReacted) return;
+		if (isReacting || localHasReacted) return;
+
 		isReacting = true;
+		// Optimistic update - update local state immediately
+		localHasReacted = true;
+		localReactionCount += 1;
+
 		try {
 			await feedStore.react(event);
 		} catch (e) {
-			console.error('Failed to react:', e);
+			// Rollback on failure
+			localHasReacted = false;
+			localReactionCount -= 1;
+			console.error('[NoteCard] Failed to react:', e);
 			notificationsStore.error(
 				'Failed to like',
-				'Please try again later'
+				e instanceof Error ? e.message : 'Please try again later'
 			);
 		} finally {
 			isReacting = false;
@@ -126,12 +154,20 @@
 	}
 
 	async function handleRepost() {
-		if (isReposting || hasReposted) return;
+		if (isReposting || localHasReposted) return;
+
 		isReposting = true;
 		showRepostMenu = false;
+		// Optimistic update
+		localHasReposted = true;
+		localRepostCount += 1;
+
 		try {
 			await feedStore.repost(event);
 		} catch (e) {
+			// Rollback on failure
+			localHasReposted = false;
+			localRepostCount -= 1;
 			console.error('Failed to repost:', e);
 			notificationsStore.error(
 				'Failed to repost',
@@ -169,18 +205,21 @@
 	}
 
 	async function handleDelete() {
+		console.log('[NoteCard] handleDelete called', { eventId: event.id });
 		isDeleting = true;
 		try {
+			console.log('[NoteCard] Calling feedStore.deleteNote');
 			await feedStore.deleteNote(event.id);
+			console.log('[NoteCard] feedStore.deleteNote succeeded');
 			notificationsStore.success(
 				'Note deleted',
 				'The note has been removed from Nostr',
 			);
 		} catch (e) {
-			console.error('Failed to delete note:', e);
+			console.error('[NoteCard] Failed to delete note:', e);
 			notificationsStore.error(
 				'Failed to delete note',
-				'Please try again later',
+				e instanceof Error ? e.message : 'Please try again later',
 			);
 		} finally {
 			isDeleting = false;
@@ -347,23 +386,23 @@
 						variant="ghost"
 						size="sm"
 						class="gap-1.5 h-9 px-2 hover:text-green-500 hover:bg-green-500/10 {(
-							hasReposted
+							localHasReposted
 						) ?
 							'text-green-500'
 						:	''}"
 						onclick={() => (showRepostMenu = !showRepostMenu)}
 						disabled={isReposting}
-						aria-label="{hasReposted ? 'Reposted' : 'Repost'}{(
-							repostCount > 0
+						aria-label="{localHasReposted ? 'Reposted' : 'Repost'}{(
+							localRepostCount > 0
 						) ?
-							`, ${repostCount} reposts`
+							`, ${localRepostCount} reposts`
 						:	''}"
-						aria-pressed={hasReposted}
+						aria-pressed={localHasReposted}
 						aria-expanded={showRepostMenu}
 					>
 						<Repeat2 class="h-4 w-4" />
-						{#if repostCount > 0}
-							<span class="text-xs">{repostCount}</span>
+						{#if localRepostCount > 0}
+							<span class="text-xs">{localRepostCount}</span>
 						{/if}
 					</Button>
 
@@ -402,22 +441,22 @@
 					variant="ghost"
 					size="sm"
 					class="gap-1.5 h-9 px-2 hover:text-pink-500 hover:bg-pink-500/10 {(
-						hasReacted
+						localHasReacted
 					) ?
 						'text-pink-500'
 					:	''}"
 					onclick={handleReact}
 					disabled={isReacting}
-					aria-label="{hasReacted ? 'Liked' : 'Like'}{(
-						reactionCount > 0
+					aria-label="{localHasReacted ? 'Liked' : 'Like'}{(
+						localReactionCount > 0
 					) ?
-						`, ${reactionCount} likes`
+						`, ${localReactionCount} likes`
 					:	''}"
-					aria-pressed={hasReacted}
+					aria-pressed={localHasReacted}
 				>
-					<Heart class="h-4 w-4 {hasReacted ? 'fill-current' : ''}" />
-					{#if reactionCount > 0}
-						<span class="text-xs">{reactionCount}</span>
+					<Heart class="h-4 w-4 {localHasReacted ? 'fill-current' : ''}" />
+					{#if localReactionCount > 0}
+						<span class="text-xs">{localReactionCount}</span>
 					{/if}
 				</Button>
 

@@ -38,12 +38,12 @@ function createBookmarksStore() {
 	let isSyncing = $state(false);
 	let error = $state<string | null>(null);
 
-	// Cache for quick lookup
-	const bookmarkSet = new Set<string>();
+	// Reactive set for quick lookup (Svelte 5 rune)
+	let bookmarkIds = $state<Set<string>>(new Set());
 
-	/** Check if an event is bookmarked */
+	/** Check if an event is bookmarked - returns reactive value */
 	function isBookmarked(eventId: string): boolean {
-		return bookmarkSet.has(eventId);
+		return bookmarkIds.has(eventId);
 	}
 
 	/** Load bookmarks from Nostr and local cache */
@@ -59,10 +59,7 @@ function createBookmarksStore() {
 			const localBookmarks = await dbHelpers.getSetting<Bookmark[]>('bookmarks', []) ?? [];
 			if (localBookmarks.length > 0) {
 				bookmarks = localBookmarks;
-				bookmarkSet.clear();
-				for (const b of localBookmarks) {
-					bookmarkSet.add(b.eventId);
-				}
+				bookmarkIds = new Set(localBookmarks.map(b => b.eventId));
 			}
 
 			// Fetch from Nostr
@@ -82,9 +79,8 @@ function createBookmarksStore() {
 				const merged = mergeBookmarks(bookmarks, parsed);
 				bookmarks = merged;
 
-				// Update cache
-				bookmarkSet.clear();
-				merged.forEach(b => bookmarkSet.add(b.eventId));
+				// Update reactive set
+				bookmarkIds = new Set(merged.map(b => b.eventId));
 
 				// Save locally
 				await dbHelpers.setSetting('bookmarks', merged);
@@ -186,7 +182,7 @@ function createBookmarksStore() {
 
 		// Optimistic update
 		bookmarks = [bookmark, ...bookmarks];
-		bookmarkSet.add(eventId);
+		bookmarkIds = new Set([eventId, ...bookmarkIds]);
 
 		// Save locally
 		await dbHelpers.setSetting('bookmarks', bookmarks);
@@ -202,7 +198,9 @@ function createBookmarksStore() {
 		// Optimistic update
 		bookmarks = bookmarks.filter(b => b.eventId !== eventId);
 		bookmarkedEvents = bookmarkedEvents.filter(be => be.bookmark.eventId !== eventId);
-		bookmarkSet.delete(eventId);
+		const newIds = new Set(bookmarkIds);
+		newIds.delete(eventId);
+		bookmarkIds = newIds;
 
 		// Save locally
 		await dbHelpers.setSetting('bookmarks', bookmarks);
@@ -270,6 +268,7 @@ function createBookmarksStore() {
 		// State (readonly)
 		get bookmarks() { return bookmarks; },
 		get bookmarkedEvents() { return bookmarkedEvents; },
+		get bookmarkIds() { return bookmarkIds; },
 		get isLoading() { return isLoading; },
 		get isSyncing() { return isSyncing; },
 		get error() { return error; },

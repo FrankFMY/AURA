@@ -434,33 +434,35 @@ function createFeedStore() {
 	/** React to an event with optimistic update */
 	async function react(event: NDKEvent, reaction: string = '+'): Promise<void> {
 		const eventIndex = events.findIndex(e => e.event.id === event.id);
-		if (eventIndex === -1) return;
-
-		// Store previous state for rollback
-		const previousState = { ...events[eventIndex] };
+		const previousState = eventIndex !== -1 ? { ...events[eventIndex] } : null;
 
 		// Optimistic update - both local state and interactions cache
 		userInteractionsService.addReaction(event.id);
-		events = events.map((e) => {
-			if (e.event.id === event.id) {
-				return {
-					...e,
-					reactionCount: e.reactionCount + 1,
-					hasReacted: true
-				};
-			}
-			return e;
-		});
+
+		// Update UI if event is in current feed
+		if (eventIndex !== -1) {
+			events = events.map((e) => {
+				if (e.event.id === event.id) {
+					return {
+						...e,
+						reactionCount: e.reactionCount + 1,
+						hasReacted: true
+					};
+				}
+				return e;
+			});
+		}
 
 		try {
 			await ndkService.react(event, reaction);
 		} catch (e) {
-			// Rollback UI state
-			events = events.map(e =>
-				e.event.id === event.id ? previousState : e
-			);
-			// Note: We don't rollback the interactions cache as it would require
-			// a more complex state management. The cache will refresh on next load.
+			console.error('[feedStore] React failed:', e);
+			// Rollback UI state if we had optimistic update
+			if (previousState && eventIndex !== -1) {
+				events = events.map(ev =>
+					ev.event.id === event.id ? previousState : ev
+				);
+			}
 			throw e;
 		}
 	}
@@ -468,45 +470,50 @@ function createFeedStore() {
 	/** Repost an event with optimistic update */
 	async function repost(event: NDKEvent): Promise<void> {
 		const eventIndex = events.findIndex(e => e.event.id === event.id);
-		if (eventIndex === -1) return;
-
-		// Store previous state for rollback
-		const previousState = { ...events[eventIndex] };
+		const previousState = eventIndex !== -1 ? { ...events[eventIndex] } : null;
 
 		// Optimistic update - both local state and interactions cache
 		userInteractionsService.addRepost(event.id);
-		events = events.map((e) => {
-			if (e.event.id === event.id) {
-				return {
-					...e,
-					repostCount: e.repostCount + 1,
-					hasReposted: true
-				};
-			}
-			return e;
-		});
+
+		// Update UI if event is in current feed
+		if (eventIndex !== -1) {
+			events = events.map((e) => {
+				if (e.event.id === event.id) {
+					return {
+						...e,
+						repostCount: e.repostCount + 1,
+						hasReposted: true
+					};
+				}
+				return e;
+			});
+		}
 
 		try {
 			await ndkService.repost(event);
 		} catch (e) {
-			// Rollback UI state
-			events = events.map(e =>
-				e.event.id === event.id ? previousState : e
-			);
+			// Rollback UI state if we had optimistic update
+			if (previousState && eventIndex !== -1) {
+				events = events.map(ev =>
+					ev.event.id === event.id ? previousState : ev
+				);
+			}
 			throw e;
 		}
 	}
 
 	/** Delete a note with optimistic update */
 	async function deleteNote(eventId: string): Promise<void> {
-		const eventIndex = events.findIndex(e => e.event.id === eventId);
-		if (eventIndex === -1) return;
-
 		const previousEvents = [...events];
+		const eventIndex = events.findIndex(e => e.event.id === eventId);
 
-		// Optimistic update: add to deletions cache and remove from feed
+		// Optimistic update: add to deletions cache
 		userInteractionsService.addDeletion(eventId);
-		events = events.filter(e => e.event.id !== eventId);
+
+		// Remove from feed if present
+		if (eventIndex !== -1) {
+			events = events.filter(e => e.event.id !== eventId);
+		}
 
 		try {
 			await ndkService.deleteEvent(eventId);
@@ -514,8 +521,11 @@ function createFeedStore() {
 			seenIds.delete(eventId);
 			reactionCache.delete(eventId);
 		} catch (e) {
-			// Rollback
-			events = previousEvents;
+			console.error('[feedStore] Delete failed:', e);
+			// Rollback if we had optimistic update
+			if (eventIndex !== -1) {
+				events = previousEvents;
+			}
 			throw e;
 		}
 	}
