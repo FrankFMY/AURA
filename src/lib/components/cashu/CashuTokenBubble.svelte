@@ -1,10 +1,11 @@
 <script lang="ts">
 	/**
 	 * CashuTokenBubble
-	 * 
+	 *
 	 * Displays a Cashu eCash token in chat as a beautiful card.
 	 * Shows amount and allows the recipient to claim.
 	 */
+	import { _ } from 'svelte-i18n';
 	import { cashuStore } from '$stores/cashu.svelte';
 	import { Button } from '$components/ui/button';
 	import { Spinner } from '$components/ui/spinner';
@@ -75,7 +76,7 @@
 		</div>
 		<div class="flex-1">
 			<p class="text-sm font-medium {isOutgoing ? 'text-primary' : 'text-amber-600 dark:text-amber-400'}">
-				{isOutgoing ? 'eCash Sent' : 'eCash Received'}
+				{isOutgoing ? $_('components.cashu.sent') : $_('components.cashu.received')}
 			</p>
 			{#if validationResult?.memo}
 				<p class="text-xs text-muted-foreground truncate">{validationResult.memo}</p>
@@ -88,12 +89,12 @@
 		<div class="flex items-center justify-center gap-1 py-2">
 			<Zap class="w-5 h-5 text-amber-500" />
 			<span class="text-2xl font-bold">{validationResult.amount}</span>
-			<span class="text-sm text-muted-foreground">sats</span>
+			<span class="text-sm text-muted-foreground">{$_('components.cashu.sats')}</span>
 		</div>
 	{:else if validationResult?.error}
 		<div class="flex items-center gap-2 py-2 text-destructive">
 			<AlertCircle class="w-4 h-4" />
-			<span class="text-sm">Invalid token</span>
+			<span class="text-sm">{$_('components.cashu.invalidToken')}</span>
 		</div>
 	{:else}
 		<div class="flex justify-center py-2">
@@ -111,17 +112,17 @@
 				onclick={claimToken}
 			>
 				<Coins class="w-4 h-4 mr-2" />
-				Claim {validationResult.amount} sats
+				{$_('components.cashu.claim', { values: { amount: validationResult.amount } })}
 			</Button>
 		{:else if status === 'claiming'}
 			<Button variant="outline" size="sm" class="w-full" disabled>
 				<Spinner size="sm" class="mr-2" />
-				Claiming...
+				{$_('components.cashu.claiming')}
 			</Button>
 		{:else if status === 'claimed'}
 			<div class="flex items-center justify-center gap-2 py-1 text-green-600 dark:text-green-400">
 				<Check class="w-4 h-4" />
-				<span class="text-sm font-medium">Claimed!</span>
+				<span class="text-sm font-medium">{$_('components.cashu.claimed')}</span>
 			</div>
 		{:else if status === 'error'}
 			<div class="space-y-2">
@@ -130,7 +131,7 @@
 					<span class="text-xs">{errorMessage}</span>
 				</div>
 				<Button variant="outline" size="sm" class="w-full" onclick={claimToken}>
-					Try again
+					{$_('components.cashu.tryAgain')}
 				</Button>
 			</div>
 		{/if}
@@ -139,7 +140,7 @@
 	<!-- Outgoing status -->
 	{#if isOutgoing}
 		<p class="text-xs text-center text-muted-foreground">
-			Waiting to be claimed
+			{$_('components.cashu.waitingToClaim')}
 		</p>
 	{/if}
 </div>

@@ -7,11 +7,15 @@
 
 	let isOpen = $state(false);
 	let menuRef: HTMLDivElement | undefined = $state(undefined);
+	let focusedIndex = $state(0);
 
 	const currentLocale = $derived($locale as SupportedLocale);
 
-	function toggleMenu() {
-		isOpen = !isOpen;
+	function openMenu() {
+		isOpen = true;
+		// Set initial focus to current locale
+		focusedIndex = SUPPORTED_LOCALES.indexOf(currentLocale);
+		if (focusedIndex === -1) focusedIndex = 0;
 	}
 
 	function selectLocale(newLocale: SupportedLocale) {
@@ -26,31 +30,48 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
-			isOpen = false;
+		if (!isOpen) return;
+
+		switch (event.key) {
+			case 'Escape':
+				event.preventDefault();
+				isOpen = false;
+				break;
+			case 'ArrowDown':
+				event.preventDefault();
+				focusedIndex = (focusedIndex + 1) % SUPPORTED_LOCALES.length;
+				break;
+			case 'ArrowUp':
+				event.preventDefault();
+				focusedIndex = (focusedIndex - 1 + SUPPORTED_LOCALES.length) % SUPPORTED_LOCALES.length;
+				break;
+			case 'Enter':
+			case ' ':
+				event.preventDefault();
+				selectLocale(SUPPORTED_LOCALES[focusedIndex]);
+				break;
 		}
 	}
 
 	$effect(() => {
 		if (isOpen) {
 			document.addEventListener('click', handleClickOutside);
-			document.addEventListener('keydown', handleKeyDown);
 		}
 		return () => {
 			document.removeEventListener('click', handleClickOutside);
-			document.removeEventListener('keydown', handleKeyDown);
 		};
 	});
 </script>
 
-<div class="relative" bind:this={menuRef}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="relative" bind:this={menuRef} onkeydown={handleKeyDown}>
 	<Button
 		variant="ghost"
 		size="sm"
-		onclick={toggleMenu}
+		onclick={openMenu}
 		aria-label={$_('settings.language')}
 		aria-expanded={isOpen}
-		aria-haspopup="true"
+		aria-haspopup="menu"
 	>
 		<Globe class="h-4 w-4 mr-2" />
 		<span class="hidden sm:inline">{LOCALE_NAMES[currentLocale]}</span>
@@ -62,10 +83,12 @@
 			role="menu"
 			aria-orientation="vertical"
 		>
-			{#each SUPPORTED_LOCALES as loc}
+			{#each SUPPORTED_LOCALES as loc, i}
 				<button
-					class="flex items-center justify-between w-full px-4 py-2 text-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors first:rounded-t-md last:rounded-b-md"
+					class="flex items-center justify-between w-full px-4 py-2 text-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors first:rounded-t-md last:rounded-b-md
+						{focusedIndex === i ? 'bg-accent text-accent-foreground' : ''}"
 					role="menuitem"
+					tabindex={focusedIndex === i ? 0 : -1}
 					onclick={() => selectLocale(loc)}
 				>
 					<span>{LOCALE_NAMES[loc]}</span>

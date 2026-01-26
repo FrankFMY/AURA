@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { _ } from 'svelte-i18n';
 	import {
 		mediaService,
 		SUPPORTED_IMAGE_TYPES,
 		MAX_IMAGE_SIZE,
 		type MediaUploadResult,
 	} from '$services/media';
+	import { compressImage, formatBytes } from '$lib/utils/image-compression';
 	import { Button } from '$components/ui/button';
 	import { Spinner } from '$components/ui/spinner';
 	import { notificationsStore } from '$stores/notifications.svelte';
@@ -64,29 +66,70 @@
 		uploadProgress = 0;
 
 		try {
-			const result = await mediaService.uploadFromClipboard(
-				(progress) => {
-					uploadProgress = progress;
-				},
-			);
+			// Read clipboard
+			if (!navigator.clipboard?.read) {
+				notificationsStore.warning('Not supported', 'Clipboard API not available');
+				return;
+			}
 
-			if (result) {
-				onUpload(result);
-				notificationsStore.success(
-					'Image uploaded',
-					'Pasted from clipboard',
-				);
-			} else {
+			const items = await navigator.clipboard.read();
+			let imageFile: File | null = null;
+
+			for (const item of items) {
+				for (const type of item.types) {
+					if (SUPPORTED_IMAGE_TYPES.includes(type)) {
+						const blob = await item.getType(type);
+						imageFile = new File(
+							[blob],
+							`clipboard-${Date.now()}.${type.split('/')[1]}`,
+							{ type }
+						);
+						break;
+					}
+				}
+				if (imageFile) break;
+			}
+
+			if (!imageFile) {
 				notificationsStore.warning(
 					'No image found',
 					'Clipboard does not contain an image',
 				);
+				return;
 			}
+
+			// Compress if needed
+			let fileToUpload = imageFile;
+			let compressionInfo = '';
+
+			if (imageFile.type !== 'image/gif') {
+				uploadProgress = 5;
+				const compressed = await compressImage(imageFile, {
+					maxDimension: 1920,
+					quality: 0.85,
+					outputFormat: 'webp'
+				});
+
+				if (compressed.wasCompressed) {
+					fileToUpload = compressed.file;
+					compressionInfo = ` (-${compressed.reduction}%)`;
+				}
+			}
+
+			const result = await mediaService.upload(fileToUpload, (progress) => {
+				uploadProgress = 5 + Math.round(progress * 0.95);
+			});
+
+			onUpload(result);
+			notificationsStore.success(
+				'Image uploaded',
+				`Pasted from clipboard${compressionInfo}`,
+			);
 		} catch (e) {
 			console.error('Clipboard upload failed:', e);
 			notificationsStore.error(
 				'Upload failed',
-				e instanceof Error ? e.message : 'Unknown error',
+				'Could not upload the image. Please try again.',
 			);
 		} finally {
 			isUploading = false;
@@ -123,17 +166,36 @@
 			uploadProgress = 0;
 
 			try {
-				const result = await mediaService.upload(file, (progress) => {
-					uploadProgress = progress;
+				// Compress image before upload
+				let fileToUpload = file;
+				let compressionInfo = '';
+
+				if (SUPPORTED_IMAGE_TYPES.includes(file.type) && file.type !== 'image/gif') {
+					uploadProgress = 5; // Show some progress during compression
+					const compressed = await compressImage(file, {
+						maxDimension: 1920,
+						quality: 0.85,
+						outputFormat: 'webp'
+					});
+
+					if (compressed.wasCompressed) {
+						fileToUpload = compressed.file;
+						compressionInfo = ` (${formatBytes(compressed.originalSize)} → ${formatBytes(compressed.compressedSize)}, -${compressed.reduction}%)`;
+					}
+				}
+
+				const result = await mediaService.upload(fileToUpload, (progress) => {
+					// Offset progress to account for compression phase
+					uploadProgress = 5 + Math.round(progress * 0.95);
 				});
 
 				onUpload(result);
-				notificationsStore.success('Image uploaded', 'Ready to use');
+				notificationsStore.success('Image uploaded', `Ready to use${compressionInfo}`);
 			} catch (e) {
 				console.error('Upload failed:', e);
 				notificationsStore.error(
 					'Upload failed',
-					e instanceof Error ? e.message : 'Unknown error',
+					'Could not upload the file. Please try again.',
 				);
 			} finally {
 				// Remove preview
@@ -159,7 +221,7 @@
 			size="icon"
 			onclick={triggerFileSelect}
 			disabled={isUploading}
-			title="Upload image"
+			title={$_('components.media.uploadImage')}
 		>
 			{#if isUploading}
 				<Spinner class="h-4 w-4" />
@@ -172,7 +234,7 @@
 			size="icon"
 			onclick={handlePaste}
 			disabled={isUploading}
-			title="Paste from clipboard"
+			title={$_('components.media.pasteFromClipboard')}
 		>
 			<Clipboard class="h-4 w-4" />
 		</Button>
@@ -213,7 +275,7 @@
 			<div class="flex flex-col items-center justify-center p-8">
 				<Spinner class="h-8 w-8 text-primary" />
 				<p class="mt-2 text-sm text-muted-foreground">
-					Uploading... {uploadProgress}%
+					{$_('components.media.uploading', { values: { progress: uploadProgress } })}
 				</p>
 				<div
 					class="mt-2 h-1 w-32 overflow-hidden rounded-full bg-muted"
@@ -230,7 +292,7 @@
 					<div class="relative">
 						<img
 							src={url}
-							alt="Preview"
+							alt={$_('components.media.preview')}
 							class="h-24 w-full rounded object-cover"
 						/>
 						<div
@@ -249,10 +311,10 @@
 					<Upload class="h-6 w-6 text-muted-foreground" />
 				</div>
 				<p class="mt-3 text-sm font-medium">
-					{isDragging ? 'Drop image here' : 'Click or drag to upload'}
+					{isDragging ? $_('components.media.dropImageHere') : $_('components.media.clickOrDrag')}
 				</p>
 				<p class="mt-1 text-xs text-muted-foreground">
-					JPEG, PNG, GIF, WebP up to {MAX_IMAGE_SIZE / 1024 / 1024}MB
+					{$_('components.media.supportedFormats', { values: { size: MAX_IMAGE_SIZE / 1024 / 1024 } })}
 				</p>
 				<div class="mt-3 flex items-center gap-2">
 					<Button
@@ -264,7 +326,7 @@
 						}}
 					>
 						<Clipboard class="mr-1 h-3 w-3" />
-						Paste
+						{$_('components.media.paste')}
 					</Button>
 				</div>
 			</div>

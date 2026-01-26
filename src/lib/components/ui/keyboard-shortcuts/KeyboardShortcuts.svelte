@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { Button } from '$components/ui/button';
@@ -7,27 +8,29 @@
 	import X from 'lucide-svelte/icons/x';
 
 	let showHelp = $state(false);
+	let goKeyTimeoutId: ReturnType<typeof setTimeout> | undefined;
+	let searchFocusTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
 	interface Shortcut {
 		key: string;
-		description: string;
+		descKey: string;
 		modifiers?: ('ctrl' | 'alt' | 'shift' | 'meta')[];
 	}
 
 	const shortcuts: Shortcut[] = [
-		{ key: 'n', description: 'New post (focus composer)' },
-		{ key: 'r', description: 'Refresh feed' },
-		{ key: 'j', description: 'Next post' },
-		{ key: 'k', description: 'Previous post' },
-		{ key: '/', description: 'Focus search' },
-		{ key: 'g h', description: 'Go to Home' },
-		{ key: 'g s', description: 'Go to Search' },
-		{ key: 'g m', description: 'Go to Messages' },
-		{ key: 'g n', description: 'Go to Notifications' },
-		{ key: 'g w', description: 'Go to Wallet' },
-		{ key: 'g p', description: 'Go to Settings' },
-		{ key: '?', description: 'Show keyboard shortcuts' },
-		{ key: 'Escape', description: 'Close modal / Cancel' },
+		{ key: 'n', descKey: 'components.keyboard.newPost' },
+		{ key: 'r', descKey: 'components.keyboard.refreshFeed' },
+		{ key: 'j', descKey: 'components.keyboard.nextPost' },
+		{ key: 'k', descKey: 'components.keyboard.prevPost' },
+		{ key: '/', descKey: 'components.keyboard.focusSearch' },
+		{ key: 'g h', descKey: 'components.keyboard.goHome' },
+		{ key: 'g s', descKey: 'components.keyboard.goSearch' },
+		{ key: 'g m', descKey: 'components.keyboard.goMessages' },
+		{ key: 'g n', descKey: 'components.keyboard.goNotifications' },
+		{ key: 'g w', descKey: 'components.keyboard.goWallet' },
+		{ key: 'g p', descKey: 'components.keyboard.goSettings' },
+		{ key: '?', descKey: 'components.keyboard.showShortcuts' },
+		{ key: 'Escape', descKey: 'components.keyboard.closeModal' },
 	];
 
 	let pendingGoKey = false;
@@ -83,7 +86,8 @@
 			case 'g':
 				pendingGoKey = true;
 				// Reset after 1 second if no follow-up key
-				setTimeout(() => (pendingGoKey = false), 1000);
+				if (goKeyTimeoutId) clearTimeout(goKeyTimeoutId);
+				goKeyTimeoutId = setTimeout(() => (pendingGoKey = false), 1000);
 				break;
 			case 'n':
 				event.preventDefault();
@@ -105,7 +109,8 @@
 				event.preventDefault();
 				goto('/search');
 				// Focus search input after navigation
-				setTimeout(() => {
+				if (searchFocusTimeoutId) clearTimeout(searchFocusTimeoutId);
+				searchFocusTimeoutId = setTimeout(() => {
 					const searchInput =
 						document.querySelector<HTMLInputElement>(
 							'input[type="search"]',
@@ -170,6 +175,9 @@
 		if (browser) {
 			window.removeEventListener('keydown', handleKeyDown);
 		}
+		// Clean up timeouts to prevent memory leaks
+		if (goKeyTimeoutId) clearTimeout(goKeyTimeoutId);
+		if (searchFocusTimeoutId) clearTimeout(searchFocusTimeoutId);
 	});
 
 	function formatKey(shortcut: Shortcut): string {
@@ -187,15 +195,18 @@
 
 <!-- Help Modal -->
 {#if showHelp}
-	<div
-		class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm"
+	<!-- Backdrop -->
+	<button
+		class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm cursor-default"
 		onclick={() => (showHelp = false)}
-		onkeydown={(e) => e.key === 'Escape' && (showHelp = false)}
-		role="button"
+		aria-label="Close keyboard shortcuts"
 		tabindex="-1"
-	></div>
+	></button>
 	<div
 		class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="keyboard-shortcuts-title"
 	>
 		<div class="rounded-lg border border-border bg-background shadow-lg">
 			<div
@@ -203,12 +214,13 @@
 			>
 				<div class="flex items-center gap-2">
 					<Keyboard class="h-5 w-5" />
-					<h2 class="font-semibold">Keyboard Shortcuts</h2>
+					<h2 id="keyboard-shortcuts-title" class="font-semibold">{$_('components.keyboard.title')}</h2>
 				</div>
 				<Button
 					variant="ghost"
 					size="icon"
 					onclick={() => (showHelp = false)}
+					aria-label="Close"
 				>
 					<X class="h-4 w-4" />
 				</Button>
@@ -218,7 +230,7 @@
 					{#each shortcuts as shortcut (shortcut.key)}
 						<div class="flex items-center justify-between py-1">
 							<span class="text-sm text-muted-foreground">
-								{shortcut.description}
+								{$_(shortcut.descKey)}
 							</span>
 							<kbd
 								class="rounded bg-muted px-2 py-1 font-mono text-xs text-foreground"
@@ -231,9 +243,7 @@
 			</div>
 			<div class="border-t border-border p-4">
 				<p class="text-center text-xs text-muted-foreground">
-					Press <kbd class="rounded bg-muted px-1 font-mono text-xs"
-						>?</kbd
-					> anytime to toggle this help
+					{$_('components.keyboard.toggleHelp', { values: { key: '?' } })}
 				</p>
 			</div>
 		</div>

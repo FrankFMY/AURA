@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import { fade, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { zapService, type ZapResult } from '$services/zap';
@@ -14,6 +16,10 @@
 	import Copy from 'lucide-svelte/icons/copy';
 	import Check from 'lucide-svelte/icons/check';
 	import ExternalLink from 'lucide-svelte/icons/external-link';
+
+	// Timeout IDs for cleanup
+	let closeTimeoutId: ReturnType<typeof setTimeout> | undefined;
+	let copiedTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
 	interface Props {
 		/** Whether modal is open */
@@ -93,13 +99,14 @@
 					'Zap sent! ⚡',
 					`${effectiveAmount} sats zapped successfully`,
 				);
-				setTimeout(() => onclose(), 2500);
+				if (closeTimeoutId) clearTimeout(closeTimeoutId);
+				closeTimeoutId = setTimeout(() => onclose(), 2500);
 			}
 		} catch (e) {
 			console.error('Zap failed:', e);
 			notificationsStore.error(
 				'Zap failed',
-				e instanceof Error ? e.message : 'Unknown error',
+				'Could not complete the zap. Please check your wallet connection and try again.',
 			);
 		} finally {
 			isLoading = false;
@@ -115,7 +122,8 @@
 				}
 				await navigator.clipboard.writeText(zapResult.invoice);
 				copied = true;
-				setTimeout(() => (copied = false), 2000);
+				if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
+				copiedTimeoutId = setTimeout(() => (copied = false), 2000);
 			} catch (e) {
 				console.error('Failed to copy invoice:', e);
 				notificationsStore.error('Copy failed', 'Could not copy to clipboard');
@@ -128,6 +136,12 @@
 			window.open(`lightning:${zapResult.invoice}`, '_blank');
 		}
 	}
+
+	// Cleanup timeouts on component destroy
+	onDestroy(() => {
+		if (closeTimeoutId) clearTimeout(closeTimeoutId);
+		if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
+	});
 </script>
 
 {#if open}
@@ -145,6 +159,9 @@
 	<div
 		class="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4"
 		transition:scale={{ duration: 250, start: 0.95, easing: cubicOut }}
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="zap-modal-title"
 	>
 		<div
 			class="rounded-lg border border-border bg-background shadow-xl card-elevated-lg"
@@ -160,9 +177,9 @@
 						<Zap class="h-4 w-4 text-warning" />
 					</div>
 					<div>
-						<h2 class="font-semibold">Send Zap</h2>
+						<h2 id="zap-modal-title" class="font-semibold">{$_('components.zap.title')}</h2>
 						<p class="text-xs text-muted-foreground">
-							to {recipientName || 'this user'}
+							{$_('components.zap.toUser', { values: { name: recipientName || $_('profile.title') } })}
 						</p>
 					</div>
 				</div>
@@ -170,6 +187,7 @@
 					variant="ghost"
 					size="icon"
 					onclick={onclose}
+					aria-label="Close"
 				>
 					<X class="h-4 w-4" />
 				</Button>
@@ -180,7 +198,7 @@
 				{#if !zapResult}
 					<!-- Amount Selection -->
 					<div class="space-y-2">
-						<span class="text-sm font-medium">Amount (sats)</span>
+						<span class="text-sm font-medium">{$_('components.zap.amount')}</span>
 						<div
 							class="grid grid-cols-3 gap-2"
 							role="group"
@@ -207,13 +225,13 @@
 					<div class="space-y-2">
 						<label
 							for="custom-amount"
-							class="text-sm font-medium">Custom amount</label
+							class="text-sm font-medium">{$_('components.zap.customAmount')}</label
 						>
 						<Input
 							id="custom-amount"
 							type="number"
 							bind:value={customAmount}
-							placeholder="Enter custom amount"
+							placeholder={$_('components.zap.customAmountPlaceholder')}
 							min="1"
 						/>
 					</div>
@@ -223,12 +241,12 @@
 						<label
 							for="zap-comment"
 							class="text-sm font-medium"
-							>Comment (optional)</label
+							>{$_('components.zap.comment')}</label
 						>
 						<Textarea
 							id="zap-comment"
 							bind:value={comment}
-							placeholder="Add a message..."
+							placeholder={$_('components.zap.commentPlaceholder')}
 							rows={2}
 						/>
 					</div>
@@ -236,7 +254,7 @@
 					<!-- Summary -->
 					<div class="rounded-lg bg-muted p-3 text-center">
 						<p class="text-sm text-muted-foreground">
-							You will send
+							{$_('components.zap.willSend')}
 						</p>
 						<p class="text-2xl font-bold text-warning">
 							⚡ {effectiveAmount || 0} sats
@@ -270,13 +288,13 @@
 								<Zap class="h-8 w-8 text-warning" />
 							</div>
 							<h3 class="text-lg font-semibold text-warning">
-								Zap Sent! ⚡
+								{$_('components.zap.zapSent')}
 							</h3>
 							<p class="text-2xl font-bold text-warning mt-2">
-								+{effectiveAmount} sats
+								{$_('components.zap.satsZapped', { values: { amount: effectiveAmount } })}
 							</p>
 							<p class="text-muted-foreground text-sm mt-1">
-								zapped successfully
+								{$_('components.zap.zappedSuccessfully')}
 							</p>
 						</div>
 					{:else}
@@ -285,8 +303,8 @@
 								class="text-sm text-muted-foreground text-center"
 							>
 								{zapResult.paymentAttempted ?
-									'Payment failed. Copy the invoice to pay manually:'
-								:	'No wallet connected. Copy the invoice to pay:'}
+									$_('components.zap.paymentFailed')
+								:	$_('components.zap.noWallet')}
 							</p>
 
 							<!-- Invoice Display -->
@@ -304,10 +322,10 @@
 								>
 									{#if copied}
 										<Check class="mr-2 h-4 w-4" />
-										Copied
+										{$_('auth.copied')}
 									{:else}
 										<Copy class="mr-2 h-4 w-4" />
-										Copy Invoice
+										{$_('components.zap.copyInvoice')}
 									{/if}
 								</Button>
 								<Button
@@ -316,7 +334,7 @@
 									onclick={openInWallet}
 								>
 									<ExternalLink class="mr-2 h-4 w-4" />
-									Open Wallet
+									{$_('components.zap.openWallet')}
 								</Button>
 							</div>
 						</div>
@@ -335,10 +353,10 @@
 					>
 						{#if isLoading}
 							<Spinner class="mr-2 h-4 w-4" />
-							Sending...
+							{$_('components.zap.sending')}
 						{:else}
 							<Zap class="mr-2 h-4 w-4" />
-							Zap {effectiveAmount || 0} sats
+							{$_('note.zap')} {effectiveAmount || 0} sats
 						{/if}
 					</Button>
 				</div>

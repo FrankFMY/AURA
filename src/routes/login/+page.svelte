@@ -64,8 +64,9 @@
 		try {
 			await authStore.loginWithExtension();
 			goto('/');
-		} catch (e) {
-			loginError = e instanceof Error ? e.message : 'Extension login failed. Please try again.';
+		} catch {
+			// Use store's sanitized error message or fallback
+			loginError = authStore.error || 'Extension login failed. Please try again.';
 			mode = 'select';
 		}
 	}
@@ -77,8 +78,9 @@
 		try {
 			await authStore.loginWithPrivateKey(nsecInput);
 			goto('/');
-		} catch (e) {
-			loginError = e instanceof Error ? e.message : 'Login failed. Please check your key and try again.';
+		} catch {
+			// Use store's sanitized error message or fallback
+			loginError = authStore.error || 'Login failed. Please check your key and try again.';
 		}
 	}
 
@@ -129,8 +131,9 @@
 					generatedKeys.privateKeyHex,
 				);
 				mode = 'success';
-			} catch (e) {
-				loginError = e instanceof Error ? e.message : 'Failed to create account. Please try again.';
+			} catch {
+				// Use store's sanitized error message or fallback
+				loginError = authStore.error || 'Failed to create account. Please try again.';
 			}
 		} else {
 			verificationError = true;

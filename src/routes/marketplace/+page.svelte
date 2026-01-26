@@ -36,6 +36,12 @@
 	let minPrice = $state<number | ''>('');
 	let maxPrice = $state<number | ''>('');
 	let showCreateModal = $state(false);
+	let failedImages = $state<Set<string>>(new Set());
+
+	// Track failed images
+	function handleImageError(imageUrl: string) {
+		failedImages = new Set([...failedImages, imageUrl]);
+	}
 
 	// Categories for filter
 	const categories: { value: ProductCategory | ''; label: string }[] = [
@@ -112,11 +118,18 @@
 		return `https://placehold.co/400x300/1a1a2e/ffffff?text=${encodeURIComponent(categoryIcons[category] || '📦')}`;
 	}
 
-	// Handle infinite scroll
+	// Handle infinite scroll (throttled to prevent rapid fire)
+	let lastScrollCheck = 0;
+	const SCROLL_THROTTLE_MS = 300;
+
 	function handleScroll(e: Event) {
+		const now = Date.now();
+		if (now - lastScrollCheck < SCROLL_THROTTLE_MS) return;
+		lastScrollCheck = now;
+
 		const target = e.target as HTMLElement;
 		const threshold = 200;
-		
+
 		if (target.scrollHeight - target.scrollTop - target.clientHeight < threshold) {
 			if (!marketplaceStore.isLoadingMore && marketplaceStore.hasMore) {
 				marketplaceStore.loadMore();
@@ -315,12 +328,13 @@
 					<Card class="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
 						<!-- Image -->
 						<div class="relative aspect-4/3 bg-muted overflow-hidden">
-							{#if listing.images.length > 0}
+							{#if listing.images.length > 0 && !failedImages.has(listing.images[0])}
 								<img
 									src={listing.images[0]}
 									alt={listing.title}
 									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
 									loading="lazy"
+									onerror={() => handleImageError(listing.images[0])}
 								/>
 							{:else}
 								<div class="w-full h-full flex items-center justify-center text-4xl bg-linear-to-br from-muted to-muted/50">
@@ -445,13 +459,18 @@
 			onclick={(e) => e.stopPropagation()}
 		>
 			<!-- Images -->
-			{#if listing.images.length > 0}
+			{#if listing.images.length > 0 && !failedImages.has(listing.images[0])}
 				<div class="relative aspect-video bg-muted">
 					<img
 						src={listing.images[0]}
 						alt={listing.title}
 						class="w-full h-full object-contain"
+						onerror={() => handleImageError(listing.images[0])}
 					/>
+				</div>
+			{:else if listing.images.length > 0}
+				<div class="relative aspect-video bg-muted flex items-center justify-center text-6xl">
+					{categoryIcons[listing.category] || '📦'}
 				</div>
 			{/if}
 

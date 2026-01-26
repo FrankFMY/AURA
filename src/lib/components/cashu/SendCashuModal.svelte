@@ -1,10 +1,15 @@
 <script lang="ts">
 	/**
 	 * SendCashuModal
-	 * 
+	 *
 	 * Modal for sending eCash tokens in chat.
 	 */
+	import { onDestroy } from 'svelte';
+	import { _ } from 'svelte-i18n';
 	import { cashuStore } from '$stores/cashu.svelte';
+
+	// Timeout ID for cleanup
+	let copiedTimeoutId: ReturnType<typeof setTimeout> | undefined;
 	import { Button } from '$components/ui/button';
 	import { Input } from '$components/ui/input';
 	import { Spinner } from '$components/ui/spinner';
@@ -86,7 +91,8 @@
 			}
 			await navigator.clipboard.writeText(generatedToken);
 			copied = true;
-			setTimeout(() => { copied = false; }, 2000);
+			if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
+			copiedTimeoutId = setTimeout(() => { copied = false; }, 2000);
 		} catch (e) {
 			console.error('Failed to copy:', e);
 		}
@@ -98,6 +104,11 @@
 			handleClose();
 		}
 	}
+
+	// Cleanup timeout on component destroy
+	onDestroy(() => {
+		if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
+	});
 </script>
 
 {#if open}
@@ -113,13 +124,16 @@
 		<Card
 			class="w-full max-w-md bg-card shadow-xl"
 			onclick={(e) => e.stopPropagation()}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="send-cashu-modal-title"
 		>
 			<CardHeader class="flex flex-row items-center justify-between pb-2">
 				<CardTitle class="flex items-center gap-2">
 					<Coins class="w-5 h-5 text-amber-500" />
-					Send eCash
+					<span id="send-cashu-modal-title">{$_('components.cashu.title')}</span>
 				</CardTitle>
-				<Button variant="ghost" size="icon" onclick={handleClose}>
+				<Button variant="ghost" size="icon" onclick={handleClose} aria-label="Close">
 					<X class="w-4 h-4" />
 				</Button>
 			</CardHeader>
@@ -128,7 +142,7 @@
 				{#if !generatedToken}
 					<!-- Balance -->
 					<div class="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-						<span class="text-sm text-muted-foreground">Available balance</span>
+						<span class="text-sm text-muted-foreground">{$_('components.cashu.availableBalance')}</span>
 						<div class="flex items-center gap-1">
 							<Zap class="w-4 h-4 text-amber-500" />
 							<span class="font-mono font-medium">{balance}</span>
@@ -138,7 +152,7 @@
 
 					<!-- Amount input -->
 					<div class="space-y-2">
-						<label for="amount" class="text-sm font-medium">Amount (sats)</label>
+						<label for="amount" class="text-sm font-medium">{$_('components.cashu.amount')}</label>
 						<Input
 							id="amount"
 							type="number"
@@ -146,7 +160,7 @@
 							max={balance}
 							value={String(amount)}
 							oninput={(e) => amount = parseInt((e.target as HTMLInputElement).value) || 0}
-							placeholder="Enter amount"
+							placeholder={$_('components.cashu.amountPlaceholder')}
 							class="text-lg font-mono"
 						/>
 						
@@ -169,13 +183,13 @@
 					<!-- Memo input -->
 					<div class="space-y-2">
 						<label for="memo" class="text-sm font-medium">
-							Memo <span class="text-muted-foreground">(optional)</span>
+							{$_('components.cashu.memo')} <span class="text-muted-foreground">({$_('components.cashu.memoOptional')})</span>
 						</label>
 						<Input
 							id="memo"
 							type="text"
 							bind:value={memo}
-							placeholder="What's this for?"
+							placeholder={$_('components.cashu.memoPlaceholder')}
 							maxlength={100}
 						/>
 					</div>
@@ -192,7 +206,7 @@
 					{#if amount > balance}
 						<div class="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
 							<AlertCircle class="w-4 h-4 shrink-0" />
-							<span class="text-sm">Insufficient balance</span>
+							<span class="text-sm">{$_('components.cashu.insufficientBalance')}</span>
 						</div>
 					{/if}
 				{:else}
@@ -202,9 +216,9 @@
 							<Check class="w-8 h-8 text-green-500" />
 						</div>
 						<div>
-							<p class="text-lg font-medium">Token Created!</p>
+							<p class="text-lg font-medium">{$_('components.cashu.tokenCreated')}</p>
 							<p class="text-sm text-muted-foreground">
-								{amount} sats ready to send
+								{$_('components.cashu.satsReady', { values: { amount } })}
 							</p>
 						</div>
 
@@ -219,7 +233,7 @@
 			<CardFooter class="flex gap-2">
 				{#if !generatedToken}
 					<Button variant="outline" class="flex-1" onclick={handleClose}>
-						Cancel
+						{$_('common.cancel')}
 					</Button>
 					<Button
 						class="flex-1 bg-amber-500 hover:bg-amber-600"
@@ -228,21 +242,21 @@
 					>
 						{#if isSending}
 							<Spinner size="sm" class="mr-2" />
-							Creating...
+							{$_('components.cashu.creating')}
 						{:else}
 							<Coins class="w-4 h-4 mr-2" />
-							Create Token
+							{$_('components.cashu.createToken')}
 						{/if}
 					</Button>
 				{:else}
 					<Button variant="outline" class="flex-1" onclick={copyToken}>
-						{copied ? 'Copied!' : 'Copy Token'}
+						{copied ? $_('auth.copied') : $_('components.cashu.copyToken')}
 					</Button>
 					<Button
 						class="flex-1 bg-amber-500 hover:bg-amber-600"
 						onclick={sendInChat}
 					>
-						Send in Chat
+						{$_('components.cashu.sendInChat')}
 					</Button>
 				{/if}
 			</CardFooter>

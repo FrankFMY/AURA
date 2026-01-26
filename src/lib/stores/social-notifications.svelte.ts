@@ -8,6 +8,7 @@ import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
 import { dbHelpers, type UserProfile } from '$db';
 import authStore from './auth.svelte';
+import { pushNotifications } from '$services/push-notifications';
 
 /** Notification types */
 export type SocialNotificationType = 'mention' | 'reaction' | 'repost' | 'zap' | 'follow' | 'reply';
@@ -201,7 +202,7 @@ function createSocialNotificationsStore() {
 				const insertIndex = notifications.findIndex(
 					n => n.createdAt < notification.createdAt
 				);
-				
+
 				if (insertIndex === -1) {
 					notifications = [...notifications, notification];
 				} else {
@@ -211,10 +212,45 @@ function createSocialNotificationsStore() {
 						...notifications.slice(insertIndex)
 					];
 				}
-				
+
 				// Update unread count
 				if (!notification.read) {
 					unreadCount = notifications.filter(n => !n.read).length;
+				}
+
+				// Send push notification
+				const authorName = notification.actorProfile?.display_name ||
+					notification.actorProfile?.name ||
+					notification.actorPubkey.slice(0, 8);
+
+				switch (notification.type) {
+					case 'mention':
+						pushNotifications.notifyMention(
+							authorName,
+							notification.content || '',
+							notification.id
+						);
+						break;
+					case 'reply':
+						pushNotifications.notifyReply(
+							authorName,
+							notification.content || '',
+							notification.targetEventId || notification.id
+						);
+						break;
+					case 'zap':
+						pushNotifications.notifyZap(
+							authorName,
+							notification.amount || 0,
+							notification.targetEventId
+						);
+						break;
+					case 'follow':
+						pushNotifications.notifyNewFollower(
+							authorName,
+							notification.actorPubkey
+						);
+						break;
 				}
 			}
 		};

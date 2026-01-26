@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { authStore } from '$stores/auth.svelte';
 	import ndkService from '$services/ndk';
 	import { contactsService } from '$services/contacts';
@@ -25,9 +26,14 @@
 	import UserPlus from 'lucide-svelte/icons/user-plus';
 	import UserMinus from 'lucide-svelte/icons/user-minus';
 	import { ZapModal } from '$components/zap';
+	import { ProfileQR } from '$components/profile';
+	import { CallButton } from '$components/calls';
+	import QrCode from 'lucide-svelte/icons/qr-code';
+	import Video from 'lucide-svelte/icons/video';
 
 	let profile = $state<UserProfile | null>(null);
 	let showZapModal = $state(false);
+	let showQRModal = $state(false);
 	let notes = $state<NDKEvent[]>([]);
 	let isLoading = $state(true);
 	let isLoadingNotes = $state(true);
@@ -36,6 +42,7 @@
 	let isFollowLoading = $state(false);
 	let followingCount = $state(0);
 	let followerCount = $state(0);
+	let bannerFailed = $state(false);
 
 	const pubkey = $derived($page.params.pubkey ?? '');
 	const isOwnProfile = $derived(authStore.pubkey === pubkey);
@@ -57,6 +64,12 @@
 	const avatarInitials = $derived(
 		displayName ? displayName.slice(0, 2).toUpperCase() : 'AN',
 	);
+
+	// Reset banner error state when navigating to different profile
+	$effect(() => {
+		pubkey; // Track pubkey changes
+		bannerFailed = false;
+	});
 
 	/** Fetch events using subscription (handles slow relays gracefully) */
 	function fetchWithSubscription(
@@ -156,7 +169,7 @@
 
 	function handleMessage() {
 		// Navigate to messages with this user
-		window.location.href = `/messages?start=${pubkey}`;
+		goto(`/messages?start=${pubkey}`);
 	}
 
 	async function handleFollow() {
@@ -188,11 +201,12 @@
 	<div
 		class="relative h-32 bg-linear-to-br from-primary/20 to-accent/20 md:h-48"
 	>
-		{#if profile?.banner}
+		{#if profile?.banner && !bannerFailed}
 			<img
 				src={profile.banner}
 				alt="Profile banner"
 				class="h-full w-full object-cover"
+				onerror={() => bannerFailed = true}
 			/>
 		{/if}
 		<Button
@@ -237,6 +251,13 @@
 					>
 						<MessageCircle class="h-4 w-4" />
 					</Button>
+					<CallButton
+						{pubkey}
+						variant="outline"
+						size="icon"
+						showLabel={false}
+						callType="video"
+					/>
 					{#if profile?.lud16}
 						<Button
 							variant="outline"
@@ -297,12 +318,22 @@
 						size="icon"
 						class="h-8 w-8"
 						onclick={handleCopyNpub}
+						title="Copy npub"
 					>
 						{#if copied}
 							<Check class="h-4 w-4 text-success" />
 						{:else}
 							<Copy class="h-4 w-4" />
 						{/if}
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon"
+						class="h-8 w-8"
+						onclick={() => (showQRModal = true)}
+						title="Show QR code"
+					>
+						<QrCode class="h-4 w-4" />
 					</Button>
 				</div>
 
@@ -407,3 +438,11 @@
 		onclose={() => (showZapModal = false)}
 	/>
 {/if}
+
+<!-- QR Code Modal -->
+<ProfileQR
+	{npub}
+	displayName={displayName}
+	open={showQRModal}
+	onclose={() => (showQRModal = false)}
+/>

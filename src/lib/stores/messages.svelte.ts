@@ -7,6 +7,7 @@ import {
 	giftWrap,
 	type giftWrap as GiftWrapModule
 } from '$lib/services/crypto';
+import { pushNotifications } from '$services/push-notifications';
 
 /** Encryption protocol used for a message */
 export type EncryptionProtocol = 'nip04' | 'nip17' | 'unknown';
@@ -346,11 +347,18 @@ function createMessagesStore() {
 				// 1. This is a truly new message (incrementUnread = true)
 				// 2. Conversation is not currently active
 				// 3. Message is not from us (outgoing)
-				const shouldIncrement = incrementUnread && 
-					activeConversation !== otherPubkey && 
+				const shouldIncrement = incrementUnread &&
+					activeConversation !== otherPubkey &&
 					!message.isOutgoing;
-				
+
 				const newUnreadCount = shouldIncrement ? conv.unread_count + 1 : conv.unread_count;
+
+				// Send push notification for new incoming messages
+				if (shouldIncrement && conv.profile) {
+					const authorName = conv.profile.display_name || conv.profile.name || otherPubkey.slice(0, 8);
+					const preview = message.decrypted ? (message.content || 'New message') : 'Encrypted message';
+					pushNotifications.notifyDM(authorName, preview, otherPubkey);
+				}
 				
 				// Only update preview if this message is chronologically newer
 				const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0);

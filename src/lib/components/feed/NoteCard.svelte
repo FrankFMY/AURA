@@ -8,12 +8,17 @@
 	import { Textarea } from '$components/ui/textarea';
 	import { Spinner } from '$components/ui/spinner';
 	import { ZapModal } from '$components/zap';
+	import { ConfirmDialog } from '$components/ui/confirm-dialog';
 	import MediaEmbed from './MediaEmbed.svelte';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { parseNoteContent, sanitizeUrl } from '$lib/validators/sanitize';
 	import { feedStore } from '$stores/feed.svelte';
 	import { notificationsStore } from '$stores/notifications.svelte';
 	import { ndkService } from '$lib/services/ndk';
+	import { BookmarkButton } from '$components/bookmarks';
+	import { VerifiedBadge } from '$components/verified';
+	import { pollsStore } from '$stores/polls.svelte';
+	import { PollCard } from '$components/polls';
 	import Heart from 'lucide-svelte/icons/heart';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
 	import Repeat2 from 'lucide-svelte/icons/repeat-2';
@@ -53,11 +58,16 @@
 	let showZapModal = $state(false);
 	let showRepostMenu = $state(false);
 	let showQuoteModal = $state(false);
+	let showDeleteConfirm = $state(false);
 	let quoteContent = $state('');
 
 	// Parse content safely using DOMPurify-based sanitization
 	const parsedContent = $derived(parseNoteContent(event.content));
 	const safeHtml = $derived(parsedContent.html);
+
+	// Check if this is a poll event
+	const isPoll = $derived(pollsStore.isPollEvent(event));
+	const poll = $derived(isPoll ? pollsStore.getPollFromEvent(event) : null);
 
 	// Extract all media URLs from content (images, videos, YouTube)
 	const mediaUrls = $derived(extractMediaUrls(event.content));
@@ -153,10 +163,12 @@
 		}
 	}
 
-	async function handleDelete() {
+	function promptDelete() {
 		if (isDeleting) return;
-		if (!confirm('Are you sure you want to delete this note?')) return;
+		showDeleteConfirm = true;
+	}
 
+	async function handleDelete() {
 		isDeleting = true;
 		try {
 			await feedStore.deleteNote(event.id);
@@ -260,13 +272,7 @@
 					{displayName}
 				</a>
 				{#if author?.nip05}
-					<span
-						class="text-xs text-accent"
-						title="Verified: {author.nip05}"
-						aria-label="Verified user"
-					>
-						✓
-					</span>
+					<VerifiedBadge nip05={author.nip05} pubkey={event.pubkey} size="sm" />
 				{/if}
 				<span
 					class="text-muted-foreground"
@@ -282,13 +288,21 @@
 				</time>
 			</div>
 
-			<!-- Content - Safely sanitized HTML -->
-			<div class="mb-3 wrap-break-words text-foreground note-content">
-				{@html safeHtml}
-			</div>
+			<!-- Content - Poll or regular note -->
+			{#if isPoll && poll}
+				<!-- Poll content -->
+				<div class="mb-3">
+					<PollCard {poll} compact />
+				</div>
+			{:else}
+				<!-- Regular note content - Safely sanitized HTML -->
+				<div class="mb-3 wrap-break-words text-foreground note-content">
+					{@html safeHtml}
+				</div>
+			{/if}
 
 			<!-- Media embeds (images, videos, YouTube) -->
-			{#if mediaUrls.length > 0}
+			{#if mediaUrls.length > 0 && !isPoll}
 				<div
 					class="mb-3 grid gap-2 {mediaUrls.length > 1 ?
 						'grid-cols-2'
@@ -440,12 +454,14 @@
 					<Share class="h-4 w-4" />
 				</Button>
 
+				<BookmarkButton eventId={event.id} />
+
 				{#if isAuthor}
 					<Button
 						variant="ghost"
 						size="sm"
 						class="h-9 px-2 hover:text-red-500 hover:bg-red-500/10"
-						onclick={handleDelete}
+						onclick={promptDelete}
 						disabled={isDeleting}
 						aria-label="Delete note"
 						title="Delete note"
@@ -547,6 +563,16 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Delete Confirmation Dialog -->
+<ConfirmDialog
+	bind:open={showDeleteConfirm}
+	title="Delete Note"
+	message="Are you sure you want to delete this note? This action cannot be undone."
+	confirmText="Delete"
+	variant="destructive"
+	onconfirm={handleDelete}
+/>
 
 <style>
 	/* Note content link styling */

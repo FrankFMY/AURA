@@ -18,6 +18,7 @@
 	import { Badge } from '$components/ui/badge';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Spinner } from '$components/ui/spinner';
+	import { ConfirmDialog } from '$components/ui/confirm-dialog';
 	import { notificationsStore } from '$stores/notifications.svelte';
 	import Settings from 'lucide-svelte/icons/settings';
 	import User from 'lucide-svelte/icons/user';
@@ -38,7 +39,18 @@
 	import Coffee from 'lucide-svelte/icons/coffee';
 	import Volume2 from 'lucide-svelte/icons/volume-2';
 	import VolumeX from 'lucide-svelte/icons/volume-x';
+	import Bell from 'lucide-svelte/icons/bell';
+	import BellOff from 'lucide-svelte/icons/bell-off';
+	import MessageSquare from 'lucide-svelte/icons/message-square';
+	import AtSign from 'lucide-svelte/icons/at-sign';
+	import Reply from 'lucide-svelte/icons/reply';
+	import UserPlus from 'lucide-svelte/icons/user-plus';
 	import { onMount } from 'svelte';
+	import {
+		pushNotifications,
+		type NotificationSettings,
+		type NotificationType
+	} from '$services/push-notifications';
 	import {
 		setSoundsEnabled,
 		isSoundsEnabled,
@@ -76,6 +88,23 @@
 	// Sound settings
 	let soundsEnabled = $state(true);
 
+	// Notification settings
+	let notificationsEnabled = $state(false);
+	let notificationSettings = $state<NotificationSettings>({
+		enabled: false,
+		types: {
+			mentions: true,
+			dms: true,
+			zaps: true,
+			replies: true,
+			followers: false
+		}
+	});
+	let notificationPermission = $state<NotificationPermission | 'unsupported'>('default');
+
+	// Confirm dialogs
+	let showClearCacheConfirm = $state(false);
+
 	onMount(async () => {
 		// Load relays
 		const storedRelays = await db.relays.toArray();
@@ -100,6 +129,12 @@
 		// Load sound settings
 		await initAudioService();
 		soundsEnabled = isSoundsEnabled();
+
+		// Load notification settings
+		await pushNotifications.init();
+		notificationSettings = pushNotifications.getSettings();
+		notificationsEnabled = notificationSettings.enabled;
+		notificationPermission = pushNotifications.getPermissionStatus();
 	});
 
 	async function handleSaveProfile() {
@@ -123,7 +158,7 @@
 
 	async function addRelay() {
 		if (!newRelayUrl.trim() || !newRelayUrl.startsWith('wss://')) return;
-
+		const savedUrl = newRelayUrl; // Save before clearing
 		try {
 			await ndkService.addRelay(newRelayUrl);
 			relays = [
@@ -133,6 +168,9 @@
 			newRelayUrl = '';
 		} catch (e) {
 			console.error('Failed to add relay:', e);
+			// Restore input on error so user can retry
+			newRelayUrl = savedUrl;
+			notificationsStore.error('Failed to add relay', 'Please check the URL and try again');
 		}
 	}
 
@@ -141,17 +179,20 @@
 		relays = relays.filter((r) => r.url !== url);
 	}
 
-	async function clearCache() {
-		if (!confirm('This will clear all cached data. Continue?')) return;
+	function promptClearCache() {
+		showClearCacheConfirm = true;
+	}
 
+	async function clearCache() {
 		await db.events.clear();
 		await db.profiles.clear();
 		dbStats = await dbHelpers.getStats();
+		notificationsStore.success('Cache cleared', 'All cached data has been removed');
 	}
 
 	async function cleanupOldData() {
 		const deleted = await dbHelpers.cleanupOldEvents();
-		alert(`Cleaned up ${deleted} old events`);
+		notificationsStore.success('Cleanup complete', `Removed ${deleted} old events`);
 		dbStats = await dbHelpers.getStats();
 	}
 
@@ -165,6 +206,30 @@
 		if (!canConfirmPanic) return;
 		isPanicWiping = true;
 		await authStore.panicWipe();
+	}
+
+	async function handleToggleNotifications() {
+		if (notificationsEnabled) {
+			await pushNotifications.disable();
+			notificationsEnabled = false;
+			notificationSettings = pushNotifications.getSettings();
+		} else {
+			const success = await pushNotifications.enable();
+			if (success) {
+				notificationsEnabled = true;
+				notificationSettings = pushNotifications.getSettings();
+				notificationsStore.success('Notifications enabled', 'You will receive push notifications');
+			} else {
+				notificationsStore.error('Permission denied', 'Please allow notifications in your browser settings');
+			}
+		}
+		notificationPermission = pushNotifications.getPermissionStatus();
+	}
+
+	async function handleToggleNotificationType(type: NotificationType) {
+		const newValue = !notificationSettings.types[type];
+		await pushNotifications.toggleType(type, newValue);
+		notificationSettings = pushNotifications.getSettings();
 	}
 
 	async function handleDonate() {
@@ -187,10 +252,10 @@
 				`You sent ${donateAmount} sats to support AURA`,
 			);
 			showDonateModal = false;
-		} catch (e) {
+		} catch {
 			notificationsStore.error(
 				'Donation failed',
-				e instanceof Error ? e.message : 'Unknown error',
+				'Could not complete the payment. Please try again.',
 			);
 		}
 	}
@@ -591,7 +656,7 @@
 				</Button>
 				<Button
 					variant="destructive"
-					onclick={clearCache}
+					onclick={promptClearCache}
 				>
 					<Trash2 class="h-4 w-4" />
 					Clear All Cache
@@ -642,6 +707,141 @@
 						devices.
 					</p>
 				</div>
+			</CardContent>
+		</Card>
+
+		<!-- Notifications -->
+		<Card>
+			<CardHeader>
+				<div class="flex items-center gap-2">
+					{#if notificationsEnabled}
+						<Bell class="h-5 w-5" />
+					{:else}
+						<BellOff class="h-5 w-5" />
+					{/if}
+					<CardTitle>Notifications</CardTitle>
+				</div>
+				<CardDescription>Push notification preferences</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				{#if !pushNotifications.isSupported()}
+					<div class="flex items-start gap-3 rounded-lg bg-muted p-3">
+						<AlertTriangle class="mt-0.5 h-4 w-4 text-warning" />
+						<p class="text-sm text-muted-foreground">
+							Push notifications are not supported in this browser.
+						</p>
+					</div>
+				{:else}
+					<!-- Master toggle -->
+					<div class="flex items-center justify-between">
+						<div class="space-y-0.5">
+							<p class="font-medium">Push Notifications</p>
+							<p class="text-sm text-muted-foreground">
+								{#if notificationPermission === 'denied'}
+									Blocked in browser settings
+								{:else if notificationPermission === 'granted'}
+									{notificationsEnabled ? 'Enabled' : 'Disabled'}
+								{:else}
+									Requires permission
+								{/if}
+							</p>
+						</div>
+						<Button
+							variant={notificationsEnabled ? 'default' : 'outline'}
+							size="sm"
+							onclick={handleToggleNotifications}
+							disabled={notificationPermission === 'denied'}
+						>
+							{notificationsEnabled ? 'On' : 'Off'}
+						</Button>
+					</div>
+
+					{#if notificationsEnabled}
+						<div class="border-t border-border pt-4 space-y-3">
+							<p class="text-sm font-medium text-muted-foreground">Notify me about:</p>
+
+							<!-- Mentions -->
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2">
+									<AtSign class="h-4 w-4 text-muted-foreground" />
+									<span class="text-sm">Mentions</span>
+								</div>
+								<Button
+									variant={notificationSettings.types.mentions ? 'default' : 'outline'}
+									size="sm"
+									class="h-7 px-2 text-xs"
+									onclick={() => handleToggleNotificationType('mentions')}
+								>
+									{notificationSettings.types.mentions ? 'On' : 'Off'}
+								</Button>
+							</div>
+
+							<!-- DMs -->
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2">
+									<MessageSquare class="h-4 w-4 text-muted-foreground" />
+									<span class="text-sm">Direct Messages</span>
+								</div>
+								<Button
+									variant={notificationSettings.types.dms ? 'default' : 'outline'}
+									size="sm"
+									class="h-7 px-2 text-xs"
+									onclick={() => handleToggleNotificationType('dms')}
+								>
+									{notificationSettings.types.dms ? 'On' : 'Off'}
+								</Button>
+							</div>
+
+							<!-- Zaps -->
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2">
+									<Zap class="h-4 w-4 text-warning" />
+									<span class="text-sm">Zaps</span>
+								</div>
+								<Button
+									variant={notificationSettings.types.zaps ? 'default' : 'outline'}
+									size="sm"
+									class="h-7 px-2 text-xs"
+									onclick={() => handleToggleNotificationType('zaps')}
+								>
+									{notificationSettings.types.zaps ? 'On' : 'Off'}
+								</Button>
+							</div>
+
+							<!-- Replies -->
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2">
+									<Reply class="h-4 w-4 text-muted-foreground" />
+									<span class="text-sm">Replies</span>
+								</div>
+								<Button
+									variant={notificationSettings.types.replies ? 'default' : 'outline'}
+									size="sm"
+									class="h-7 px-2 text-xs"
+									onclick={() => handleToggleNotificationType('replies')}
+								>
+									{notificationSettings.types.replies ? 'On' : 'Off'}
+								</Button>
+							</div>
+
+							<!-- New Followers -->
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2">
+									<UserPlus class="h-4 w-4 text-muted-foreground" />
+									<span class="text-sm">New Followers</span>
+								</div>
+								<Button
+									variant={notificationSettings.types.followers ? 'default' : 'outline'}
+									size="sm"
+									class="h-7 px-2 text-xs"
+									onclick={() => handleToggleNotificationType('followers')}
+								>
+									{notificationSettings.types.followers ? 'On' : 'Off'}
+								</Button>
+							</div>
+						</div>
+					{/if}
+				{/if}
 			</CardContent>
 		</Card>
 
@@ -1007,3 +1207,13 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Clear Cache Confirmation Dialog -->
+<ConfirmDialog
+	bind:open={showClearCacheConfirm}
+	title="Clear Cache"
+	message="This will remove all cached events and profiles. Your account and settings will not be affected."
+	confirmText="Clear Cache"
+	variant="destructive"
+	onconfirm={clearCache}
+/>

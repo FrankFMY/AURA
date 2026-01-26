@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { messagesStore } from '$stores/messages.svelte';
 	import { authStore } from '$stores/auth.svelte';
 	import { cashuStore } from '$stores/cashu.svelte';
+	import { mediaService } from '$services/media';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
 	import { Input } from '$components/ui/input';
@@ -12,7 +15,10 @@
 	import { Skeleton } from '$components/ui/skeleton';
 	import { EmptyState } from '$components/ui/empty-state';
 	import { CashuTokenBubble, SendCashuModal } from '$components/cashu';
+	import VoiceRecorder from '$lib/components/messages/VoiceRecorder.svelte';
+	import VoiceMessage from '$lib/components/messages/VoiceMessage.svelte';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
+	import { notificationsStore } from '$stores/notifications.svelte';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import Send from 'lucide-svelte/icons/send';
 	import Plus from 'lucide-svelte/icons/plus';
@@ -23,6 +29,7 @@
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
 	import Coins from 'lucide-svelte/icons/coins';
+	import type { RecordingResult } from '$lib/utils/audio-recorder';
 
 	let messageInput = $state('');
 	let searchQuery = $state('');
@@ -30,9 +37,60 @@
 	let newConversationPubkey = $state('');
 	let messagesContainer: HTMLElement | undefined = $state(undefined);
 	let showSendCashu = $state(false);
+	let isUploadingVoice = $state(false);
 
 	const activeConv = $derived(messagesStore.getActiveConversation());
 	const hasCashuBalance = $derived(cashuStore.isConnected && cashuStore.totalBalance > 0);
+
+	/**
+	 * Check if message content contains an audio URL
+	 */
+	function containsAudioUrl(content: string | undefined | null): boolean {
+		if (!content) return false;
+		return mediaService.extractAudioUrl(content) !== null;
+	}
+
+	/**
+	 * Extract audio URL from message content
+	 */
+	function extractAudioUrl(content: string | undefined | null): string | null {
+		return mediaService.extractAudioUrl(content || '');
+	}
+
+	/**
+	 * Handle voice message recorded
+	 */
+	async function handleVoiceRecorded(result: RecordingResult) {
+		if (!messagesStore.activeConversation) return;
+
+		isUploadingVoice = true;
+
+		try {
+			// Create file from blob
+			const file = new File(
+				[result.blob],
+				`voice-${Date.now()}.webm`,
+				{ type: result.mimeType }
+			);
+
+			// Upload to media service
+			const uploadResult = await mediaService.upload(file);
+
+			// Send message with audio URL
+			await messagesStore.sendMessage(
+				messagesStore.activeConversation,
+				uploadResult.url
+			);
+		} catch (e) {
+			console.error('Failed to send voice message:', e);
+			notificationsStore.error(
+				'Failed to send',
+				'Could not upload voice message. Please try again.'
+			);
+		} finally {
+			isUploadingVoice = false;
+		}
+	}
 
 	/**
 	 * Check if a message content contains a Cashu token
@@ -66,10 +124,19 @@
 		}
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		// Only load if not already loaded (layout may have already loaded)
 		if (messagesStore.conversations.length === 0) {
-			messagesStore.loadConversations();
+			await messagesStore.loadConversations();
+		}
+
+		// Check for start parameter to open/create conversation with specific user
+		const startPubkey = $page.url.searchParams.get('start');
+		if (startPubkey) {
+			// Start conversation with this user
+			await messagesStore.startConversation(startPubkey);
+			// Clear the query parameter from URL without reload
+			goto('/messages', { replaceState: true });
 		}
 	});
 
@@ -334,6 +401,28 @@
 									senderPubkey={message.isOutgoing ? undefined : activeConv.pubkey}
 								/>
 							{/if}
+						{:else if message.decrypted && containsAudioUrl(message.content)}
+							<!-- Voice Message -->
+							{@const audioUrl = extractAudioUrl(message.content)}
+							{#if audioUrl}
+								<div class="flex flex-col gap-1">
+									<VoiceMessage url={audioUrl} />
+									<div
+										class="flex items-center justify-end gap-1 text-xs text-muted-foreground"
+									>
+										{#if message.protocol === 'nip17'}
+											<span title="Private (NIP-17)">
+												<ShieldCheck class="h-3 w-3 text-green-500" />
+											</span>
+										{:else if message.protocol === 'nip04'}
+											<span title="Encrypted (NIP-04)">
+												<Lock class="h-3 w-3 opacity-50" />
+											</span>
+										{/if}
+										<span>{formatRelativeTime(message.created_at)}</span>
+									</div>
+								</div>
+							{/if}
 						{:else}
 							<!-- Regular Message -->
 							<div
@@ -396,7 +485,20 @@
 							<Coins class="h-5 w-5" />
 						</Button>
 					{/if}
-					
+
+					<!-- Voice recorder -->
+					{#if isUploadingVoice}
+						<div class="flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5">
+							<Spinner size="sm" />
+							<span class="text-sm text-muted-foreground">Uploading...</span>
+						</div>
+					{:else}
+						<VoiceRecorder
+							onRecorded={handleVoiceRecorded}
+							maxDuration={60}
+						/>
+					{/if}
+
 					<Textarea
 						bind:value={messageInput}
 						placeholder="Type a message..."

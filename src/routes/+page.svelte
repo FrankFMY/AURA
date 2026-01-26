@@ -3,9 +3,11 @@
 	import { authStore } from '$stores/auth.svelte';
 	import { feedStore } from '$stores/feed.svelte';
 	import { uiStore } from '$stores/ui.svelte';
+	import { storiesStore, type UserStory } from '$stores/stories.svelte';
 	import NoteCard from '$components/feed/NoteCard.svelte';
 	import CreateNote from '$components/feed/CreateNote.svelte';
 	import NoteSkeleton from '$components/feed/NoteSkeleton.svelte';
+	import { StoriesBar, StoryViewer, CreateStory } from '$components/stories';
 	import { VirtualList } from '$components/ui/virtual-list';
 	import { EmptyState } from '$components/ui/empty-state';
 	import { ScrollToTop } from '$components/ui/scroll-to-top';
@@ -20,6 +22,11 @@
 	import ArrowUp from 'lucide-svelte/icons/arrow-up';
 
 	let feedTab = $state<'global' | 'following'>('global');
+
+	// Stories state
+	let showCreateStory = $state(false);
+	let viewingStory = $state<UserStory | null>(null);
+	let storyStartIndex = $state(0);
 	let virtualList: ReturnType<typeof VirtualList> | undefined = $state();
 	let showScrollTop = $state(false);
 	let scrollPosition = $state(0);
@@ -80,6 +87,39 @@
 	$effect(() => {
 		showScrollTop = scrollPosition > 500;
 	});
+
+	// Stories handlers
+	function handleViewStory(userStory: UserStory, startIndex = 0) {
+		viewingStory = userStory;
+		storyStartIndex = startIndex;
+	}
+
+	function handleCloseStory() {
+		viewingStory = null;
+		storyStartIndex = 0;
+	}
+
+	function handleNextUserStory() {
+		if (!viewingStory) return;
+		const sorted = storiesStore.sortedStories;
+		const currentIdx = sorted.findIndex((s) => s.pubkey === viewingStory!.pubkey);
+		if (currentIdx < sorted.length - 1) {
+			viewingStory = sorted[currentIdx + 1];
+			storyStartIndex = 0;
+		} else {
+			handleCloseStory();
+		}
+	}
+
+	function handlePrevUserStory() {
+		if (!viewingStory) return;
+		const sorted = storiesStore.sortedStories;
+		const currentIdx = sorted.findIndex((s) => s.pubkey === viewingStory!.pubkey);
+		if (currentIdx > 0) {
+			viewingStory = sorted[currentIdx - 1];
+			storyStartIndex = sorted[currentIdx - 1].items.length - 1;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -138,6 +178,12 @@
 	{#if authStore.isAuthenticated}
 		<CreateNote />
 	{/if}
+
+	<!-- Stories bar -->
+	<StoriesBar
+		onViewStory={handleViewStory}
+		onCreateStory={() => (showCreateStory = true)}
+	/>
 
 	<!-- Feed -->
 	<div class="flex-1 overflow-hidden relative">
@@ -270,3 +316,19 @@
 		/>
 	</div>
 </div>
+
+<!-- Story viewer modal -->
+{#if viewingStory}
+	<StoryViewer
+		userStory={viewingStory}
+		startIndex={storyStartIndex}
+		onClose={handleCloseStory}
+		onNext={handleNextUserStory}
+		onPrev={handlePrevUserStory}
+	/>
+{/if}
+
+<!-- Create story modal -->
+{#if showCreateStory}
+	<CreateStory onClose={() => (showCreateStory = false)} />
+{/if}

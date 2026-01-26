@@ -12,6 +12,10 @@
 	import ndkService, { eventPublisher } from '$services/ndk';
 	import { dbHelpers } from '$db';
 	import { browser } from '$app/environment';
+	import { setupI18n } from '$lib/i18n';
+
+	// Initialize i18n synchronously before any component renders
+	setupI18n();
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
 	import { Button } from '$components/ui/button';
 	import { Badge } from '$components/ui/badge';
@@ -19,6 +23,7 @@
 	import { ToastContainer } from '$components/notifications';
 	import WelcomeTour from '$lib/components/onboarding/WelcomeTour.svelte';
 	import { KeyboardShortcuts } from '$components/ui/keyboard-shortcuts';
+	import { CallProvider } from '$components/calls';
 	import Home from 'lucide-svelte/icons/home';
 	import Search from 'lucide-svelte/icons/search';
 	import MessageCircle from 'lucide-svelte/icons/message-circle';
@@ -31,6 +36,8 @@
 	import Coins from 'lucide-svelte/icons/coins';
 	import Store from 'lucide-svelte/icons/store';
 	import Bot from 'lucide-svelte/icons/bot';
+	import Bookmark from 'lucide-svelte/icons/bookmark';
+	import Users from 'lucide-svelte/icons/users';
 
 	let { children } = $props();
 
@@ -42,6 +49,8 @@
 	const navItems = [
 		{ href: '/', icon: Home, label: 'Feed' },
 		{ href: '/search', icon: Search, label: 'Search' },
+		{ href: '/groups', icon: Users, label: 'Groups' },
+		{ href: '/bookmarks', icon: Bookmark, label: 'Saved' },
 		{ href: '/marketplace', icon: Store, label: 'Market' },
 		{ href: '/ai', icon: Bot, label: 'AI' },
 		{ href: '/notifications', icon: Bell, label: 'Alerts' },
@@ -58,7 +67,8 @@
 	};
 
 	// Protected routes that require auth
-	const protectedRoutes = ['/messages', '/wallet', '/settings', '/profile'];
+	// Note: /profile is NOT protected - profiles should be publicly viewable
+	const protectedRoutes = ['/messages', '/wallet', '/settings'];
 	const isProtectedRoute = $derived(
 		protectedRoutes.some((route) => currentPath.startsWith(route)),
 	);
@@ -180,8 +190,9 @@
 	});
 
 	// Redirect to login if not authenticated and on protected route
+	// Wait for both initialization AND auth loading to complete to avoid race conditions
 	$effect(() => {
-		if (!isInitializing && isProtectedRoute && !authStore.isAuthenticated) {
+		if (!isInitializing && !authStore.isLoading && isProtectedRoute && !authStore.isAuthenticated) {
 			goto('/login');
 		}
 	});
@@ -210,6 +221,11 @@
 
 	const avatarInitials = $derived(
 		(authStore.displayName || 'A').slice(0, 2).toUpperCase(),
+	);
+
+	// Show loading state for protected routes while auth is being verified
+	const isAuthChecking = $derived(
+		isProtectedRoute && (isInitializing || authStore.isLoading)
 	);
 </script>
 
@@ -383,7 +399,14 @@
 
 		<!-- Main content -->
 		<main class="flex-1 min-w-0 w-full">
-			{@render children()}
+			{#if isAuthChecking}
+				<!-- Show loading while verifying auth for protected routes -->
+				<div class="flex h-full min-h-[50vh] items-center justify-center">
+					<Spinner size="lg" />
+				</div>
+			{:else}
+				{@render children()}
+			{/if}
 		</main>
 
 		<!-- Mobile bottom nav -->
@@ -443,3 +466,6 @@
 
 <!-- Global keyboard shortcuts -->
 <KeyboardShortcuts />
+
+<!-- Global call handler -->
+<CallProvider />

@@ -55,12 +55,14 @@
 
 	async function handleAddMint() {
 		if (!newMintUrl.trim()) return;
+		const savedUrl = newMintUrl; // Save before clearing
 		try {
 			await cashuStore.addMint(newMintUrl.trim(), false);
 			newMintUrl = '';
 			showAddMint = false;
-		} catch (e) {
-			// Error handled in store
+		} catch {
+			// Restore input on error
+			newMintUrl = savedUrl;
 		}
 	}
 
@@ -101,13 +103,14 @@
 
 	async function handleConnect() {
 		if (!nwcInput.trim()) return;
-
+		const savedInput = nwcInput; // Save before clearing
 		try {
 			await walletStore.connect(nwcInput);
 			nwcInput = '';
 			showConnect = false;
-		} catch (e) {
-			// Error is handled in store
+		} catch {
+			// Restore input on error so user can retry
+			nwcInput = savedInput;
 		}
 	}
 
@@ -125,13 +128,14 @@
 
 	async function handlePayInvoice() {
 		if (!payInvoiceInput.trim()) return;
-
+		const savedInvoice = payInvoiceInput; // Save before clearing
 		try {
 			await walletStore.payInvoice(payInvoiceInput);
 			payInvoiceInput = '';
 			showPayInvoice = false;
-		} catch (e) {
-			// Error handled in store
+		} catch {
+			// Restore input on error so user can retry
+			payInvoiceInput = savedInvoice;
 		}
 	}
 

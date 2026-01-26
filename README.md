@@ -4,7 +4,7 @@
 
 ### *Decentralized Social Messenger for the Free World*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-violet.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Nostr](https://img.shields.io/badge/Protocol-Nostr-purple.svg)](https://nostr.com)
 [![SvelteKit](https://img.shields.io/badge/Built%20with-SvelteKit-orange.svg)](https://kit.svelte.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org)
@@ -87,11 +87,61 @@ In a world where social platforms control what you see, who you can reach, and w
 - Text generation, translation, summarization
 - No accounts, no tracking
 
-### 🔍 Search
+### 🔍 Advanced Search
 - Search notes by content
 - Find users by name or npub
-- Discover hashtags
+- Discover hashtags with #tag filters
+- Advanced filters (date range, author, content type)
+- Search history and saved searches
 - Trending topics
+
+### 👥 Group Chats (NIP-28)
+- Public channels for communities
+- Real-time group messaging
+- Create and join groups
+- Member management
+- Reply threading
+
+### 📞 Video/Audio Calls
+- One-on-one video calls via Jitsi
+- Voice calls support
+- Call invite via DM
+- In-call controls (mute, video toggle, screen share)
+- Call history
+
+### 📖 Stories (24h Ephemeral Posts)
+- Create image/text stories
+- Stories bar with avatars
+- Full-screen story viewer
+- Auto-delete after 24 hours
+- View tracking
+
+### 📊 Polls
+- Create polls with 2-4 options
+- Vote on polls
+- Real-time results
+- Optional end time
+
+### 🔖 Bookmarks (NIP-51)
+- Save posts for later
+- Private bookmark list
+- Quick access from sidebar
+
+### 🎤 Voice Messages
+- Hold-to-record in DMs
+- Waveform visualization
+- Play/pause controls
+- Upload via Blossom
+
+### 🔔 Push Notifications
+- Web Push API support
+- Notification settings (mentions, DMs, zaps)
+- Service Worker integration
+
+### 📱 QR Code Profile
+- Generate profile QR code
+- Share nostr:npub URI
+- Downloadable image
 
 ### ⚙️ Settings
 - Relay management
@@ -163,10 +213,18 @@ AURA/
 ├── src/
 │   ├── lib/
 │   │   ├── components/     # Reusable UI components
+│   │   │   ├── bookmarks/  # Bookmark button
+│   │   │   ├── calls/      # Video/audio calls UI
 │   │   │   ├── cashu/      # eCash components
 │   │   │   ├── feed/       # Feed-related components
+│   │   │   ├── groups/     # Group chat components
 │   │   │   ├── media/      # Media upload (Blossom)
+│   │   │   ├── messages/   # Voice messages
 │   │   │   ├── notifications/
+│   │   │   ├── polls/      # Poll creation & voting
+│   │   │   ├── profile/    # Profile QR code
+│   │   │   ├── stories/    # Stories bar & viewer
+│   │   │   ├── verified/   # NIP-05 verification
 │   │   │   ├── wot/        # Web of Trust components
 │   │   │   └── ui/         # Base UI components
 │   │   ├── core/           # Core utilities (errors, resilience)
@@ -174,20 +232,25 @@ AURA/
 │   │   ├── i18n/           # Internationalization
 │   │   ├── services/       # Business logic services
 │   │   │   ├── blossom/    # Decentralized file storage
+│   │   │   ├── calls/      # Jitsi video calls
 │   │   │   ├── crypto/     # Encryption (NIP-44, Gift Wrap)
 │   │   │   ├── dvm/        # Data Vending Machines (AI)
 │   │   │   ├── ndk/        # NDK service modules
+│   │   │   ├── nip05/      # NIP-05 verification
 │   │   │   └── wallet/     # NWC + Cashu eCash
 │   │   ├── stores/         # Svelte 5 runes stores
 │   │   ├── utils/          # Utility functions
 │   │   └── validators/     # Zod schemas & sanitization
 │   ├── routes/             # SvelteKit routes
 │   │   ├── ai/             # AI Chat page
+│   │   ├── bookmarks/      # Saved posts
+│   │   ├── call/           # Video/audio call page
+│   │   ├── groups/         # Group chats
 │   │   ├── marketplace/    # NIP-15 Marketplace
 │   │   └── ...
 │   └── app.css             # Global styles
 ├── static/                 # Static assets
-├── tests/                  # Test files (158+ tests)
+├── tests/                  # Test files (646+ tests)
 │   ├── e2e/                # Playwright E2E tests
 │   └── unit/               # Vitest unit tests
 ├── android/                # Capacitor Android (generated)
@@ -214,6 +277,8 @@ AURA/
 | NIP-59 | Gift Wrap Protocol | ✅ |
 | NIP-90 | Data Vending Machines (AI) | ✅ |
 | NIP-98 | HTTP Auth (Blossom) | ✅ |
+| NIP-28 | Public Channels (Groups) | ✅ |
+| NIP-51 | Lists (Bookmarks) | ✅ |
 
 ### Available Scripts
 
@@ -316,13 +381,14 @@ See [SECURITY.md](SECURITY.md) for our security policy.
 
 ## 📜 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.
 
 This means you can:
 - ✅ Use it commercially
 - ✅ Modify it freely
 - ✅ Distribute it
 - ✅ Use it privately
+- ✅ Patent protection included
 
 ---
 

@@ -8,6 +8,8 @@
 	class="fixed top-4 right-4 z-100 flex flex-col gap-2 pointer-events-none"
 	aria-label="Notifications"
 	role="region"
+	aria-live="polite"
+	aria-atomic="false"
 >
 	{#each notificationsStore.toasts as toast (toast.id)}
 		<Toast {toast} />

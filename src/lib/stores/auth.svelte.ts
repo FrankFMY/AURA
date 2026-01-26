@@ -102,7 +102,8 @@ function createAuthStore() {
 			}
 		} catch (e) {
 			console.error('Failed to init auth:', e);
-			error = e instanceof Error ? e.message : 'Failed to initialize auth';
+			// Use generic message to avoid leaking sensitive info
+			error = 'Failed to initialize authentication. Please try again.';
 		} finally {
 			isLoading = false;
 		}
@@ -141,7 +142,8 @@ function createAuthStore() {
 			await fetchProfile();
 		} catch (e) {
 			console.error('Extension login failed:', e);
-			error = e instanceof Error ? e.message : 'Failed to login with extension';
+			// User-friendly message without exposing internal details
+			error = 'Failed to login with extension. Please ensure your extension is unlocked and try again.';
 			throw e;
 		} finally {
 			isLoading = false;
@@ -193,7 +195,12 @@ function createAuthStore() {
 			await fetchProfile();
 		} catch (e) {
 			console.error('Private key login failed:', e);
-			error = e instanceof Error ? e.message : 'Invalid private key';
+			// Provide helpful message for common key format issues
+			if (e instanceof Error && e.message.includes('Invalid private key format')) {
+				error = 'Invalid key format. Please enter a valid nsec, 64-character hex key, or 12-word recovery phrase.';
+			} else {
+				error = 'Failed to login with private key. Please check your key and try again.';
+			}
 			throw e;
 		} finally {
 			isLoading = false;
@@ -235,7 +242,8 @@ function createAuthStore() {
 			};
 		} catch (e) {
 			console.error('Key generation failed:', e);
-			error = e instanceof Error ? e.message : 'Failed to generate keypair';
+			// Generic message for key generation failure
+			error = 'Failed to generate new account. Please try again.';
 			throw e;
 		} finally {
 			isLoading = false;

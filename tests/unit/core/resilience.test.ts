@@ -182,17 +182,42 @@ describe('debounce', () => {
 });
 
 describe('throttle', () => {
-	it('should throttle function calls', async () => {
+	it('should throttle function calls with trailing edge', async () => {
+		const fn = vi.fn();
+		const throttled = throttle(fn, 50);
+
+		// First call executes immediately
+		throttled();
+		expect(fn).toHaveBeenCalledTimes(1);
+
+		// These calls during throttle period schedule a trailing call
+		throttled();
+		throttled();
+		expect(fn).toHaveBeenCalledTimes(1);
+
+		// Wait for throttle period + buffer for trailing call to execute
+		await sleep(70);
+		expect(fn).toHaveBeenCalledTimes(2); // Trailing call executed
+
+		// Wait for another full throttle period after trailing call
+		await sleep(60);
+
+		// New call after throttle period executes immediately
+		throttled();
+		expect(fn).toHaveBeenCalledTimes(3);
+	});
+
+	it('should execute immediately when throttle period has passed', async () => {
 		const fn = vi.fn();
 		const throttled = throttle(fn, 50);
 
 		throttled();
-		throttled();
-		throttled();
-
 		expect(fn).toHaveBeenCalledTimes(1);
 
+		// Wait longer than throttle period
 		await sleep(100);
+
+		// Should execute immediately
 		throttled();
 		expect(fn).toHaveBeenCalledTimes(2);
 	});
