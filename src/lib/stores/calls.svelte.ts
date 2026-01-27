@@ -196,10 +196,21 @@ function createCallsStore() {
 	/** Handle incoming call */
 	async function handleIncomingCall(
 		callerPubkey: string,
-		invite: CallInviteMessage
+		invite: CallInviteMessage,
+		messageTimestamp?: number
 	): Promise<void> {
+		// Ignore old call invites (older than 2 minutes)
+		if (messageTimestamp) {
+			const ageMs = Date.now() - messageTimestamp * 1000;
+			if (ageMs > 120000) {
+				console.log('[Calls] Ignoring old call invite, age:', Math.round(ageMs / 1000), 'sec');
+				return;
+			}
+		}
+
 		// Ignore if already in a call
 		if (activeCall) {
+			console.log('[Calls] Auto-declining: already in call', activeCall.roomId);
 			// Auto-decline
 			await sendCallResponse(callerPubkey, invite.roomId, 'decline');
 			return;
@@ -419,6 +430,16 @@ function createCallsStore() {
 		return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 	}
 
+	/** Force reset all call state (for debugging stuck calls) */
+	function forceReset(): void {
+		console.log('[Calls] Force resetting call state');
+		clearTimeout(callTimeoutId!);
+		activeCall = null;
+		incomingCall = null;
+		isMuted = false;
+		isVideoEnabled = true;
+	}
+
 	// Initialize
 	loadCallHistory();
 
@@ -457,6 +478,7 @@ function createCallsStore() {
 		endCall,
 		toggleMute,
 		toggleVideo,
+		forceReset,
 
 		// Utilities
 		getJitsiUrl,

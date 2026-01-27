@@ -34,7 +34,7 @@
 			const invite = isCallInvite(latestMessage.content);
 			if (invite) {
 				processedMessageIds.add(latestMessage.id);
-				callsStore.handleIncomingCall(latestMessage.pubkey, invite);
+				callsStore.handleIncomingCall(latestMessage.pubkey, invite, latestMessage.created_at);
 				continue;
 			}
 
