@@ -1,13 +1,15 @@
 /**
  * Calls Store
  *
- * Manages video/audio calls using Jitsi integration.
- * Call invitations are sent via Nostr DMs.
+ * Manages video/audio calls using native WebRTC.
+ * Signaling is done via Nostr DMs.
  */
 
+import { browser } from '$app/environment';
 import { authStore } from '$stores/auth.svelte';
 import { messagesStore } from '$stores/messages.svelte';
 import { dbHelpers, type UserProfile } from '$db';
+import { webrtcService, type WebRTCSignal } from '$services/calls/webrtc';
 
 /** Call type */
 export type CallType = 'audio' | 'video';
@@ -16,7 +18,7 @@ export type CallType = 'audio' | 'video';
 export type CallDirection = 'incoming' | 'outgoing';
 
 /** Call status */
-export type CallStatus = 'ringing' | 'connecting' | 'connected' | 'ended' | 'declined' | 'missed';
+export type CallStatus = 'ringing' | 'connecting' | 'connected' | 'ended' | 'declined' | 'missed' | 'failed';
 
 /** Active call data */
 export interface ActiveCall {
@@ -69,7 +71,6 @@ export interface CallResponseMessage {
 }
 
 // Constants
-const JITSI_DOMAIN = 'meet.jit.si';
 const ROOM_PREFIX = 'aura-';
 const CALL_TIMEOUT = 60000; // 60 seconds
 
@@ -109,6 +110,19 @@ export function isCallResponse(content: string): CallResponseMessage | null {
 	return null;
 }
 
+/** Check if message is a WebRTC signal */
+export function isWebRTCSignal(content: string): WebRTCSignal | null {
+	try {
+		const data = JSON.parse(content);
+		if (data.type === 'webrtc_signal' && data.signalType && data.roomId && data.data) {
+			return data as WebRTCSignal;
+		}
+	} catch {
+		// Not JSON or invalid format
+	}
+	return null;
+}
+
 /** Create calls store */
 function createCallsStore() {
 	let activeCall = $state<ActiveCall | null>(null);
@@ -116,10 +130,13 @@ function createCallsStore() {
 	let callHistory = $state<CallHistoryEntry[]>([]);
 	let isMuted = $state(false);
 	let isVideoEnabled = $state(true);
+	let localStream = $state<MediaStream | null>(null);
+	let remoteStream = $state<MediaStream | null>(null);
 	let callTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 	// Load call history from localStorage
 	function loadCallHistory(): void {
+		if (!browser) return;
 		try {
 			const stored = localStorage.getItem('aura-call-history');
 			if (stored) {
@@ -132,6 +149,7 @@ function createCallsStore() {
 
 	// Save call history to localStorage
 	function saveCallHistory(): void {
+		if (!browser) return;
 		try {
 			// Keep last 50 calls
 			const toSave = callHistory.slice(0, 50);
@@ -139,6 +157,11 @@ function createCallsStore() {
 		} catch (e) {
 			console.error('[Calls] Failed to save call history:', e);
 		}
+	}
+
+	/** Send WebRTC signal via Nostr DM */
+	async function sendSignal(peerPubkey: string, signal: WebRTCSignal): Promise<void> {
+		await messagesStore.sendMessage(peerPubkey, JSON.stringify(signal));
 	}
 
 	/** Start an outgoing call */
@@ -153,19 +176,16 @@ function createCallsStore() {
 			return null;
 		}
 
+		if (!webrtcService.isSupported) {
+			console.error('[Calls] WebRTC not supported');
+			return null;
+		}
+
 		try {
 			const roomId = generateRoomId();
 			const peerProfile = await dbHelpers.getProfile(peerPubkey);
 
-			// Create call invite message
-			const invite: CallInviteMessage = {
-				type: 'call_invite',
-				roomId,
-				callType
-			};
-
-			// Send invite via DM
-			await messagesStore.sendMessage(peerPubkey, JSON.stringify(invite));
+			console.log('[Calls] Starting call to', peerPubkey, 'room:', roomId);
 
 			// Set active call
 			activeCall = {
@@ -178,6 +198,44 @@ function createCallsStore() {
 				startedAt: Date.now()
 			};
 
+			// Initialize WebRTC as initiator
+			await webrtcService.initCall(roomId, callType === 'video', {
+				onSignal: (signal) => {
+					console.log('[Calls] Sending signal:', signal.signalType);
+					sendSignal(peerPubkey, signal);
+				},
+				onStream: (stream) => {
+					console.log('[Calls] Got remote stream');
+					remoteStream = stream;
+				},
+				onConnect: () => {
+					console.log('[Calls] WebRTC connected');
+					if (activeCall) {
+						activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
+					}
+				},
+				onClose: () => {
+					console.log('[Calls] WebRTC connection closed');
+					endCall('ended');
+				},
+				onError: (error) => {
+					console.error('[Calls] WebRTC error:', error);
+					endCall('failed');
+				}
+			});
+
+			// Update local stream reference
+			localStream = webrtcService.localMediaStream;
+			isVideoEnabled = callType === 'video';
+
+			// Send call invite via Nostr DM
+			const invite: CallInviteMessage = {
+				type: 'call_invite',
+				roomId,
+				callType
+			};
+			await messagesStore.sendMessage(peerPubkey, JSON.stringify(invite));
+
 			// Set timeout for unanswered call
 			callTimeoutId = setTimeout(() => {
 				if (activeCall?.status === 'ringing') {
@@ -189,6 +247,8 @@ function createCallsStore() {
 			return roomId;
 		} catch (e) {
 			console.error('[Calls] Failed to start call:', e);
+			webrtcService.endCall();
+			activeCall = null;
 			return null;
 		}
 	}
@@ -211,7 +271,6 @@ function createCallsStore() {
 		// Ignore if already in a call
 		if (activeCall) {
 			console.log('[Calls] Auto-declining: already in call', activeCall.roomId);
-			// Auto-decline
 			await sendCallResponse(callerPubkey, invite.roomId, 'decline');
 			return;
 		}
@@ -252,35 +311,84 @@ function createCallsStore() {
 			return null;
 		}
 
-		clearTimeout(callTimeoutId!);
+		if (!webrtcService.isSupported) {
+			console.error('[Calls] WebRTC not supported');
+			return null;
+		}
+
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
 
 		const { roomId, callerPubkey, callerProfile, callType } = incomingCall;
 
-		// Send accept response
-		await sendCallResponse(callerPubkey, roomId, 'accept');
+		try {
+			// Set active call
+			activeCall = {
+				roomId,
+				peerPubkey: callerPubkey,
+				peerProfile: callerProfile,
+				direction: 'incoming',
+				status: 'connecting',
+				callType,
+				startedAt: Date.now()
+			};
 
-		// Set active call
-		activeCall = {
-			roomId,
-			peerPubkey: callerPubkey,
-			peerProfile: callerProfile,
-			direction: 'incoming',
-			status: 'connecting',
-			callType,
-			startedAt: Date.now()
-		};
+			incomingCall = null;
 
-		incomingCall = null;
+			// Initialize WebRTC as answerer
+			await webrtcService.answerCall(roomId, callType === 'video', {
+				onSignal: (signal) => {
+					console.log('[Calls] Sending signal:', signal.signalType);
+					sendSignal(callerPubkey, signal);
+				},
+				onStream: (stream) => {
+					console.log('[Calls] Got remote stream');
+					remoteStream = stream;
+				},
+				onConnect: () => {
+					console.log('[Calls] WebRTC connected');
+					if (activeCall) {
+						activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
+					}
+				},
+				onClose: () => {
+					console.log('[Calls] WebRTC connection closed');
+					endCall('ended');
+				},
+				onError: (error) => {
+					console.error('[Calls] WebRTC error:', error);
+					endCall('failed');
+				}
+			});
 
-		console.log('[Calls] Call accepted:', roomId);
-		return roomId;
+			// Update local stream reference
+			localStream = webrtcService.localMediaStream;
+			isVideoEnabled = callType === 'video';
+
+			// Send accept response
+			await sendCallResponse(callerPubkey, roomId, 'accept');
+
+			console.log('[Calls] Call accepted:', roomId);
+			return roomId;
+		} catch (e) {
+			console.error('[Calls] Failed to accept call:', e);
+			webrtcService.endCall();
+			activeCall = null;
+			await sendCallResponse(callerPubkey, roomId, 'decline');
+			return null;
+		}
 	}
 
 	/** Decline incoming call */
 	async function declineCall(): Promise<void> {
 		if (!incomingCall) return;
 
-		clearTimeout(callTimeoutId!);
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
 
 		const { roomId, callerPubkey, callerProfile, callType } = incomingCall;
 
@@ -304,7 +412,10 @@ function createCallsStore() {
 
 	/** Dismiss incoming call without response */
 	function dismissIncomingCall(): void {
-		clearTimeout(callTimeoutId!);
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
 		incomingCall = null;
 	}
 
@@ -317,10 +428,12 @@ function createCallsStore() {
 			return;
 		}
 
-		clearTimeout(callTimeoutId!);
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
 
 		if (response.action === 'accept') {
-			// Create new object to ensure reactivity
 			activeCall = { ...activeCall, status: 'connecting' };
 			console.log('[Calls] Call accepted by peer');
 		} else if (response.action === 'decline') {
@@ -330,10 +443,19 @@ function createCallsStore() {
 		}
 	}
 
+	/** Handle WebRTC signal from peer */
+	function handleWebRTCSignal(signal: WebRTCSignal): void {
+		if (!activeCall || activeCall.roomId !== signal.roomId) {
+			console.log('[Calls] Ignoring signal for different room');
+			return;
+		}
+
+		webrtcService.handleSignal(signal);
+	}
+
 	/** Mark call as connected */
 	function markConnected(): void {
 		if (activeCall && activeCall.status === 'connecting') {
-			// Create new object to ensure reactivity
 			activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
 			console.log('[Calls] Call connected');
 		}
@@ -343,7 +465,10 @@ function createCallsStore() {
 	async function endCall(status: CallStatus = 'ended'): Promise<void> {
 		if (!activeCall) return;
 
-		clearTimeout(callTimeoutId!);
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
 
 		const endedAt = Date.now();
 		const duration = activeCall.connectedAt
@@ -354,6 +479,9 @@ function createCallsStore() {
 		if (status === 'ended' && activeCall.status === 'connected') {
 			await sendCallResponse(activeCall.peerPubkey, activeCall.roomId, 'end');
 		}
+
+		// End WebRTC connection
+		webrtcService.endCall();
 
 		// Add to history
 		addToHistory({
@@ -369,6 +497,8 @@ function createCallsStore() {
 		});
 
 		activeCall = null;
+		localStream = null;
+		remoteStream = null;
 		isMuted = false;
 		isVideoEnabled = true;
 
@@ -403,19 +533,14 @@ function createCallsStore() {
 
 	/** Toggle mute */
 	function toggleMute(): boolean {
-		isMuted = !isMuted;
+		isMuted = webrtcService.toggleAudio();
 		return isMuted;
 	}
 
 	/** Toggle video */
 	function toggleVideo(): boolean {
-		isVideoEnabled = !isVideoEnabled;
+		isVideoEnabled = webrtcService.toggleVideo();
 		return isVideoEnabled;
-	}
-
-	/** Get Jitsi room URL */
-	function getJitsiUrl(roomId: string): string {
-		return `https://${JITSI_DOMAIN}/${roomId}`;
 	}
 
 	/** Format call duration */
@@ -433,15 +558,23 @@ function createCallsStore() {
 	/** Force reset all call state (for debugging stuck calls) */
 	function forceReset(): void {
 		console.log('[Calls] Force resetting call state');
-		clearTimeout(callTimeoutId!);
+		if (callTimeoutId) {
+			clearTimeout(callTimeoutId);
+			callTimeoutId = null;
+		}
+		webrtcService.endCall();
 		activeCall = null;
 		incomingCall = null;
+		localStream = null;
+		remoteStream = null;
 		isMuted = false;
 		isVideoEnabled = true;
 	}
 
 	// Initialize
-	loadCallHistory();
+	if (browser) {
+		loadCallHistory();
+	}
 
 	return {
 		// State
@@ -466,6 +599,12 @@ function createCallsStore() {
 		get hasIncomingCall() {
 			return incomingCall !== null;
 		},
+		get localStream() {
+			return localStream;
+		},
+		get remoteStream() {
+			return remoteStream;
+		},
 
 		// Actions
 		startCall,
@@ -474,6 +613,7 @@ function createCallsStore() {
 		declineCall,
 		dismissIncomingCall,
 		handleCallResponse,
+		handleWebRTCSignal,
 		markConnected,
 		endCall,
 		toggleMute,
@@ -481,11 +621,7 @@ function createCallsStore() {
 		forceReset,
 
 		// Utilities
-		getJitsiUrl,
-		formatDuration,
-
-		// Constants
-		JITSI_DOMAIN
+		formatDuration
 	};
 }
 

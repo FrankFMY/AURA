@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { callsStore, type ActiveCall } from '$stores/calls.svelte';
-	import { authStore } from '$stores/auth.svelte';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
-	import { Button } from '$components/ui/button';
 	import Phone from 'lucide-svelte/icons/phone';
 	import PhoneOff from 'lucide-svelte/icons/phone-off';
 	import Video from 'lucide-svelte/icons/video';
-	import ExternalLink from 'lucide-svelte/icons/external-link';
+	import VideoOff from 'lucide-svelte/icons/video-off';
+	import Mic from 'lucide-svelte/icons/mic';
+	import MicOff from 'lucide-svelte/icons/mic-off';
+	import SwitchCamera from 'lucide-svelte/icons/switch-camera';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { onMount, onDestroy } from 'svelte';
 
@@ -17,10 +18,15 @@
 
 	let { call, onEnd }: Props = $props();
 
+	let localVideoEl: HTMLVideoElement;
+	let remoteVideoEl: HTMLVideoElement;
 	let callDuration = $state('0:00');
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
-	let jitsiWindow: Window | null = null;
-	let windowCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+	const isMuted = $derived(callsStore.isMuted);
+	const isVideoEnabled = $derived(callsStore.isVideoEnabled);
+	const localStream = $derived(callsStore.localStream);
+	const remoteStream = $derived(callsStore.remoteStream);
 
 	const peerName = $derived(
 		call.peerProfile?.name ||
@@ -28,101 +34,152 @@
 		call.peerPubkey.slice(0, 8) + '...'
 	);
 
-	const jitsiUrl = $derived(callsStore.getJitsiUrl(call.roomId));
+	const isConnected = $derived(call.status === 'connected');
+	const isConnecting = $derived(call.status === 'connecting' || call.status === 'ringing');
 
 	onMount(() => {
-		// Mark as connected immediately since we're opening in new tab
-		if (call.status === 'connecting' || call.status === 'ringing') {
-			callsStore.markConnected();
-		}
 		startDurationTimer();
-
-		// Open Jitsi in new tab automatically
-		openJitsiWindow();
-
-		// Check if window was closed
-		windowCheckInterval = setInterval(() => {
-			if (jitsiWindow && jitsiWindow.closed) {
-				console.log('[Call] Jitsi window was closed');
-				jitsiWindow = null;
-				// Don't auto-end - user might want to reopen
-			}
-		}, 1000);
 	});
 
 	onDestroy(() => {
 		if (durationInterval) {
 			clearInterval(durationInterval);
 		}
-		if (windowCheckInterval) {
-			clearInterval(windowCheckInterval);
+	});
+
+	// Attach local stream to video element
+	$effect(() => {
+		if (localVideoEl && localStream) {
+			localVideoEl.srcObject = localStream;
 		}
-		// Close Jitsi window when component unmounts
-		if (jitsiWindow && !jitsiWindow.closed) {
-			jitsiWindow.close();
+	});
+
+	// Attach remote stream to video element
+	$effect(() => {
+		if (remoteVideoEl && remoteStream) {
+			remoteVideoEl.srcObject = remoteStream;
 		}
 	});
 
 	function startDurationTimer() {
 		const startTime = call.connectedAt || Date.now();
 		durationInterval = setInterval(() => {
-			const elapsed = Date.now() - startTime;
-			callDuration = callsStore.formatDuration(elapsed);
+			if (call.status === 'connected') {
+				const elapsed = Date.now() - (call.connectedAt || startTime);
+				callDuration = callsStore.formatDuration(elapsed);
+			}
 		}, 1000);
 	}
 
-	function openJitsiWindow() {
-		// Build URL with display name
-		const displayName = authStore.displayName || 'Anonymous';
-		const urlWithParams = `${jitsiUrl}#userInfo.displayName="${encodeURIComponent(displayName)}"`;
+	function handleToggleMute() {
+		callsStore.toggleMute();
+	}
 
-		jitsiWindow = window.open(
-			urlWithParams,
-			'jitsi_call',
-			'width=800,height=600,menubar=no,toolbar=no,location=no,status=no'
-		);
-
-		if (!jitsiWindow) {
-			console.warn('[Call] Could not open Jitsi window - popup blocked?');
-		}
+	function handleToggleVideo() {
+		callsStore.toggleVideo();
 	}
 
 	function handleHangup() {
-		if (jitsiWindow && !jitsiWindow.closed) {
-			jitsiWindow.close();
-		}
 		onEnd();
-	}
-
-	function handleReopenJitsi() {
-		if (jitsiWindow && !jitsiWindow.closed) {
-			jitsiWindow.focus();
-		} else {
-			openJitsiWindow();
-		}
 	}
 </script>
 
-<div class="fixed inset-0 z-[100] flex flex-col bg-gradient-to-b from-slate-900 to-black">
-	<!-- Header -->
-	<div class="p-6">
-		<div class="flex items-center justify-between">
-			<div class="flex items-center gap-4">
-				<Avatar size="lg">
-					{#if call.peerProfile?.picture}
-						<AvatarImage src={call.peerProfile.picture} alt={peerName} />
+<div class="fixed inset-0 z-[100] flex flex-col bg-black">
+	<!-- Remote video (full screen) -->
+	{#if call.callType === 'video'}
+		<div class="absolute inset-0">
+			{#if remoteStream}
+				<video
+					bind:this={remoteVideoEl}
+					autoplay
+					playsinline
+					class="w-full h-full object-cover"
+				></video>
+			{:else}
+				<div class="w-full h-full flex items-center justify-center bg-gradient-to-b from-slate-900 to-black">
+					<div class="text-center">
+						<Avatar size="xl" class="mx-auto mb-4 w-32 h-32">
+							{#if call.peerProfile?.picture}
+								<AvatarImage src={call.peerProfile.picture} alt={peerName} />
+							{/if}
+							<AvatarFallback class="text-4xl bg-primary/20 text-primary">
+								{peerName.slice(0, 2).toUpperCase()}
+							</AvatarFallback>
+						</Avatar>
+						{#if isConnecting}
+							<Loader2 class="h-8 w-8 text-white/60 animate-spin mx-auto" />
+						{/if}
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Local video (picture-in-picture) -->
+		{#if localStream && isVideoEnabled}
+			<div class="absolute top-20 right-4 w-32 h-44 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 z-10">
+				<video
+					bind:this={localVideoEl}
+					autoplay
+					playsinline
+					muted
+					class="w-full h-full object-cover mirror"
+				></video>
+			</div>
+		{/if}
+	{:else}
+		<!-- Audio call - show avatar -->
+		<div class="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-900 to-black">
+			<div class="text-center">
+				<div class="relative">
+					<Avatar size="xl" class="mx-auto mb-6 w-40 h-40">
+						{#if call.peerProfile?.picture}
+							<AvatarImage src={call.peerProfile.picture} alt={peerName} />
+						{/if}
+						<AvatarFallback class="text-5xl bg-primary/20 text-primary">
+							{peerName.slice(0, 2).toUpperCase()}
+						</AvatarFallback>
+					</Avatar>
+					{#if isConnected}
+						<div class="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1 rounded-full bg-green-500/20 border border-green-500/30">
+							<div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+							<span class="text-xs text-green-400">Connected</span>
+						</div>
 					{/if}
-					<AvatarFallback class="text-lg bg-primary/20 text-primary">
-						{peerName.slice(0, 2).toUpperCase()}
-					</AvatarFallback>
-				</Avatar>
+				</div>
+				<h2 class="text-2xl font-semibold text-white mt-4">{peerName}</h2>
+				{#if isConnecting}
+					<div class="flex items-center justify-center gap-2 mt-2">
+						<Loader2 class="h-4 w-4 text-white/60 animate-spin" />
+						<span class="text-white/60">
+							{call.status === 'ringing' ? 'Calling...' : 'Connecting...'}
+						</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Header overlay -->
+	<div class="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/60 to-transparent">
+		<div class="flex items-center justify-between">
+			<div class="flex items-center gap-3">
+				{#if call.callType === 'video'}
+					<Avatar size="sm">
+						{#if call.peerProfile?.picture}
+							<AvatarImage src={call.peerProfile.picture} alt={peerName} />
+						{/if}
+						<AvatarFallback class="text-xs">
+							{peerName.slice(0, 2).toUpperCase()}
+						</AvatarFallback>
+					</Avatar>
+				{/if}
 				<div>
-					<h2 class="text-xl font-semibold text-white">{peerName}</h2>
-					<p class="text-white/60">
-						{#if call.status === 'connected'}
+					<p class="text-white font-medium">{peerName}</p>
+					<p class="text-white/60 text-sm">
+						{#if isConnecting}
+							{call.status === 'ringing' ? 'Calling...' : 'Connecting...'}
+						{:else if isConnected}
 							{callDuration}
-						{:else}
-							Connecting...
 						{/if}
 					</p>
 				</div>
@@ -131,61 +188,63 @@
 			<div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10">
 				{#if call.callType === 'video'}
 					<Video class="h-4 w-4 text-white" />
-					<span class="text-white text-sm">Video Call</span>
 				{:else}
 					<Phone class="h-4 w-4 text-white" />
-					<span class="text-white text-sm">Voice Call</span>
 				{/if}
+				<span class="text-white text-sm">
+					{call.callType === 'video' ? 'Video' : 'Audio'}
+				</span>
 			</div>
 		</div>
 	</div>
 
-	<!-- Main content -->
-	<div class="flex-1 flex flex-col items-center justify-center p-8">
-		<div class="text-center max-w-md">
-			<div class="mb-8">
-				<div class="w-32 h-32 mx-auto rounded-full bg-primary/20 flex items-center justify-center mb-6">
-					{#if call.callType === 'video'}
-						<Video class="h-16 w-16 text-primary" />
-					{:else}
-						<Phone class="h-16 w-16 text-primary" />
-					{/if}
-				</div>
+	<!-- Controls overlay -->
+	<div class="absolute bottom-0 left-0 right-0 z-20 p-8 bg-gradient-to-t from-black/80 to-transparent">
+		<div class="flex items-center justify-center gap-6">
+			<!-- Mute button -->
+			<button
+				class="w-16 h-16 rounded-full flex items-center justify-center transition-all
+					{isMuted ? 'bg-red-500 scale-110' : 'bg-white/20 hover:bg-white/30'}"
+				onclick={handleToggleMute}
+				title={isMuted ? 'Unmute' : 'Mute'}
+			>
+				{#if isMuted}
+					<MicOff class="h-7 w-7 text-white" />
+				{:else}
+					<Mic class="h-7 w-7 text-white" />
+				{/if}
+			</button>
 
-				<h3 class="text-2xl font-semibold text-white mb-2">Call in Progress</h3>
-				<p class="text-white/60 mb-4">
-					The video call is open in a separate window.
-				</p>
-			</div>
-
-			<div class="bg-white/5 rounded-2xl p-6 mb-8">
-				<p class="text-sm text-white/80 mb-4">
-					If the video window didn't open or was closed, click the button below to open it again.
-				</p>
-				<Button
-					variant="outline"
-					class="w-full border-white/20 text-white hover:bg-white/10"
-					onclick={handleReopenJitsi}
+			<!-- Video toggle (only for video calls) -->
+			{#if call.callType === 'video'}
+				<button
+					class="w-16 h-16 rounded-full flex items-center justify-center transition-all
+						{!isVideoEnabled ? 'bg-red-500 scale-110' : 'bg-white/20 hover:bg-white/30'}"
+					onclick={handleToggleVideo}
+					title={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
 				>
-					<ExternalLink class="h-4 w-4 mr-2" />
-					Open Video Window
-				</Button>
-			</div>
+					{#if isVideoEnabled}
+						<Video class="h-7 w-7 text-white" />
+					{:else}
+						<VideoOff class="h-7 w-7 text-white" />
+					{/if}
+				</button>
+			{/if}
 
-			<p class="text-xs text-white/40 mb-8">
-				Room: {call.roomId}
-			</p>
+			<!-- Hang up -->
+			<button
+				class="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all hover:scale-105 shadow-lg shadow-red-500/30"
+				onclick={handleHangup}
+				title="End call"
+			>
+				<PhoneOff class="h-8 w-8 text-white" />
+			</button>
 		</div>
-	</div>
-
-	<!-- End call button -->
-	<div class="p-6 flex justify-center">
-		<button
-			class="w-20 h-20 rounded-full bg-destructive hover:bg-destructive/90 flex items-center justify-center transition-colors shadow-lg shadow-destructive/30"
-			onclick={handleHangup}
-			title="End call"
-		>
-			<PhoneOff class="h-8 w-8 text-white" />
-		</button>
 	</div>
 </div>
+
+<style>
+	.mirror {
+		transform: scaleX(-1);
+	}
+</style>

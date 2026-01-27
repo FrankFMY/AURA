@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { callsStore, isCallInvite, isCallResponse } from '$stores/calls.svelte';
+	import { callsStore, isCallInvite, isCallResponse, isWebRTCSignal } from '$stores/calls.svelte';
 	import { messagesStore } from '$stores/messages.svelte';
 	import { authStore } from '$stores/auth.svelte';
-	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import IncomingCall from './IncomingCall.svelte';
+	import ActiveCall from './ActiveCall.svelte';
 
-	// Subscribe to incoming messages for call invites
+	// Subscribe to incoming messages for call invites and WebRTC signals
 	// Load from localStorage to persist across page refreshes
 	let processedMessageIds = new Set<string>(loadProcessedIds());
 
@@ -35,7 +35,7 @@
 		}
 	}
 
-	// Watch for new messages that might be call invites
+	// Watch for new messages that might be call invites or WebRTC signals
 	$effect(() => {
 		if (!authStore.isAuthenticated) return;
 
@@ -45,34 +45,47 @@
 		for (const conv of conversations) {
 			// Get messages from conversation
 			const messages = conv.messages || [];
-			const latestMessage = messages[messages.length - 1];
 
-			if (!latestMessage || processedMessageIds.has(latestMessage.id)) {
-				continue;
+			// Process recent messages (last 10) to catch signals
+			const recentMessages = messages.slice(-10);
+
+			for (const message of recentMessages) {
+				if (processedMessageIds.has(message.id)) {
+					continue;
+				}
+
+				// Skip messages from self
+				if (message.pubkey === authStore.pubkey) {
+					processedMessageIds.add(message.id);
+					continue;
+				}
+
+				// Check if it's a WebRTC signal (highest priority)
+				const signal = isWebRTCSignal(message.content);
+				if (signal) {
+					processedMessageIds.add(message.id);
+					callsStore.handleWebRTCSignal(signal);
+					continue;
+				}
+
+				// Check if it's a call invite
+				const invite = isCallInvite(message.content);
+				if (invite) {
+					processedMessageIds.add(message.id);
+					callsStore.handleIncomingCall(message.pubkey, invite, message.created_at);
+					continue;
+				}
+
+				// Check if it's a call response
+				const response = isCallResponse(message.content);
+				if (response) {
+					processedMessageIds.add(message.id);
+					callsStore.handleCallResponse(message.pubkey, response);
+					continue;
+				}
+
+				processedMessageIds.add(message.id);
 			}
-
-			// Skip messages from self
-			if (latestMessage.pubkey === authStore.pubkey) {
-				processedMessageIds.add(latestMessage.id);
-				continue;
-			}
-
-			// Check if it's a call invite
-			const invite = isCallInvite(latestMessage.content);
-			if (invite) {
-				processedMessageIds.add(latestMessage.id);
-				callsStore.handleIncomingCall(latestMessage.pubkey, invite, latestMessage.created_at);
-				continue;
-			}
-
-			// Check if it's a call response
-			const response = isCallResponse(latestMessage.content);
-			if (response) {
-				processedMessageIds.add(latestMessage.id);
-				callsStore.handleCallResponse(latestMessage.pubkey, response);
-			}
-
-			processedMessageIds.add(latestMessage.id);
 		}
 
 		// Cleanup old processed IDs and save to localStorage
@@ -84,16 +97,18 @@
 	});
 
 	const incomingCall = $derived(callsStore.incomingCall);
+	const activeCall = $derived(callsStore.activeCall);
 
 	async function handleAccept() {
-		const roomId = await callsStore.acceptCall();
-		if (roomId) {
-			goto(`/call/${roomId}`);
-		}
+		await callsStore.acceptCall();
 	}
 
 	async function handleDecline() {
 		await callsStore.declineCall();
+	}
+
+	async function handleEndCall() {
+		await callsStore.endCall();
 	}
 </script>
 
@@ -103,5 +118,13 @@
 		call={incomingCall}
 		onAccept={handleAccept}
 		onDecline={handleDecline}
+	/>
+{/if}
+
+<!-- Active call overlay -->
+{#if activeCall}
+	<ActiveCall
+		call={activeCall}
+		onEnd={handleEndCall}
 	/>
 {/if}
