@@ -163,7 +163,7 @@
 			<div class="flex flex-col items-center justify-center h-full gap-4">
 				<Loader2 class="h-12 w-12 text-primary animate-spin" />
 				<p class="text-white/80">
-					{call.direction === 'outgoing' ? 'Calling...' : 'Connecting...'}
+					{call.status === 'ringing' ? 'Calling...' : 'Connecting...'}
 				</p>
 			</div>
 		{/if}

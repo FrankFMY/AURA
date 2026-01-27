@@ -309,7 +309,8 @@ function createCallsStore() {
 		clearTimeout(callTimeoutId!);
 
 		if (response.action === 'accept') {
-			activeCall.status = 'connecting';
+			// Create new object to ensure reactivity
+			activeCall = { ...activeCall, status: 'connecting' };
 			console.log('[Calls] Call accepted by peer');
 		} else if (response.action === 'decline') {
 			await endCall('declined');
@@ -321,8 +322,8 @@ function createCallsStore() {
 	/** Mark call as connected */
 	function markConnected(): void {
 		if (activeCall && activeCall.status === 'connecting') {
-			activeCall.status = 'connected';
-			activeCall.connectedAt = Date.now();
+			// Create new object to ensure reactivity
+			activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
 			console.log('[Calls] Call connected');
 		}
 	}
