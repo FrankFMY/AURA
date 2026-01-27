@@ -6,7 +6,6 @@
  */
 
 import { browser } from '$app/environment';
-import { dbHelpers } from '$db';
 
 /** Feature flag definition */
 export interface FeatureFlag {

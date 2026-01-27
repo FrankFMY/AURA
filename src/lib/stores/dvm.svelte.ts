@@ -4,7 +4,7 @@
  * Reactive state for NIP-90 AI/compute jobs.
  */
 
-import { dvmService, DVMJobKind, DVMJobStatus, type DVMJobRequest, type DVMJobResult } from '$lib/services/dvm';
+import { dvmService, DVMJobStatus, type DVMJobRequest, type DVMJobResult } from '$lib/services/dvm';
 import { walletStore } from './wallet.svelte';
 import { cashuStore } from './cashu.svelte';
 

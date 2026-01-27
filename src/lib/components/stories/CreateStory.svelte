@@ -6,9 +6,7 @@
 	import { Card } from '$components/ui/card';
 	import X from 'lucide-svelte/icons/x';
 	import ImagePlus from 'lucide-svelte/icons/image-plus';
-	import Video from 'lucide-svelte/icons/video';
 	import Type from 'lucide-svelte/icons/type';
-	import Upload from 'lucide-svelte/icons/upload';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 
@@ -171,7 +169,7 @@
 
 			<!-- Media preview -->
 			{#if mediaPreview}
-				<div class="relative rounded-lg overflow-hidden bg-muted aspect-[9/16] max-h-80">
+				<div class="relative rounded-lg overflow-hidden bg-muted aspect-9/16 max-h-80">
 					{#if mediaUrl?.match(/\.(mp4|webm|mov)$/i)}
 						<!-- svelte-ignore a11y_media_has_caption -->
 						<video

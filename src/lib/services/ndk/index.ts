@@ -13,10 +13,10 @@ import NDK, {
 	type NDKRelay
 } from '@nostr-dev-kit/ndk';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
-import { relayManager, DEFAULT_RELAYS, BACKUP_RELAYS, type RelayHealth } from './relay-manager';
-import { eventPublisher, type QueuedEvent } from './event-publisher';
-import { subscriptionManager, type SubscriptionMeta, type SubscriptionCallbacks } from './subscription-manager';
-import { db, dbHelpers, type UserProfile } from '$db';
+import { relayManager, DEFAULT_RELAYS, type RelayHealth } from './relay-manager';
+import { eventPublisher } from './event-publisher';
+import { subscriptionManager, type SubscriptionCallbacks } from './subscription-manager';
+import { db, dbHelpers } from '$db';
 import { NetworkError, AuthError, ErrorCode } from '$lib/core/errors';
 
 // Re-export sub-modules

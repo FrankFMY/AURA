@@ -6,7 +6,7 @@
  */
 
 import { cashuService, DEFAULT_MINTS, type SendResult, type ReceiveResult, type MintQuoteResult } from '$lib/services/wallet';
-import { dbHelpers, type CashuMint, type CashuTransaction } from '$db';
+import { type CashuMint, type CashuTransaction } from '$db';
 import { ErrorHandler, WalletError, ErrorCode } from '$lib/core/errors';
 
 /** Cashu connection status */

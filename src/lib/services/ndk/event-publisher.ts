@@ -7,7 +7,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent, type NDKSigner, type NDKRelay } from '@nostr-dev-kit/ndk';
 import { NetworkError, ErrorCode } from '$lib/core/errors';
-import { dbHelpers, type StoredEvent } from '$db';
+import { dbHelpers } from '$db';
 
 /** Publish status */
 export type PublishStatus = 'pending' | 'publishing' | 'published' | 'failed';

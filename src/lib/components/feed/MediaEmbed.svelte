@@ -16,7 +16,6 @@
 	const embedData = $derived(parseEmbed(url));
 
 	let hasError = $state(false);
-	let isVideoPlaying = $state(false);
 	let showYouTubeEmbed = $state(false);
 	let isLoading = $state(true);
 
@@ -158,7 +157,7 @@
 					src={safeUrl}
 					controls
 					preload="metadata"
-					class="max-h-[500px] max-w-full"
+					class="max-h-125 max-w-full"
 					poster=""
 					onerror={handleVideoError}
 					onloadeddata={handleLoad}
@@ -170,20 +169,20 @@
 		{:else if mediaType === 'youtube' && embedData.id}
 			<!-- YouTube embed - limited height to not take over the feed -->
 			{#if showYouTubeEmbed}
-				<div class="aspect-video max-h-[360px]">
+				<div class="aspect-video max-h-90">
 					<iframe
 						src="https://www.youtube-nocookie.com/embed/{embedData.id}?autoplay=1&rel=0"
 						title="YouTube video"
 						frameborder="0"
 						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
 						allowfullscreen
-						class="h-full w-full max-h-[360px]"
+						class="h-full w-full max-h-90"
 					></iframe>
 				</div>
 			{:else}
 				<!-- YouTube thumbnail with play button -->
 				<button
-					class="relative aspect-video w-full max-h-[360px] cursor-pointer group"
+					class="relative aspect-video w-full max-h-90 cursor-pointer group"
 					onclick={handleYouTubeClick}
 				>
 					<img

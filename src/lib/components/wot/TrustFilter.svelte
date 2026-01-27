@@ -94,7 +94,7 @@
 
 		<!-- Dropdown -->
 		<div
-			class="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-md border border-border bg-popover p-1 shadow-lg"
+			class="absolute right-0 top-full mt-1 z-50 min-w-45 rounded-md border border-border bg-popover p-1 shadow-lg"
 			role="menu"
 			aria-orientation="vertical"
 		>

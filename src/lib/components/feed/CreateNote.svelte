@@ -182,7 +182,7 @@
 					size="sm"
 					onclick={handleSubmit}
 					disabled={!canSubmit}
-					class="min-w-[70px] sm:min-w-[100px] h-8 sm:h-9 text-xs sm:text-sm"
+					class="min-w-17.5 sm:min-w-25 h-8 sm:h-9 text-xs sm:text-sm"
 				>
 					{#if isSubmitting}
 						<Spinner size="sm" />

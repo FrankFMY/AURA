@@ -14,7 +14,6 @@
 
 import type { NDKFilter, NDKEvent } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
-import { dbHelpers } from '$db';
 
 /** Trust level enumeration */
 export type TrustLevel = 'self' | 'trusted' | 'friend-of-friend' | 'extended' | 'unknown' | 'muted';

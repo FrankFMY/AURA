@@ -4,7 +4,7 @@
  * Provides multi-language support using svelte-i18n.
  */
 
-import { init, register, getLocaleFromNavigator, locale, _ } from 'svelte-i18n';
+import { init, register, getLocaleFromNavigator, locale } from 'svelte-i18n';
 import { browser } from '$app/environment';
 
 /** Supported locales */

@@ -1,12 +1,9 @@
-import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
 import { dbHelpers, type Conversation, type UserProfile } from '$db';
 import authStore from './auth.svelte';
 import { validatePubkey } from '$lib/validators/schemas';
-import {
-	giftWrap,
-	type giftWrap as GiftWrapModule
-} from '$lib/services/crypto';
+import { giftWrap } from '$lib/services/crypto';
 import { pushNotifications } from '$services/push-notifications';
 
 /** Encryption protocol used for a message */
