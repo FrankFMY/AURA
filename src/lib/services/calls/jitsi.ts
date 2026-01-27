@@ -113,12 +113,23 @@ class JitsiService {
 			configOverwrite: {
 				startWithAudioMuted: config.startWithAudioMuted ?? false,
 				startWithVideoMuted: config.startWithVideoMuted ?? false,
+				// Disable prejoin page completely
 				prejoinPageEnabled: false,
+				prejoinConfig: {
+					enabled: false
+				},
+				// Disable lobby
+				enableLobby: false,
+				hideLobbyButton: true,
+				requireDisplayName: false,
+				// Other settings
 				disableDeepLinking: true,
 				disableInviteFunctions: true,
 				enableWelcomePage: false,
 				enableClosePage: false,
 				disableThirdPartyRequests: true,
+				// Skip any moderation
+				disableModeratorIndicator: true,
 				analytics: {
 					disabled: true
 				}

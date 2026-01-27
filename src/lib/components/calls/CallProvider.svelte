@@ -3,10 +3,37 @@
 	import { messagesStore } from '$stores/messages.svelte';
 	import { authStore } from '$stores/auth.svelte';
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import IncomingCall from './IncomingCall.svelte';
 
 	// Subscribe to incoming messages for call invites
-	let processedMessageIds = new Set<string>();
+	// Load from localStorage to persist across page refreshes
+	let processedMessageIds = new Set<string>(loadProcessedIds());
+
+	function loadProcessedIds(): string[] {
+		if (!browser) return [];
+		try {
+			const stored = localStorage.getItem('aura-processed-call-messages');
+			if (stored) {
+				const ids = JSON.parse(stored);
+				// Keep only last 100 IDs
+				return Array.isArray(ids) ? ids.slice(-100) : [];
+			}
+		} catch (e) {
+			console.error('[CallProvider] Failed to load processed IDs:', e);
+		}
+		return [];
+	}
+
+	function saveProcessedIds(): void {
+		if (!browser) return;
+		try {
+			const ids = Array.from(processedMessageIds).slice(-100);
+			localStorage.setItem('aura-processed-call-messages', JSON.stringify(ids));
+		} catch (e) {
+			console.error('[CallProvider] Failed to save processed IDs:', e);
+		}
+	}
 
 	// Watch for new messages that might be call invites
 	$effect(() => {
@@ -48,11 +75,12 @@
 			processedMessageIds.add(latestMessage.id);
 		}
 
-		// Cleanup old processed IDs (keep last 100)
+		// Cleanup old processed IDs and save to localStorage
 		if (processedMessageIds.size > 200) {
 			const ids = Array.from(processedMessageIds);
 			processedMessageIds = new Set(ids.slice(-100));
 		}
+		saveProcessedIds();
 	});
 
 	const incomingCall = $derived(callsStore.incomingCall);
