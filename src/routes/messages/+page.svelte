@@ -37,7 +37,23 @@
 	import Coins from 'lucide-svelte/icons/coins';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 	import MoreVertical from 'lucide-svelte/icons/more-vertical';
+	import Copy from 'lucide-svelte/icons/copy';
+	import Check from 'lucide-svelte/icons/check';
 	import type { RecordingResult } from '$lib/utils/audio-recorder';
+
+	let copiedPubkey = $state<string | null>(null);
+
+	async function copyPubkey(pubkey: string) {
+		try {
+			await navigator.clipboard.writeText(pubkey);
+			copiedPubkey = pubkey;
+			setTimeout(() => {
+				copiedPubkey = null;
+			}, 2000);
+		} catch (e) {
+			console.error('Failed to copy:', e);
+		}
+	}
 
 	let messageInput = $state('');
 	let searchQuery = $state('');
@@ -620,9 +636,18 @@
 												{message.error}
 											</p>
 										{/if}
-										<p class="text-xs text-muted-foreground/50 font-mono break-all">
-											From: {message.pubkey.slice(0, 16)}...
-										</p>
+										<button
+											class="flex items-center gap-1 text-xs text-muted-foreground/50 font-mono hover:text-muted-foreground transition-colors"
+											onclick={() => copyPubkey(message.pubkey)}
+											title="Click to copy full pubkey"
+										>
+											{#if copiedPubkey === message.pubkey}
+												<Check class="h-3 w-3 text-green-500" />
+											{:else}
+												<Copy class="h-3 w-3" />
+											{/if}
+											<span class="break-all">From: {message.pubkey.slice(0, 16)}...</span>
+										</button>
 									</div>
 								{:else if isEmptyMessage(message.content)}
 									<div
