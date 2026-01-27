@@ -1,44 +1,17 @@
 /**
  * WebRTC Service
  *
- * Handles peer-to-peer video/audio calls using WebRTC.
+ * Handles peer-to-peer video/audio calls using native WebRTC API.
  * Uses Nostr DMs for signaling (offer/answer/ICE candidates).
  */
 
 import { browser } from '$app/environment';
-import type SimplePeerModule from 'simple-peer';
-
-// Type aliases for SimplePeer
-type SimplePeerInstance = SimplePeerModule.Instance;
-type SimplePeerSignalData = SimplePeerModule.SignalData;
-type SimplePeerConstructor = typeof SimplePeerModule;
-
-// Dynamic import to avoid SSR issues with SimplePeer
-let SimplePeer: SimplePeerConstructor | null = null;
-
-async function getSimplePeer(): Promise<SimplePeerConstructor> {
-	if (!browser) {
-		throw new Error('SimplePeer is only available in browser');
-	}
-	if (!SimplePeer) {
-		const module = await import('simple-peer');
-		SimplePeer = module.default;
-	}
-	return SimplePeer;
-}
 
 // STUN/TURN servers for NAT traversal
 const ICE_SERVERS: RTCIceServer[] = [
-	// Google's free STUN servers
 	{ urls: 'stun:stun.l.google.com:19302' },
 	{ urls: 'stun:stun1.l.google.com:19302' },
 	{ urls: 'stun:stun2.l.google.com:19302' },
-	{ urls: 'stun:stun3.l.google.com:19302' },
-	{ urls: 'stun:stun4.l.google.com:19302' },
-	// Additional free STUN servers
-	{ urls: 'stun:stun.stunprotocol.org:3478' },
-	{ urls: 'stun:stun.voip.blackberry.com:3478' },
-	// Free TURN server from metered.ca (limited but works for testing)
 	{
 		urls: 'turn:a.relay.metered.ca:80',
 		username: 'e8dd65c92f6a932f5c403127',
@@ -59,12 +32,18 @@ const ICE_SERVERS: RTCIceServer[] = [
 /** WebRTC signal types for Nostr messaging */
 export type SignalType = 'offer' | 'answer' | 'ice-candidate';
 
+/** Signal data format */
+export type SignalData =
+	| { type: 'offer'; sdp: string }
+	| { type: 'answer'; sdp: string }
+	| { type: 'ice-candidate'; candidate: RTCIceCandidateInit | null };
+
 /** WebRTC signal message format */
 export interface WebRTCSignal {
 	type: 'webrtc_signal';
 	signalType: SignalType;
 	roomId: string;
-	data: SimplePeerSignalData;
+	data: SignalData;
 }
 
 /** Call events */
@@ -89,27 +68,28 @@ export function isWebRTCSignal(content: string): WebRTCSignal | null {
 	return null;
 }
 
-/** WebRTC Peer Connection Manager */
+/** WebRTC Peer Connection Manager using native API */
 class WebRTCService {
-	private peer: SimplePeerInstance | null = null;
+	private pc: RTCPeerConnection | null = null;
 	private localStream: MediaStream | null = null;
 	private remoteStream: MediaStream | null = null;
 	private callbacks: WebRTCCallbacks | null = null;
 	private roomId: string | null = null;
 	private isInitiator: boolean = false;
+	private iceCandidatesQueue: RTCIceCandidateInit[] = [];
 
 	/** Check if WebRTC is supported */
 	get isSupported(): boolean {
 		if (!browser) return false;
 		return (
 			typeof navigator?.mediaDevices?.getUserMedia === 'function' &&
-			typeof globalThis.RTCPeerConnection === 'function'
+			typeof RTCPeerConnection === 'function'
 		);
 	}
 
 	/** Get current connection state */
 	get isConnected(): boolean {
-		return this.peer?.connected ?? false;
+		return this.pc?.connectionState === 'connected';
 	}
 
 	/** Get local media stream */
@@ -136,11 +116,9 @@ class WebRTCService {
 		this.isInitiator = true;
 		this.callbacks = callbacks;
 
-		// Get local media stream
 		await this.getLocalStream(isVideo);
-
-		// Create peer connection as initiator
-		await this.createPeer(true);
+		this.createPeerConnection();
+		await this.createOffer();
 	}
 
 	/** Answer an incoming call */
@@ -157,17 +135,14 @@ class WebRTCService {
 		this.isInitiator = false;
 		this.callbacks = callbacks;
 
-		// Get local media stream
 		await this.getLocalStream(isVideo);
-
-		// Create peer connection as answerer (not initiator)
-		await this.createPeer(false);
+		this.createPeerConnection();
 	}
 
 	/** Handle incoming signal from remote peer */
-	handleSignal(signal: WebRTCSignal): void {
-		if (!this.peer) {
-			console.warn('[WebRTC] Received signal but no peer exists');
+	async handleSignal(signal: WebRTCSignal): Promise<void> {
+		if (!this.pc) {
+			console.warn('[WebRTC] Received signal but no peer connection exists');
 			return;
 		}
 
@@ -177,7 +152,33 @@ class WebRTCService {
 		}
 
 		console.log('[WebRTC] Handling signal:', signal.signalType);
-		this.peer.signal(signal.data);
+
+		try {
+			if (signal.signalType === 'offer' && signal.data.type === 'offer') {
+				await this.pc.setRemoteDescription({
+					type: 'offer',
+					sdp: signal.data.sdp
+				});
+				await this.processQueuedCandidates();
+				await this.createAnswer();
+			} else if (signal.signalType === 'answer' && signal.data.type === 'answer') {
+				await this.pc.setRemoteDescription({
+					type: 'answer',
+					sdp: signal.data.sdp
+				});
+				await this.processQueuedCandidates();
+			} else if (signal.signalType === 'ice-candidate' && signal.data.type === 'ice-candidate') {
+				if (signal.data.candidate) {
+					if (this.pc.remoteDescription) {
+						await this.pc.addIceCandidate(signal.data.candidate);
+					} else {
+						this.iceCandidatesQueue.push(signal.data.candidate);
+					}
+				}
+			}
+		} catch (error) {
+			console.error('[WebRTC] Error handling signal:', error);
+		}
 	}
 
 	/** Get local media stream */
@@ -207,74 +208,118 @@ class WebRTCService {
 		}
 	}
 
-	/** Create SimplePeer instance */
-	private async createPeer(initiator: boolean): Promise<void> {
-		console.log('[WebRTC] Creating peer, initiator:', initiator);
+	/** Create RTCPeerConnection */
+	private createPeerConnection(): void {
+		console.log('[WebRTC] Creating peer connection');
 
-		const Peer = await getSimplePeer();
+		this.pc = new RTCPeerConnection({
+			iceServers: ICE_SERVERS
+		});
 
-		// Explicitly provide browser WebRTC APIs to avoid detection issues
-		const wrtc = {
-			RTCPeerConnection: globalThis.RTCPeerConnection,
-			RTCSessionDescription: globalThis.RTCSessionDescription,
-			RTCIceCandidate: globalThis.RTCIceCandidate
+		// Add local tracks to the connection
+		if (this.localStream) {
+			this.localStream.getTracks().forEach(track => {
+				this.pc!.addTrack(track, this.localStream!);
+			});
+		}
+
+		// Handle ICE candidates
+		this.pc.onicecandidate = (event) => {
+			if (event.candidate) {
+				console.log('[WebRTC] Got ICE candidate');
+				this.sendSignal('ice-candidate', {
+					type: 'ice-candidate',
+					candidate: event.candidate.toJSON()
+				});
+			}
 		};
 
-		this.peer = new Peer({
-			initiator,
-			stream: this.localStream || undefined,
-			trickle: true,
-			wrtc,
-			config: {
-				iceServers: ICE_SERVERS
+		// Handle remote stream
+		this.pc.ontrack = (event) => {
+			console.log('[WebRTC] Got remote track:', event.track.kind);
+			if (!this.remoteStream) {
+				this.remoteStream = new MediaStream();
 			}
-		});
+			this.remoteStream.addTrack(event.track);
+			this.callbacks?.onStream(this.remoteStream);
+		};
 
-		// Handle outgoing signals (send to remote peer via Nostr)
-		this.peer.on('signal', (data: SimplePeerSignalData) => {
-			console.log('[WebRTC] Got signal to send:', data.type || 'ice-candidate');
-
-			let signalType: SignalType = 'ice-candidate';
-			if (data.type === 'offer') {
-				signalType = 'offer';
-			} else if (data.type === 'answer') {
-				signalType = 'answer';
+		// Handle connection state changes
+		this.pc.onconnectionstatechange = () => {
+			console.log('[WebRTC] Connection state:', this.pc?.connectionState);
+			if (this.pc?.connectionState === 'connected') {
+				this.callbacks?.onConnect();
+			} else if (this.pc?.connectionState === 'failed' || this.pc?.connectionState === 'closed') {
+				this.callbacks?.onClose();
 			}
+		};
 
-			const signal: WebRTCSignal = {
-				type: 'webrtc_signal',
-				signalType,
-				roomId: this.roomId!,
-				data
-			};
+		// Handle ICE connection state for errors
+		this.pc.oniceconnectionstatechange = () => {
+			console.log('[WebRTC] ICE state:', this.pc?.iceConnectionState);
+			if (this.pc?.iceConnectionState === 'failed') {
+				this.callbacks?.onError(new Error('ICE connection failed'));
+			}
+		};
+	}
 
-			this.callbacks?.onSignal(signal);
-		});
+	/** Create and send offer */
+	private async createOffer(): Promise<void> {
+		if (!this.pc) return;
 
-		// Handle incoming remote stream
-		this.peer.on('stream', (stream: MediaStream) => {
-			console.log('[WebRTC] Got remote stream:', stream.getTracks().map((t: MediaStreamTrack) => t.kind));
-			this.remoteStream = stream;
-			this.callbacks?.onStream(stream);
-		});
+		try {
+			const offer = await this.pc.createOffer();
+			await this.pc.setLocalDescription(offer);
 
-		// Handle connection established
-		this.peer.on('connect', () => {
-			console.log('[WebRTC] Connected!');
-			this.callbacks?.onConnect();
-		});
+			console.log('[WebRTC] Created offer');
+			this.sendSignal('offer', {
+				type: 'offer',
+				sdp: offer.sdp!
+			});
+		} catch (error) {
+			console.error('[WebRTC] Failed to create offer:', error);
+			this.callbacks?.onError(error as Error);
+		}
+	}
 
-		// Handle connection closed
-		this.peer.on('close', () => {
-			console.log('[WebRTC] Connection closed');
-			this.callbacks?.onClose();
-		});
+	/** Create and send answer */
+	private async createAnswer(): Promise<void> {
+		if (!this.pc) return;
 
-		// Handle errors
-		this.peer.on('error', (error: Error) => {
-			console.error('[WebRTC] Error:', error);
-			this.callbacks?.onError(error);
-		});
+		try {
+			const answer = await this.pc.createAnswer();
+			await this.pc.setLocalDescription(answer);
+
+			console.log('[WebRTC] Created answer');
+			this.sendSignal('answer', {
+				type: 'answer',
+				sdp: answer.sdp!
+			});
+		} catch (error) {
+			console.error('[WebRTC] Failed to create answer:', error);
+			this.callbacks?.onError(error as Error);
+		}
+	}
+
+	/** Process queued ICE candidates */
+	private async processQueuedCandidates(): Promise<void> {
+		while (this.iceCandidatesQueue.length > 0) {
+			const candidate = this.iceCandidatesQueue.shift();
+			if (candidate && this.pc) {
+				await this.pc.addIceCandidate(candidate);
+			}
+		}
+	}
+
+	/** Send signal via callback */
+	private sendSignal(signalType: SignalType, data: SignalData): void {
+		const signal: WebRTCSignal = {
+			type: 'webrtc_signal',
+			signalType,
+			roomId: this.roomId!,
+			data
+		};
+		this.callbacks?.onSignal(signal);
 	}
 
 	/** Toggle audio mute */
@@ -285,7 +330,7 @@ class WebRTCService {
 		if (audioTrack) {
 			audioTrack.enabled = !audioTrack.enabled;
 			console.log('[WebRTC] Audio:', audioTrack.enabled ? 'unmuted' : 'muted');
-			return !audioTrack.enabled; // Return isMuted
+			return !audioTrack.enabled;
 		}
 		return false;
 	}
@@ -350,10 +395,10 @@ class WebRTCService {
 			this.localStream = null;
 		}
 
-		// Destroy peer connection
-		if (this.peer) {
-			this.peer.destroy();
-			this.peer = null;
+		// Close peer connection
+		if (this.pc) {
+			this.pc.close();
+			this.pc = null;
 		}
 
 		// Clear state
@@ -361,6 +406,7 @@ class WebRTCService {
 		this.callbacks = null;
 		this.roomId = null;
 		this.isInitiator = false;
+		this.iceCandidatesQueue = [];
 	}
 
 	/** Switch camera (for mobile) */
@@ -370,28 +416,27 @@ class WebRTCService {
 		const videoTrack = this.localStream.getVideoTracks()[0];
 		if (!videoTrack) return;
 
-		// Get current facing mode
 		const settings = videoTrack.getSettings();
 		const currentFacing = settings.facingMode || 'user';
 		const newFacing = currentFacing === 'user' ? 'environment' : 'user';
 
 		try {
-			// Get new stream with switched camera
 			const newStream = await navigator.mediaDevices.getUserMedia({
 				video: { facingMode: newFacing }
 			});
 
 			const newVideoTrack = newStream.getVideoTracks()[0];
 
-			// Replace track in peer connection
-			if (this.peer && newVideoTrack) {
-				// Remove old track and add new one
+			if (this.pc && newVideoTrack) {
+				const sender = this.pc.getSenders().find(s => s.track?.kind === 'video');
+				if (sender) {
+					await sender.replaceTrack(newVideoTrack);
+				}
+
 				this.localStream.removeTrack(videoTrack);
 				videoTrack.stop();
 				this.localStream.addTrack(newVideoTrack);
 
-				// SimplePeer doesn't have replaceTrack, so we need to handle this differently
-				// For now, just update local stream
 				console.log('[WebRTC] Switched to', newFacing, 'camera');
 			}
 		} catch (error) {

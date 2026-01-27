@@ -484,11 +484,11 @@ function createCallsStore() {
 	}
 
 	/** Handle WebRTC signal from peer */
-	function handleWebRTCSignal(signal: WebRTCSignal): void {
+	async function handleWebRTCSignal(signal: WebRTCSignal): Promise<void> {
 		// If we have an active call for this room, forward signal directly
 		if (activeCall && activeCall.roomId === signal.roomId) {
 			console.log('[Calls] Forwarding signal to WebRTC:', signal.signalType);
-			webrtcService.handleSignal(signal);
+			await webrtcService.handleSignal(signal);
 			return;
 		}
 
@@ -506,14 +506,14 @@ function createCallsStore() {
 	}
 
 	/** Process buffered signals for a room */
-	function processPendingSignals(roomId: string): void {
+	async function processPendingSignals(roomId: string): Promise<void> {
 		const signals = pendingSignals.get(roomId);
 		if (!signals || signals.length === 0) return;
 
 		console.log('[Calls] Processing', signals.length, 'buffered signals for room:', roomId);
 
 		for (const signal of signals) {
-			webrtcService.handleSignal(signal);
+			await webrtcService.handleSignal(signal);
 		}
 
 		pendingSignals.delete(roomId);
