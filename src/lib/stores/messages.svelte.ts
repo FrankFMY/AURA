@@ -148,6 +148,68 @@ function createMessagesStore() {
 		return content;
 	}
 
+	/** Parse and validate NIP-04 content structure */
+	function parseNip04Content(content: string): {
+		valid: boolean;
+		ciphertext?: string;
+		iv?: string;
+		error?: string;
+		ciphertextBytes?: number;
+		ivBytes?: number;
+	} {
+		const normalized = normalizeNip04Content(content);
+		const parts = normalized.split('?iv=');
+
+		if (parts.length !== 2) {
+			return { valid: false, error: `Expected 2 parts, got ${parts.length}` };
+		}
+
+		const [ciphertext, iv] = parts;
+
+		// Validate base64
+		const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+		if (!base64Regex.test(ciphertext)) {
+			return { valid: false, error: 'Invalid ciphertext base64', ciphertext };
+		}
+		if (!base64Regex.test(iv)) {
+			return { valid: false, error: 'Invalid IV base64', iv };
+		}
+
+		// Decode to check lengths
+		try {
+			const ciphertextBytes = atob(ciphertext).length;
+			const ivBytes = atob(iv).length;
+
+			// NIP-04 uses AES-256-CBC: IV should be 16 bytes
+			if (ivBytes !== 16) {
+				return {
+					valid: false,
+					error: `IV should be 16 bytes, got ${ivBytes}`,
+					ciphertext,
+					iv,
+					ciphertextBytes,
+					ivBytes
+				};
+			}
+
+			// Ciphertext should be multiple of 16 (AES block size)
+			if (ciphertextBytes % 16 !== 0) {
+				return {
+					valid: false,
+					error: `Ciphertext length ${ciphertextBytes} not multiple of 16`,
+					ciphertext,
+					iv,
+					ciphertextBytes,
+					ivBytes
+				};
+			}
+
+			return { valid: true, ciphertext, iv, ciphertextBytes, ivBytes };
+		} catch (e) {
+			return { valid: false, error: `Base64 decode failed: ${e}` };
+		}
+	}
+
 	/** Detect if content looks like NIP-44 format */
 	function isNip44Format(content: string): boolean {
 		// NIP-44 is pure base64 without ?iv= separator
@@ -248,6 +310,16 @@ function createMessagesStore() {
 			try {
 				method = 'NIP-04 (detected)';
 				const normalizedContent = normalizeNip04Content(content);
+
+				// Parse and validate NIP-04 structure
+				const parsed = parseNip04Content(content);
+				console.debug('[Messages] NIP-04 content analysis:', {
+					valid: parsed.valid,
+					ciphertextBytes: parsed.ciphertextBytes,
+					ivBytes: parsed.ivBytes,
+					error: parsed.error
+				});
+
 				console.debug('[Messages] Trying NIP-04 decrypt:', {
 					otherPubkey,
 					myPubkey: authStore.pubkey,
