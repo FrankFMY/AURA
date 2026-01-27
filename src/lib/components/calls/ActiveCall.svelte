@@ -28,6 +28,7 @@
 	let error = $state<string | null>(null);
 	let callDuration = $state('0:00');
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
+	let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 	const isMuted = $derived(callsStore.isMuted);
 	const isVideoEnabled = $derived(callsStore.isVideoEnabled);
@@ -40,6 +41,17 @@
 
 	onMount(async () => {
 		try {
+			// Set a fallback timeout - if videoConferenceJoined doesn't fire in 15 seconds,
+			// assume we're connected anyway (Jitsi might be working but event not firing)
+			initTimeoutId = setTimeout(() => {
+				if (isInitializing) {
+					console.warn('[Call] Timeout waiting for videoConferenceJoined, assuming connected');
+					isInitializing = false;
+					callsStore.markConnected();
+					startDurationTimer();
+				}
+			}, 15000);
+
 			await jitsiService.initCall({
 				roomName: call.roomId,
 				displayName: authStore.displayName || 'Anonymous',
@@ -48,11 +60,17 @@
 				startWithAudioMuted: false,
 				parentNode: jitsiContainer,
 				onVideoConferenceJoined: () => {
+					console.log('[Call] videoConferenceJoined callback fired');
+					if (initTimeoutId) {
+						clearTimeout(initTimeoutId);
+						initTimeoutId = null;
+					}
 					isInitializing = false;
 					callsStore.markConnected();
 					startDurationTimer();
 				},
 				onVideoConferenceLeft: () => {
+					console.log('[Call] videoConferenceLeft callback fired');
 					onEnd();
 				},
 				onParticipantJoined: (data) => {
@@ -76,6 +94,10 @@
 			console.error('[Call] Failed to initialize Jitsi:', e);
 			error = 'Failed to start video call. Please try again.';
 			isInitializing = false;
+			if (initTimeoutId) {
+				clearTimeout(initTimeoutId);
+				initTimeoutId = null;
+			}
 		}
 	});
 
@@ -83,6 +105,9 @@
 		jitsiService.dispose();
 		if (durationInterval) {
 			clearInterval(durationInterval);
+		}
+		if (initTimeoutId) {
+			clearTimeout(initTimeoutId);
 		}
 	});
 

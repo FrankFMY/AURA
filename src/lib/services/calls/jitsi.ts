@@ -91,11 +91,15 @@ class JitsiService {
 			throw new Error('Jitsi is only available in browser');
 		}
 
+		console.log('[Jitsi] Initializing call for room:', config.roomName);
+
 		// Ensure API is loaded
 		await this.loadApi();
+		console.log('[Jitsi] API loaded successfully');
 
 		// Dispose existing call
 		if (this.api) {
+			console.log('[Jitsi] Disposing existing call');
 			this.dispose();
 		}
 
@@ -147,41 +151,75 @@ class JitsiService {
 			}
 		};
 
+		console.log('[Jitsi] Creating JitsiMeetExternalAPI instance');
 		this.api = new window.JitsiMeetExternalAPI('meet.jit.si', options);
+		console.log('[Jitsi] API instance created');
 
 		// Set avatar if provided
 		if (config.avatarUrl) {
 			this.api.executeCommand('avatarUrl', config.avatarUrl);
 		}
 
-		// Set up event listeners
+		// Set up event listeners with logging wrappers
 		if (config.onReadyToClose) {
-			this.api.addListener('readyToClose', config.onReadyToClose);
+			this.api.addListener('readyToClose', () => {
+				console.log('[Jitsi] Event: readyToClose');
+				config.onReadyToClose!();
+			});
 		}
 
 		if (config.onVideoConferenceJoined) {
-			this.api.addListener('videoConferenceJoined', config.onVideoConferenceJoined as (...args: unknown[]) => void);
+			this.api.addListener('videoConferenceJoined', (data: unknown) => {
+				console.log('[Jitsi] Event: videoConferenceJoined', data);
+				config.onVideoConferenceJoined!(data as { roomName: string; id: string; displayName: string });
+			});
 		}
 
 		if (config.onVideoConferenceLeft) {
-			this.api.addListener('videoConferenceLeft', config.onVideoConferenceLeft as (...args: unknown[]) => void);
+			this.api.addListener('videoConferenceLeft', (data: unknown) => {
+				console.log('[Jitsi] Event: videoConferenceLeft', data);
+				config.onVideoConferenceLeft!(data as { roomName: string });
+			});
 		}
 
 		if (config.onParticipantJoined) {
-			this.api.addListener('participantJoined', config.onParticipantJoined as (...args: unknown[]) => void);
+			this.api.addListener('participantJoined', (data: unknown) => {
+				console.log('[Jitsi] Event: participantJoined', data);
+				config.onParticipantJoined!(data as { id: string; displayName: string });
+			});
 		}
 
 		if (config.onParticipantLeft) {
-			this.api.addListener('participantLeft', config.onParticipantLeft as (...args: unknown[]) => void);
+			this.api.addListener('participantLeft', (data: unknown) => {
+				console.log('[Jitsi] Event: participantLeft', data);
+				config.onParticipantLeft!(data as { id: string });
+			});
 		}
 
 		if (config.onAudioMuteStatusChanged) {
-			this.api.addListener('audioMuteStatusChanged', config.onAudioMuteStatusChanged as (...args: unknown[]) => void);
+			this.api.addListener('audioMuteStatusChanged', (data: unknown) => {
+				console.log('[Jitsi] Event: audioMuteStatusChanged', data);
+				config.onAudioMuteStatusChanged!(data as { muted: boolean });
+			});
 		}
 
 		if (config.onVideoMuteStatusChanged) {
-			this.api.addListener('videoMuteStatusChanged', config.onVideoMuteStatusChanged as (...args: unknown[]) => void);
+			this.api.addListener('videoMuteStatusChanged', (data: unknown) => {
+				console.log('[Jitsi] Event: videoMuteStatusChanged', data);
+				config.onVideoMuteStatusChanged!(data as { muted: boolean });
+			});
 		}
+
+		// Add extra debugging listeners
+		this.api.addListener('browserSupport', (data: unknown) => {
+			console.log('[Jitsi] Event: browserSupport', data);
+		});
+
+		this.api.addListener('errorOccurred', (data: unknown) => {
+			console.error('[Jitsi] Event: errorOccurred', data);
+		});
+
+		console.log('[Jitsi] All event listeners attached');
 	}
 
 	/** Toggle audio mute */
