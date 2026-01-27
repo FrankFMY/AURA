@@ -55,13 +55,13 @@ function createPollsStore() {
 			for (const tag of event.tags) {
 				if (tag[0] === 'poll_option' && tag[1] && tag[2]) {
 					options.push({
-						index: parseInt(tag[1], 10),
+						index: Number.parseInt(tag[1], 10),
 						text: tag[2],
 						votes: 0
 					});
 				}
 				if (tag[0] === 'endsAt' && tag[1]) {
-					endsAt = parseInt(tag[1], 10);
+					endsAt = Number.parseInt(tag[1], 10);
 				}
 			}
 
@@ -114,7 +114,7 @@ function createPollsStore() {
 				// Find response tag
 				const responseTag = event.tags.find((t) => t[0] === 'response');
 				if (responseTag && responseTag[1]) {
-					const optionIndex = parseInt(responseTag[1], 10);
+					const optionIndex = Number.parseInt(responseTag[1], 10);
 					voteCounts.set(optionIndex, (voteCounts.get(optionIndex) || 0) + 1);
 
 					// Track user's vote

@@ -80,7 +80,7 @@ function createStoriesStore() {
 
 			// Check expiration
 			const expirationTag = event.tags.find((t) => t[0] === 'expiration');
-			const expiresAt = expirationTag ? parseInt(expirationTag[1], 10) : 0;
+			const expiresAt = expirationTag ? Number.parseInt(expirationTag[1], 10) : 0;
 			const now = Math.floor(Date.now() / 1000);
 
 			// Skip expired stories

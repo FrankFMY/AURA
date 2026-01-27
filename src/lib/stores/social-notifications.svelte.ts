@@ -146,7 +146,7 @@ function createSocialNotificationsStore() {
 		const match = bolt11.match(/lnbc(\d+)([munp]?)/i);
 		if (!match) return undefined;
 		
-		const value = parseInt(match[1], 10);
+		const value = Number.parseInt(match[1], 10);
 		const unit = match[2]?.toLowerCase();
 		
 		switch (unit) {

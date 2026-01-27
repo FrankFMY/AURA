@@ -293,7 +293,7 @@ class DVMService {
 			// Check for amount paid
 			const amountTag = event.tags.find(t => t[0] === 'amount');
 			if (amountTag) {
-				amount = parseInt(amountTag[1]) / 1000; // Convert from millisats
+				amount = Number.parseInt(amountTag[1]) / 1000; // Convert from millisats
 			}
 		}
 
@@ -308,7 +308,7 @@ class DVMService {
 						// Get invoice
 						const amountTag = event.tags.find(t => t[0] === 'amount');
 						if (amountTag) {
-							amount = parseInt(amountTag[1]) / 1000;
+							amount = Number.parseInt(amountTag[1]) / 1000;
 							invoice = amountTag[2]; // Invoice is in index 2
 						}
 						break;
@@ -497,8 +497,7 @@ class DVMService {
 		for (const event of events) {
 			try {
 				const content = JSON.parse(event.content);
-				const dTag = event.tags.find(t => t[0] === 'd');
-				const kTags = event.tags.filter(t => t[0] === 'k').map(t => parseInt(t[1]));
+				const kTags = event.tags.filter(t => t[0] === 'k').map(t => Number.parseInt(t[1]));
 
 				const existing = dvms.get(event.pubkey);
 				if (existing) {

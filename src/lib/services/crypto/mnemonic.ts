@@ -7,8 +7,7 @@
 
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { getPublicKey } from 'nostr-tools';
-import { nip19 } from 'nostr-tools';
+import { getPublicKey, nip19 } from 'nostr-tools';
 
 const { generateMnemonic, mnemonicToSeedSync, validateMnemonic } = bip39;
 

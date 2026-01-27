@@ -72,7 +72,7 @@ export function parseInvoice(invoice: string): ParsedInvoice {
 	let amountSat: number | null = null;
 	
 	if (amountMatch && amountMatch[1]) {
-		const value = parseInt(amountMatch[1], 10);
+		const value = Number.parseInt(amountMatch[1], 10);
 		const multiplier = amountMatch[2] ? AMOUNT_MULTIPLIERS[amountMatch[2]] : 1;
 		
 		// Convert to millisatoshis (base unit is BTC)
