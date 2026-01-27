@@ -87,8 +87,8 @@ export function setLocale(newLocale: SupportedLocale) {
 		document.documentElement.lang = newLocale;
 
 		// Set text direction for RTL languages (none in current set, but future-proof)
-		const rtlLocales: string[] = []; // Add 'ar', 'he', etc. if needed
-		document.documentElement.dir = rtlLocales.includes(newLocale) ? 'rtl' : 'ltr';
+		// RTL languages to add when supported: 'ar', 'he', 'fa', 'ur'
+		document.documentElement.dir = 'ltr';
 	}
 }
 

@@ -18,14 +18,13 @@ import ndkService from '$services/ndk';
 /** Trust level enumeration */
 export type TrustLevel = 'self' | 'trusted' | 'friend-of-friend' | 'extended' | 'unknown' | 'muted';
 
-/** Trust score (0-100) */
-export type TrustScore = number;
+/** Trust score is a number from 0-100 */
 
 /** User trust info */
 export interface UserTrust {
 	pubkey: string;
 	level: TrustLevel;
-	score: TrustScore;
+	score: number;
 	/** Direct path to trusted user (for friend-of-friend) */
 	via?: string;
 	/** Reason for trust/distrust */
@@ -43,7 +42,7 @@ interface TrustNode {
 /** WoT calculation result */
 export interface WoTResult {
 	level: TrustLevel;
-	score: TrustScore;
+	score: number;
 	path: string[];
 	isMuted: boolean;
 }
@@ -290,7 +289,7 @@ class WoTService {
 	/**
 	 * Get trust score (0-100)
 	 */
-	getTrustScore(pubkey: string): TrustScore {
+	getTrustScore(pubkey: string): number {
 		return this.getTrust(pubkey).score;
 	}
 

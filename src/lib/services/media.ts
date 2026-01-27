@@ -129,7 +129,8 @@ class MediaService {
 								{ code: ErrorCode.NETWORK_ERROR }
 							));
 						}
-					} catch (e) {
+					} catch (parseError) {
+						console.warn('[Media] Failed to parse upload response:', parseError);
 						reject(new NetworkError('Invalid response from server', {
 							code: ErrorCode.NETWORK_ERROR
 						}));

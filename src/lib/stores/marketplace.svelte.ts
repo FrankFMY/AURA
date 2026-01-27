@@ -115,15 +115,15 @@ function parseListingEvent(event: NDKEvent, seller: UserProfile | null): Product
 	let price = 0;
 	let currency = 'sat';
 	
-	if (contentData.price !== undefined) {
-		price = contentData.price;
-		currency = contentData.currency?.toLowerCase() || 'sats';
-	} else {
+	if (contentData.price === undefined) {
 		const priceTag = tags.find(t => t[0] === 'price');
 		if (priceTag) {
 			price = Number.parseFloat(priceTag[1]) || 0;
 			currency = priceTag[2] || getTag('currency') || 'sat';
 		}
+	} else {
+		price = contentData.price;
+		currency = contentData.currency?.toLowerCase() || 'sats';
 	}
 
 	// Parse images - check JSON content first, then tags

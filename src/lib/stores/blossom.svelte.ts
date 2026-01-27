@@ -137,7 +137,7 @@ function createBlossomStore() {
 	 */
 	async function retry(id: string): Promise<void> {
 		const uploadState = uploads.find(u => u.id === id);
-		if (!uploadState || uploadState.status !== 'error') return;
+		if (uploadState?.status !== 'error') return;
 
 		// Remove old state
 		uploads = uploads.filter(u => u.id !== id);

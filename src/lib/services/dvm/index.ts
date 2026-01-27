@@ -227,7 +227,7 @@ class DVMService {
 		// Timeout after 60 seconds
 		setTimeout(() => {
 			const job = this.activeJobs.get(request.id);
-			if (job && job.results.length === 0) {
+			if (job?.results.length === 0) {
 				onError('Request timed out - no DVM responded');
 				this.cancelJob(request.id);
 			}

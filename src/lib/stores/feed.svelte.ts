@@ -142,7 +142,7 @@ function createFeedStore() {
 					filter.authors = [feedParam];
 				}
 				break;
-		case 'following':
+		case 'following': {
 			// Get following list from NIP-02 contact list
 			const followingPubkeys = contactsService.getContactPubkeys();
 			if (followingPubkeys.length > 0) {
@@ -150,6 +150,7 @@ function createFeedStore() {
 			}
 			// If no contacts, filter stays without authors (handled in load())
 			break;
+		}
 			case 'hashtag':
 				if (feedParam) {
 					filter['#t'] = [feedParam];
@@ -245,7 +246,7 @@ function createFeedStore() {
 							return toFeedEvent(ndkEvent);
 						})
 				);
-				events = feedEvents.sort((a, b) =>
+				events = feedEvents.toSorted((a, b) =>
 					(b.event.created_at || 0) - (a.event.created_at || 0)
 				);
 			}
@@ -288,15 +289,17 @@ function createFeedStore() {
 							}
 
 							// Cache event
-							void dbHelpers.saveEvent({
-								id: event.id,
-								pubkey: event.pubkey,
-								kind: event.kind!,
-								created_at: event.created_at!,
-								content: event.content,
-								tags: event.tags,
-								sig: event.sig!
-							}).catch(console.error);
+							if (event.kind !== undefined && event.created_at !== undefined && event.sig !== undefined) {
+								void dbHelpers.saveEvent({
+									id: event.id,
+									pubkey: event.pubkey,
+									kind: event.kind,
+									created_at: event.created_at,
+									content: event.content,
+									tags: event.tags,
+									sig: event.sig
+								}).catch(console.error);
+							}
 						})();
 					},
 					onEose: () => {
@@ -365,14 +368,17 @@ function createFeedStore() {
 
 					// Cache events
 					for (const event of newEvents) {
+						if (event.kind === undefined || event.created_at === undefined || event.sig === undefined) {
+							continue;
+						}
 						dbHelpers.saveEvent({
 							id: event.id,
 							pubkey: event.pubkey,
-							kind: event.kind!,
-							created_at: event.created_at!,
+							kind: event.kind,
+							created_at: event.created_at,
 							content: event.content,
 							tags: event.tags,
-							sig: event.sig!
+							sig: event.sig
 						}).catch(console.error);
 					}
 				}
@@ -437,7 +443,7 @@ function createFeedStore() {
 	/** React to an event with optimistic update */
 	async function react(event: NDKEvent, reaction: string = '+'): Promise<void> {
 		const eventIndex = events.findIndex(e => e.event.id === event.id);
-		const previousState = eventIndex !== -1 ? { ...events[eventIndex] } : null;
+		const previousState = eventIndex >= 0 ? { ...events[eventIndex] } : null;
 
 		// Optimistic update - both local state and interactions cache
 		userInteractionsService.addReaction(event.id);
@@ -473,7 +479,7 @@ function createFeedStore() {
 	/** Repost an event with optimistic update */
 	async function repost(event: NDKEvent): Promise<void> {
 		const eventIndex = events.findIndex(e => e.event.id === event.id);
-		const previousState = eventIndex !== -1 ? { ...events[eventIndex] } : null;
+		const previousState = eventIndex >= 0 ? { ...events[eventIndex] } : null;
 
 		// Optimistic update - both local state and interactions cache
 		userInteractionsService.addRepost(event.id);

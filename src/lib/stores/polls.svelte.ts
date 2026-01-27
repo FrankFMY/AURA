@@ -76,7 +76,7 @@ function createPollsStore() {
 				id: event.id,
 				pubkey: event.pubkey,
 				question: event.content,
-				options: options.sort((a, b) => a.index - b.index),
+				options: options.toSorted((a, b) => a.index - b.index),
 				endsAt,
 				createdAt: event.created_at || now,
 				totalVotes: 0,
@@ -113,7 +113,7 @@ function createPollsStore() {
 
 				// Find response tag
 				const responseTag = event.tags.find((t) => t[0] === 'response');
-				if (responseTag && responseTag[1]) {
+				if (responseTag?.[1]) {
 					const optionIndex = Number.parseInt(responseTag[1], 10);
 					voteCounts.set(optionIndex, (voteCounts.get(optionIndex) || 0) + 1);
 
@@ -173,11 +173,8 @@ function createPollsStore() {
 				event.tags.push(['endsAt', options.endsAt.toString()]);
 			}
 
-			// Single choice by default
-			event.tags.push(['valueMax', '1']);
-
-			// Add client tag
-			event.tags.push(['client', 'AURA']);
+			// Single choice by default + client tag
+			event.tags.push(['valueMax', '1'], ['client', 'AURA']);
 
 			await event.sign();
 			await event.publish();
@@ -267,7 +264,7 @@ function createPollsStore() {
 
 		try {
 			const event = await ndkService.ndk.fetchEvent({ ids: [pollId] });
-			if (!event || event.kind !== POLL_KIND) {
+			if (event?.kind !== POLL_KIND) {
 				return null;
 			}
 

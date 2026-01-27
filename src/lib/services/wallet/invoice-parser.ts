@@ -77,7 +77,7 @@ export function parseInvoice(invoice: string): ParsedInvoice {
 	let amountMsat: number | null = null;
 	let amountSat: number | null = null;
 	
-	if (amountMatch && amountMatch[1]) {
+	if (amountMatch?.[1]) {
 		const value = Number.parseInt(amountMatch[1], 10);
 		const multiplier = amountMatch[2] ? AMOUNT_MULTIPLIERS[amountMatch[2]] : 1;
 		

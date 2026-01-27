@@ -52,8 +52,7 @@ class KeyManager {
 	 * Check if Web Crypto API is available
 	 */
 	isSupported(): boolean {
-		return globalThis.crypto !== undefined &&
-			globalThis.crypto?.subtle !== undefined &&
+		return globalThis.crypto?.subtle !== undefined &&
 			globalThis.crypto?.getRandomValues !== undefined;
 	}
 

@@ -40,7 +40,7 @@ const pending = new Map<string, Promise<NIP05VerificationResult>>();
  * @example "bob@example.com" -> { name: "bob", domain: "example.com" }
  */
 function parseNIP05(identifier: string): { name: string; domain: string } | null {
-	if (!identifier || !identifier.includes('@')) {
+	if (!identifier?.includes('@')) {
 		return null;
 	}
 

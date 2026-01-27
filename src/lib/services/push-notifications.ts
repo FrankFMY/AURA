@@ -79,10 +79,7 @@ class PushNotificationsService {
 		if (this.isInitialized) return;
 
 		try {
-			const stored = await dbHelpers.getSetting<NotificationSettings>(
-				SETTINGS_KEY,
-				undefined
-			);
+			const stored = await dbHelpers.getSetting<NotificationSettings>(SETTINGS_KEY);
 
 			if (stored) {
 				this.settings = {

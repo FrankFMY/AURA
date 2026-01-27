@@ -216,7 +216,7 @@ function createGroupsStore() {
 
 			messagesSubscription.on('event', async (event) => {
 				const message = await parseMessageEvent(event);
-				if (message && message.groupId === groupId) {
+				if (message?.groupId === groupId) {
 					const groupMessages = messages.get(groupId) || [];
 
 					// Check for duplicate
