@@ -160,11 +160,11 @@ function createMessagesStore() {
 
 		console.debug('[Messages] Attempting decryption:', {
 			eventId: event.id.slice(0, 8),
-			from: otherPubkey.slice(0, 8),
+			decryptWithPubkey: otherPubkey,  // FULL pubkey we're decrypting with
 			contentLength: content?.length,
 			contentFormat,
 			nip44Version,
-			contentPreview: content?.slice(0, 40) + '...',
+			contentPreview: content?.slice(0, 60),
 			hasNip04: !!window.nostr?.nip04,
 			hasNip44: !!window.nostr?.nip44
 		});
@@ -486,13 +486,15 @@ function createMessagesStore() {
 
 		console.debug('[Messages] Processing DM:', {
 			eventId: event.id.slice(0, 8),
-			eventPubkey: event.pubkey.slice(0, 8),
-			pTag: pTag?.slice(0, 8),
-			myPubkey: authStore.pubkey.slice(0, 8),
+			eventPubkey: event.pubkey,  // FULL pubkey for debugging
+			pTag: pTag,  // FULL p-tag for debugging
+			myPubkey: authStore.pubkey,  // FULL my pubkey
 			isOutgoing,
-			otherPubkey: otherPubkey?.slice(0, 8),
-			allTags: event.tags.map(t => [t[0], t[1]?.slice(0, 8)]),
-			contentLen: event.content?.length
+			otherPubkey: otherPubkey,  // FULL other pubkey we'll decrypt with
+			allTags: event.tags,
+			contentLen: event.content?.length,
+			// Check if p-tag matches my pubkey
+			pTagMatchesMe: pTag === authStore.pubkey
 		});
 
 		if (!otherPubkey) {
