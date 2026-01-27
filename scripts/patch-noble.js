@@ -46,59 +46,75 @@ function patchPackageAtPath(pkgPath, additionalExports) {
 	}
 }
 
+/** Check if path is a directory */
+function isDirectory(path) {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/** Process nested node_modules in a package directory */
+function collectNestedPaths(pkgPath, pkgName, visited) {
+	const nestedNodeModules = join(pkgPath, 'node_modules');
+	if (existsSync(nestedNodeModules)) {
+		return findAllPackagePaths(nestedNodeModules, pkgName, visited);
+	}
+	return [];
+}
+
+/** Process scoped packages (@org/pkg) */
+function processScopedPackage(scopePath, pkgName, visited) {
+	const paths = [];
+	try {
+		const scopedEntries = readdirSync(scopePath);
+		for (const scopedEntry of scopedEntries) {
+			const scopedPkgPath = join(scopePath, scopedEntry);
+			paths.push(...collectNestedPaths(scopedPkgPath, pkgName, visited));
+		}
+	} catch {
+		// Ignore read errors
+	}
+	return paths;
+}
+
+/** Process a single entry in node_modules */
+function processNodeModulesEntry(nodeModulesPath, entry, pkgName, visited) {
+	if (entry.startsWith('.')) return [];
+
+	const entryPath = join(nodeModulesPath, entry);
+	if (!isDirectory(entryPath)) return [];
+
+	if (entry.startsWith('@')) {
+		return processScopedPackage(entryPath, pkgName, visited);
+	}
+	return collectNestedPaths(entryPath, pkgName, visited);
+}
+
 function findAllPackagePaths(nodeModulesPath, pkgName, visited = new Set()) {
 	const paths = [];
-	
+
 	// Prevent infinite loops
-	const realPath = nodeModulesPath;
-	if (visited.has(realPath)) return paths;
-	visited.add(realPath);
-	
+	if (visited.has(nodeModulesPath)) return paths;
+	visited.add(nodeModulesPath);
+
 	// Direct path
 	const directPath = join(nodeModulesPath, pkgName, 'package.json');
 	if (existsSync(directPath)) {
 		paths.push(directPath);
 	}
-	
+
 	// Check nested node_modules in each package
 	try {
 		const entries = readdirSync(nodeModulesPath);
 		for (const entry of entries) {
-			if (entry.startsWith('.')) continue;
-			
-			const entryPath = join(nodeModulesPath, entry);
-			try {
-				if (!statSync(entryPath).isDirectory()) continue;
-			} catch {
-				continue;
-			}
-			
-			// Handle scoped packages
-			if (entry.startsWith('@')) {
-				try {
-					const scopedEntries = readdirSync(entryPath);
-					for (const scopedEntry of scopedEntries) {
-						const scopedPkgPath = join(entryPath, scopedEntry);
-						// Check for nested node_modules
-						const nestedNodeModules = join(scopedPkgPath, 'node_modules');
-						if (existsSync(nestedNodeModules)) {
-							paths.push(...findAllPackagePaths(nestedNodeModules, pkgName, visited));
-						}
-					}
-				} catch {
-					continue;
-				}
-			} else {
-				const nestedNodeModules = join(entryPath, 'node_modules');
-				if (existsSync(nestedNodeModules)) {
-					paths.push(...findAllPackagePaths(nestedNodeModules, pkgName, visited));
-				}
-			}
+			paths.push(...processNodeModulesEntry(nodeModulesPath, entry, pkgName, visited));
 		}
-	} catch (err) {
-		// Ignore errors from reading directories
+	} catch {
+		// Silently ignore errors from reading directories
 	}
-	
+
 	return paths;
 }
 
@@ -191,7 +207,7 @@ patchPackage('@noble/ciphers', {
 const viteCachePath = join(nodeModules, '.vite');
 if (existsSync(viteCachePath)) {
 	try {
-		const { rmSync } = await import('fs');
+		const { rmSync } = await import('node:fs');
 		rmSync(viteCachePath, { recursive: true, force: true });
 		console.log('🗑️  Cleared Vite cache');
 	} catch (err) {

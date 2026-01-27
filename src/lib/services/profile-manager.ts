@@ -263,8 +263,8 @@ class ProfileManager {
 	 * Search local profile cache
 	 */
 	private async searchLocalProfiles(_query: string, _limit: number): Promise<UserProfile[]> {
-		// TODO: Implement proper search in DB
-		// For now, return empty - would need to implement proper search
+		// Local search not yet implemented - returns empty for now
+		// Would need to implement proper fuzzy search in IndexedDB
 		return [];
 	}
 

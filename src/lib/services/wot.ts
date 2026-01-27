@@ -217,6 +217,53 @@ class WoTService {
 	}
 
 	/**
+	 * Check if pubkey is a friend-of-friend (level 2)
+	 */
+	private checkFriendOfFriend(pubkey: string): WoTResult | null {
+		for (const friend of this.myFollows) {
+			const friendNode = this.graph.get(friend);
+			if (friendNode?.follows.has(pubkey)) {
+				const targetNode = this.graph.get(pubkey);
+				const isMutual = targetNode?.follows.has(friend) ?? false;
+				return {
+					level: 'friend-of-friend',
+					score: isMutual ? 70 : 50,
+					path: [this.myPubkey!, friend, pubkey],
+					isMuted: false
+				};
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Check extended network (level 3) - followed by multiple friends
+	 */
+	private checkExtendedNetwork(pubkey: string): WoTResult | null {
+		let friendsWhoFollow = 0;
+		let pathVia: string | null = null;
+
+		for (const friend of this.myFollows) {
+			const friendNode = this.graph.get(friend);
+			if (friendNode?.follows.has(pubkey)) {
+				friendsWhoFollow++;
+				if (!pathVia) pathVia = friend;
+			}
+		}
+
+		if (friendsWhoFollow > 0) {
+			const score = Math.min(40, 10 + friendsWhoFollow * 10);
+			return {
+				level: 'extended',
+				score,
+				path: pathVia ? [this.myPubkey!, pathVia, pubkey] : [],
+				isMuted: false
+			};
+		}
+		return null;
+	}
+
+	/**
 	 * Calculate trust level and score
 	 */
 	private calculateTrust(pubkey: string): WoTResult {
@@ -235,45 +282,13 @@ class WoTService {
 			return { level: 'trusted', score: 90, path: [this.myPubkey!, pubkey], isMuted: false };
 		}
 
-		// Level 2: Friend of friend (mutual)
-		for (const friend of this.myFollows) {
-			const friendNode = this.graph.get(friend);
-			if (friendNode?.follows.has(pubkey)) {
-				// Check if target also follows back (mutual = higher trust)
-				const targetNode = this.graph.get(pubkey);
-				const isMutual = targetNode?.follows.has(friend) ?? false;
-				
-				return {
-					level: 'friend-of-friend',
-					score: isMutual ? 70 : 50,
-					path: [this.myPubkey!, friend, pubkey],
-					isMuted: false
-				};
-			}
-		}
+		// Level 2: Friend of friend
+		const fofResult = this.checkFriendOfFriend(pubkey);
+		if (fofResult) return fofResult;
 
-		// Level 3: Extended network (followed by multiple friends)
-		let friendsWhoFollow = 0;
-		let pathVia: string | null = null;
-		
-		for (const friend of this.myFollows) {
-			const friendNode = this.graph.get(friend);
-			if (friendNode?.follows.has(pubkey)) {
-				friendsWhoFollow++;
-				if (!pathVia) pathVia = friend;
-			}
-		}
-
-		if (friendsWhoFollow > 0) {
-			// Score based on how many friends follow this person
-			const score = Math.min(40, 10 + friendsWhoFollow * 10);
-			return {
-				level: 'extended',
-				score,
-				path: pathVia ? [this.myPubkey!, pathVia, pubkey] : [],
-				isMuted: false
-			};
-		}
+		// Level 3: Extended network
+		const extendedResult = this.checkExtendedNetwork(pubkey);
+		if (extendedResult) return extendedResult;
 
 		// Unknown
 		return { level: 'unknown', score: 0, path: [], isMuted: false };

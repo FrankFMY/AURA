@@ -57,11 +57,9 @@ function parseArgs() {
 		provider: 'pinata', // default
 	};
 
-	for (let i = 0; i < args.length; i++) {
-		if (args[i] === '--provider' && args[i + 1]) {
-			options.provider = args[i + 1];
-			i++;
-		}
+	const providerIndex = args.indexOf('--provider');
+	if (providerIndex !== -1 && args[providerIndex + 1]) {
+		options.provider = args[providerIndex + 1];
 	}
 
 	return options;
@@ -185,7 +183,6 @@ async function deployToWeb3Storage() {
 	try {
 		// Note: web3.storage has a new API - this is simplified
 		const fetch = (await import('node-fetch')).default;
-		const { CarWriter } = await import('@ipld/car');
 		const { filesFromPaths } = await import('files-from-path');
 		
 		const files = await filesFromPaths([BUILD_DIR]);
@@ -277,49 +274,23 @@ function updateReadme(cid) {
 	}
 	
 	try {
-		let readme = readFileSync(readmePath, 'utf8');
-		
-		// Check if IPFS section exists
-		const ipfsSection = `### 🌐 IPFS Access
+		const readme = readFileSync(readmePath, 'utf8');
+		const hasIpfsSection = readme.includes('### 🌐 IPFS Access');
 
-AURA is available on IPFS for censorship-resistant access:
+		// Log IPFS section that would be added/updated
+		console.log('\nIPFS section for README:');
+		console.log(`### 🌐 IPFS Access`);
+		console.log(`CID: ${cid}`);
+		console.log(`Access: https://ipfs.io/ipfs/${cid}`);
 
-\`\`\`
-CID: ${cid}
-\`\`\`
-
-Access via gateways:
-- [ipfs.io](https://ipfs.io/ipfs/${cid})
-- [dweb.link](https://dweb.link/ipfs/${cid})
-- [cloudflare-ipfs.com](https://cloudflare-ipfs.com/ipfs/${cid})`;
-
-		if (readme.includes('### 🌐 IPFS Access')) {
-			// Update existing section
-			readme = readme.replace(
-				/### 🌐 IPFS Access[\s\S]*?(?=###|$)/,
-				ipfsSection + '\n\n',
-			);
+		if (hasIpfsSection) {
+			logSuccess('README has existing IPFS section (would be updated)');
 		} else {
-			// Add section after deployment section or at the end
-			const deploymentIndex = readme.indexOf('## Deployment');
-			if (deploymentIndex !== -1) {
-				const nextSection = readme.indexOf('##', deploymentIndex + 15);
-				if (nextSection !== -1) {
-					readme = readme.slice(0, nextSection) + ipfsSection + '\n\n' + readme.slice(nextSection);
-				} else {
-					readme += '\n\n' + ipfsSection;
-				}
-			} else {
-				readme += '\n\n' + ipfsSection;
-			}
+			logSuccess('README would have IPFS section added');
 		}
-		
-		// Note: In production, you'd write this back
-		// writeFileSync(readmePath, readme);
-		logSuccess('README update prepared (dry run)');
 		console.log('To update README, add the IPFS section manually or run with --write flag');
 	} catch (error) {
-		log(`Failed to update README: ${error.message}`, 'yellow');
+		log(`Failed to read README: ${error.message}`, 'yellow');
 	}
 }
 
@@ -375,4 +346,4 @@ async function main() {
 	}
 }
 
-main();
+await main();

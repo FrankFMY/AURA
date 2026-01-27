@@ -46,68 +46,56 @@ function createAuthStore() {
 
 	const avatar = $derived(profile?.picture || null);
 
+	/** Restore session from cached data */
+	async function restoreCachedSession(storedPubkey: string, storedMethod: AuthMethod): Promise<void> {
+		pubkey = storedPubkey;
+		npub = nip19.npubEncode(storedPubkey);
+		method = storedMethod;
+		isAuthenticated = true;
+
+		const cachedProfile = await dbHelpers.getProfile(storedPubkey);
+		if (cachedProfile) {
+			profile = cachedProfile;
+		}
+	}
+
+	/** Try to restore extension session with timeout */
+	async function tryRestoreExtensionSession(storedPubkey: string, storedMethod: AuthMethod): Promise<void> {
+		if (!globalThis.window?.nostr) {
+			await restoreCachedSession(storedPubkey, storedMethod);
+			return;
+		}
+
+		try {
+			const extensionPromise = loginWithExtension();
+			const timeoutPromise = new Promise<never>((_, reject) =>
+				setTimeout(() => reject(new Error('Extension timeout')), 5000)
+			);
+			await Promise.race([extensionPromise, timeoutPromise]);
+		} catch (e) {
+			console.warn('Extension auth timed out or failed, using cached session:', e);
+			await restoreCachedSession(storedPubkey, storedMethod);
+		}
+	}
+
 	/** Initialize auth from stored session */
 	async function init(): Promise<void> {
 		isLoading = true;
 		error = null;
 
 		try {
-			// Check for stored auth
 			const storedPubkey = await dbHelpers.getSetting<string | null>('auth_pubkey', null);
 			const storedMethod = await dbHelpers.getSetting<AuthMethod | null>('auth_method', null);
 
-			if (storedPubkey && storedMethod) {
-				// Try to restore session
-				if (storedMethod === 'extension') {
-					// Re-authenticate with extension (with timeout to prevent hanging)
-					if (globalThis.window?.nostr) {
-						try {
-							const extensionPromise = loginWithExtension();
-							const timeoutPromise = new Promise<never>((_, reject) =>
-								setTimeout(() => reject(new Error('Extension timeout')), 5000)
-							);
-							await Promise.race([extensionPromise, timeoutPromise]);
-						} catch (e) {
-							console.warn('Extension auth timed out or failed, using cached session:', e);
-							// Fall back to cached session without full extension auth
-							pubkey = storedPubkey;
-							npub = nip19.npubEncode(storedPubkey);
-							method = storedMethod;
-							isAuthenticated = true;
-							
-							const cachedProfile = await dbHelpers.getProfile(storedPubkey);
-							if (cachedProfile) {
-								profile = cachedProfile;
-							}
-						}
-					} else {
-						// No extension available, use cached data
-						pubkey = storedPubkey;
-						npub = nip19.npubEncode(storedPubkey);
-						method = storedMethod;
-						
-						const cachedProfile = await dbHelpers.getProfile(storedPubkey);
-						if (cachedProfile) {
-							profile = cachedProfile;
-						}
-					}
-				} else {
-					// For private key, we don't store it, user needs to re-enter
-					// Just set the pubkey to show they were logged in
-					pubkey = storedPubkey;
-					npub = nip19.npubEncode(storedPubkey);
-					method = storedMethod;
-					
-					// Load cached profile
-					const cachedProfile = await dbHelpers.getProfile(storedPubkey);
-					if (cachedProfile) {
-						profile = cachedProfile;
-					}
-				}
+			if (!storedPubkey || !storedMethod) return;
+
+			if (storedMethod === 'extension') {
+				await tryRestoreExtensionSession(storedPubkey, storedMethod);
+			} else {
+				await restoreCachedSession(storedPubkey, storedMethod);
 			}
 		} catch (e) {
 			console.error('Failed to init auth:', e);
-			// Use generic message to avoid leaking sensitive info
 			error = 'Failed to initialize authentication. Please try again.';
 		} finally {
 			isLoading = false;

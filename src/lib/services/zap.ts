@@ -245,22 +245,52 @@ class ZapService {
 		return data.pr;
 	}
 
+	/** Validate zap amount against LNURL limits */
+	private validateZapAmount(amount: number, lnurlPay: LnurlPayResponse): void {
+		if (amount < lnurlPay.minSendable) {
+			throw new WalletError(`Minimum amount is ${lnurlPay.minSendable / 1000} sats`, {
+				code: ErrorCode.WALLET_ERROR
+			});
+		}
+		if (amount > lnurlPay.maxSendable) {
+			throw new WalletError(`Maximum amount is ${lnurlPay.maxSendable / 1000} sats`, {
+				code: ErrorCode.WALLET_ERROR
+			});
+		}
+	}
+
+	/** Try to pay invoice with NWC */
+	private async tryPayWithNWC(invoice: string): Promise<{ success: boolean; preimage?: string; error?: string }> {
+		try {
+			const payResult = await nwcClient.payInvoice({ invoice });
+			return { success: true, preimage: payResult.preimage };
+		} catch (e) {
+			return { success: false, error: e instanceof Error ? e.message : 'Payment failed' };
+		}
+	}
+
+	/** Try to pay invoice with WebLN */
+	private async tryPayWithWebLN(invoice: string): Promise<{ success: boolean; preimage?: string; error?: string }> {
+		const webln = globalThis.window?.webln;
+		if (!webln) {
+			return { success: false, error: 'WebLN not available' };
+		}
+		try {
+			await webln.enable();
+			const payResult = await webln.sendPayment(invoice);
+			return { success: true, preimage: payResult.preimage };
+		} catch (e) {
+			return { success: false, error: e instanceof Error ? e.message : 'Payment failed' };
+		}
+	}
+
 	/** Send a zap */
 	async sendZap(params: ZapRequestParams): Promise<ZapResult> {
 		// Fetch LNURL pay endpoint
 		const lnurlPay = await this.fetchLnurlPayEndpoint(params.lnurl);
 
 		// Validate amount
-		if (params.amount < lnurlPay.minSendable) {
-			throw new WalletError(`Minimum amount is ${lnurlPay.minSendable / 1000} sats`, {
-				code: ErrorCode.WALLET_ERROR
-			});
-		}
-		if (params.amount > lnurlPay.maxSendable) {
-			throw new WalletError(`Maximum amount is ${lnurlPay.maxSendable / 1000} sats`, {
-				code: ErrorCode.WALLET_ERROR
-			});
-		}
+		this.validateZapAmount(params.amount, lnurlPay);
 
 		// Create zap request if supported
 		let zapRequest: NDKEvent | undefined;
@@ -285,35 +315,12 @@ class ZapService {
 		// Try to pay with NWC if connected
 		if (nwcClient.isConnected) {
 			result.paymentAttempted = true;
-			try {
-				const payResult = await nwcClient.payInvoice({ invoice });
-				result.paymentResult = {
-					success: true,
-					preimage: payResult.preimage
-				};
-			} catch (e) {
-				result.paymentResult = {
-					success: false,
-					error: e instanceof Error ? e.message : 'Payment failed'
-				};
-			}
+			result.paymentResult = await this.tryPayWithNWC(invoice);
 		}
 		// Try WebLN if available
 		else if (globalThis.window?.webln) {
 			result.paymentAttempted = true;
-			try {
-				await globalThis.window.webln.enable();
-				const payResult = await globalThis.window.webln.sendPayment(invoice);
-				result.paymentResult = {
-					success: true,
-					preimage: payResult.preimage
-				};
-			} catch (e) {
-				result.paymentResult = {
-					success: false,
-					error: e instanceof Error ? e.message : 'Payment failed'
-				};
-			}
+			result.paymentResult = await this.tryPayWithWebLN(invoice);
 		}
 
 		return result;

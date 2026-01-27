@@ -58,7 +58,6 @@ function createFeedStore() {
 
 	// Caches
 	const profileCache = new Map<string, UserProfile>();
-	const reactionCache = new Map<string, { reactions: number; reposts: number }>();
 	const optimisticUpdates: OptimisticUpdate[] = [];
 
 	// Seen event IDs for deduplication
@@ -102,7 +101,6 @@ function createFeedStore() {
 	/** Convert NDKEvent to FeedEvent */
 	async function toFeedEvent(event: NDKEvent): Promise<FeedEvent> {
 		const author = await getProfile(event.pubkey);
-		const counts = reactionCache.get(event.id) || { reactions: 0, reposts: 0 };
 
 		// Check if current user has interacted with this event
 		const hasReacted = userInteractionsService.hasReacted(event.id);
@@ -112,11 +110,55 @@ function createFeedStore() {
 			event,
 			author,
 			replyCount: 0,
-			reactionCount: counts.reactions,
-			repostCount: counts.reposts,
+			reactionCount: 0, // Counts are fetched separately via reactions subscription
+			repostCount: 0,
 			hasReacted,
 			hasReposted
 		};
+	}
+
+	/** Insert event in chronological order */
+	function insertEventChronologically(feedEvent: FeedEvent, eventCreatedAt: number | undefined): void {
+		const insertIndex = events.findIndex(
+			(e) => (e.event.created_at || 0) < (eventCreatedAt || 0)
+		);
+
+		if (insertIndex === -1) {
+			events = [...events, feedEvent];
+		} else {
+			events = [
+				...events.slice(0, insertIndex),
+				feedEvent,
+				...events.slice(insertIndex)
+			];
+		}
+	}
+
+	/** Process a new event from subscription */
+	async function processNewEvent(event: NDKEvent): Promise<void> {
+		const feedEvent = await toFeedEvent(event);
+
+		// If we are not loading (initial load done), queue the event
+		if (!isLoading) {
+			queuedEvents = [feedEvent, ...queuedEvents];
+			return;
+		}
+
+		// Insert in chronological order
+		insertEventChronologically(feedEvent, event.created_at);
+
+		// Cache event
+		if (event.kind !== undefined && event.created_at !== undefined && event.sig !== undefined) {
+			void dbHelpers.saveEvent({
+				id: event.id,
+				pubkey: event.pubkey,
+				kind: event.kind,
+				created_at: event.created_at,
+				content: event.content,
+				tags: event.tags,
+				sig: event.sig
+			}).catch(console.error);
+		}
 	}
 
 	/** Stop current subscription */
@@ -264,43 +306,7 @@ function createFeedStore() {
 						// Skip deleted events
 						if (shouldFilterEvent(event.id)) return;
 
-						void (async () => {
-							const feedEvent = await toFeedEvent(event);
-
-							// If we are not loading (initial load done), queue the event
-							if (!isLoading) {
-								queuedEvents = [feedEvent, ...queuedEvents];
-								return;
-							}
-
-							// Insert in chronological order
-							const insertIndex = events.findIndex(
-								(e) => (e.event.created_at || 0) < (event.created_at || 0)
-							);
-
-							if (insertIndex === -1) {
-								events = [...events, feedEvent];
-							} else {
-								events = [
-									...events.slice(0, insertIndex),
-									feedEvent,
-									...events.slice(insertIndex)
-								];
-							}
-
-							// Cache event
-							if (event.kind !== undefined && event.created_at !== undefined && event.sig !== undefined) {
-								void dbHelpers.saveEvent({
-									id: event.id,
-									pubkey: event.pubkey,
-									kind: event.kind,
-									created_at: event.created_at,
-									content: event.content,
-									tags: event.tags,
-									sig: event.sig
-								}).catch(console.error);
-							}
-						})();
+						void processNewEvent(event);
 					},
 					onEose: () => {
 						isLoading = false;
@@ -526,9 +532,8 @@ function createFeedStore() {
 
 		try {
 			await ndkService.deleteEvent(eventId);
-			// Also remove from seenIds and reactionCache
+			// Also remove from seenIds
 			seenIds.delete(eventId);
-			reactionCache.delete(eventId);
 		} catch (e) {
 			console.error('[feedStore] Delete failed:', e);
 			// Rollback if we had optimistic update

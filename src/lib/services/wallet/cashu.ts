@@ -156,7 +156,7 @@ class CashuService {
 	 */
 	async requestMintQuote(mintUrl: string, amount: number): Promise<MintQuoteResult> {
 		const wallet = await this.getWallet(mintUrl);
-		const quote = await wallet.createMintQuote(amount);
+		const quote = await wallet.createMintQuoteBolt11(amount);
 
 		// Save transaction as pending
 		await dbHelpers.saveCashuTransaction({
@@ -182,11 +182,11 @@ class CashuService {
 		const wallet = await this.getWallet(mintUrl);
 		
 		// Check quote status
-		const quoteStatus = await wallet.checkMintQuote(quote);
-		
+		const quoteStatus = await wallet.checkMintQuoteBolt11(quote);
+
 		if (quoteStatus.state === MintQuoteState.PAID) {
 			// Mint the proofs
-			const proofs = await wallet.mintProofs(amount, quote);
+			const proofs = await wallet.mintProofsBolt11(amount, quote);
 			
 			// Save proofs to DB immediately - CRITICAL!
 			await this.saveProofs(mintUrl, proofs);
@@ -213,7 +213,7 @@ class CashuService {
 		const wallet = await this.getWallet(mintUrl);
 		
 		// Get melt quote
-		const meltQuote = await wallet.createMeltQuote(invoice);
+		const meltQuote = await wallet.createMeltQuoteBolt11(invoice);
 		const totalNeeded = meltQuote.amount + meltQuote.fee_reserve;
 		
 		// Get proofs from DB
@@ -233,7 +233,7 @@ class CashuService {
 		const { keep, send } = await wallet.send(totalNeeded, proofs, { includeFees: true });
 		
 		// Execute melt
-		const meltResponse = await wallet.meltProofs(meltQuote, send);
+		const meltResponse = await wallet.meltProofsBolt11(meltQuote, send);
 		
 		// Mark sent proofs as spent
 		const spentIds = send.map((p: Proof) => this.proofToId(p));

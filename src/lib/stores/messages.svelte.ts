@@ -69,76 +69,64 @@ export interface ConversationWithMessages extends Conversation {
 	messages: Message[];
 }
 
+/** Try NIP-44 decryption */
+async function tryNip44Decrypt(otherPubkey: string, content: string): Promise<string | null> {
+	if (!globalThis.window?.nostr?.nip44) return null;
+	try {
+		const result = await globalThis.window.nostr.nip44.decrypt(otherPubkey, content);
+		return result?.trim() ? result : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Try NIP-04 decryption */
+async function tryNip04Decrypt(otherPubkey: string, content: string): Promise<string | null> {
+	if (!globalThis.window?.nostr?.nip04) return null;
+	try {
+		const normalizedContent = normalizeNip04Content(content);
+		const result = await globalThis.window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
+		return result?.trim() ? result : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Try NDK signer decryption */
+async function tryNdkDecrypt(otherPubkey: string, content: string): Promise<string | null> {
+	const signer = ndkService.signer;
+	if (!signer || !('decrypt' in signer) || !ndkService.ndk) return null;
+	try {
+		const user = new NDKUser({ pubkey: otherPubkey });
+		const result = await (signer as unknown as { decrypt: (user: NDKUser, content: string) => Promise<string> }).decrypt(user, content);
+		return result?.trim() ? result : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Decrypt message content (NIP-04 for now, NIP-44 preferred) */
 async function decryptMessage(event: NDKEvent, otherPubkey: string): Promise<string> {
-	let result: string | undefined;
-	let lastError: Error | null = null;
 	const content = event.content;
-
-	// Detect encryption format
 	const isNip04 = isNip04Format(content);
 	const isNip44 = isNip44Format(content);
 
-	// If content looks like NIP-44, try NIP-44 FIRST
-	if (isNip44 && globalThis.window?.nostr?.nip44) {
-		try {
-			result = await globalThis.window?.nostr.nip44.decrypt(otherPubkey, content);
-		} catch (e) {
-			lastError = e instanceof Error ? e : new Error(String(e));
-		}
+	// Try decryption methods in order of likelihood
+	const methods: (() => Promise<string | null>)[] = [];
+
+	// Add methods based on detected format (most likely first)
+	if (isNip44) methods.push(() => tryNip44Decrypt(otherPubkey, content));
+	if (isNip04) methods.push(() => tryNip04Decrypt(otherPubkey, content));
+	if (!isNip44) methods.push(() => tryNip44Decrypt(otherPubkey, content));
+	if (!isNip04) methods.push(() => tryNip04Decrypt(otherPubkey, content));
+	methods.push(() => tryNdkDecrypt(otherPubkey, content));
+
+	for (const method of methods) {
+		const result = await method();
+		if (result) return result;
 	}
 
-	// If content looks like NIP-04, try NIP-04
-	if ((!result || result.trim() === '') && isNip04 && globalThis.window?.nostr?.nip04) {
-		try {
-			const normalizedContent = normalizeNip04Content(content);
-			result = await globalThis.window?.nostr.nip04.decrypt(otherPubkey, normalizedContent);
-		} catch (e) {
-			lastError = e instanceof Error ? e : new Error(String(e));
-		}
-	}
-
-	// Try NIP-44 as fallback if not already tried
-	if ((!result || result.trim() === '') && !isNip44 && globalThis.window?.nostr?.nip44) {
-		try {
-			result = await globalThis.window?.nostr.nip44.decrypt(otherPubkey, content);
-		} catch (e) {
-			lastError = e instanceof Error ? e : new Error(String(e));
-		}
-	}
-
-	// Try NIP-04 as fallback if not already tried
-	if ((!result || result.trim() === '') && !isNip04 && globalThis.window?.nostr?.nip04) {
-		try {
-			const normalizedContent = normalizeNip04Content(content);
-			result = await globalThis.window?.nostr.nip04.decrypt(otherPubkey, normalizedContent);
-		} catch (e) {
-			lastError = e instanceof Error ? e : new Error(String(e));
-		}
-	}
-
-	// Try NDK decryption as last resort
-	if (!result || result.trim() === '') {
-		const signer = ndkService.signer;
-		if (signer && 'decrypt' in signer && ndkService.ndk) {
-			try {
-				const user = new NDKUser({ pubkey: otherPubkey });
-				result = await (signer as unknown as { decrypt: (user: NDKUser, content: string) => Promise<string> }).decrypt(user, event.content);
-			} catch (e) {
-				lastError = e instanceof Error ? e : new Error(String(e));
-			}
-		}
-	}
-
-	// If all methods failed or returned empty
-	if (!result || result.trim() === '') {
-		if (lastError) {
-			throw lastError;
-		}
-		return '';
-	}
-
-	return result;
+	return '';
 }
 
 /** Encrypt message content for NIP-04 (kind:4 DMs)
@@ -518,6 +506,95 @@ function createMessagesStore() {
 		await addMessageToConversation(message, otherPubkey, persist, incrementUnread);
 	}
 
+	/** Check if unread should be incremented */
+	function shouldIncrementUnread(message: Message, otherPubkey: string, incrementUnread: boolean): boolean {
+		return incrementUnread && activeConversation !== otherPubkey && !message.isOutgoing;
+	}
+
+	/** Send push notification for new message */
+	function notifyNewMessage(conv: ConversationWithMessages, message: Message, otherPubkey: string): void {
+		if (!conv.profile) return;
+		const authorName = conv.profile.display_name || conv.profile.name || otherPubkey.slice(0, 8);
+		const preview = message.decrypted ? (message.content || 'New message') : 'Encrypted message';
+		pushNotifications.notifyDM(authorName, preview, otherPubkey);
+	}
+
+	/** Update existing conversation with new message */
+	async function updateExistingConversation(
+		conv: ConversationWithMessages,
+		existingIndex: number,
+		message: Message,
+		otherPubkey: string,
+		persist: boolean,
+		incrementUnread: boolean
+	): Promise<void> {
+		const messageExists = conv.messages.some((m) => m.id === message.id);
+		if (messageExists) return;
+
+		const shouldIncrement = shouldIncrementUnread(message, otherPubkey, incrementUnread);
+		const newUnreadCount = shouldIncrement ? conv.unread_count + 1 : conv.unread_count;
+
+		if (shouldIncrement) {
+			notifyNewMessage(conv, message, otherPubkey);
+		}
+
+		const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0);
+		const newLastMessageAt = shouldUpdatePreview ? message.created_at : conv.last_message_at;
+		const newLastMessagePreview = shouldUpdatePreview ? (message.content || '').slice(0, 50) : conv.last_message_preview;
+
+		conversations = [
+			{
+				...conv,
+				messages: [...conv.messages, message].sort((a, b) => a.created_at - b.created_at),
+				last_message_at: newLastMessageAt,
+				last_message_preview: newLastMessagePreview,
+				unread_count: newUnreadCount
+			},
+			...conversations.slice(0, existingIndex),
+			...conversations.slice(existingIndex + 1)
+		];
+
+		if (persist && shouldUpdatePreview) {
+			await dbHelpers.saveConversation({
+				pubkey: otherPubkey,
+				last_message_at: newLastMessageAt,
+				last_message_preview: newLastMessagePreview,
+				unread_count: newUnreadCount
+			});
+		}
+	}
+
+	/** Create new conversation with message */
+	async function createNewConversation(
+		message: Message,
+		otherPubkey: string,
+		persist: boolean,
+		incrementUnread: boolean
+	): Promise<void> {
+		const profile = await getProfile(otherPubkey);
+		const newUnreadCount = shouldIncrementUnread(message, otherPubkey, incrementUnread) ? 1 : 0;
+
+		const newConv: ConversationWithMessages = {
+			pubkey: otherPubkey,
+			profile,
+			messages: [message],
+			last_message_at: message.created_at,
+			last_message_preview: (message.content || '').slice(0, 50),
+			unread_count: newUnreadCount
+		};
+
+		conversations = [newConv, ...conversations];
+
+		if (persist) {
+			await dbHelpers.saveConversation({
+				pubkey: otherPubkey,
+				last_message_at: message.created_at,
+				last_message_preview: (message.content || '').slice(0, 50),
+				unread_count: newConv.unread_count
+			});
+		}
+	}
+
 	/** Add message to conversation (shared by NIP-04 and NIP-17 handlers) */
 	async function addMessageToConversation(
 		message: Message,
@@ -528,81 +605,11 @@ function createMessagesStore() {
 		const existingIndex = conversations.findIndex((c) => c.pubkey === otherPubkey);
 
 		if (existingIndex >= 0) {
-			// Add message to existing conversation
-			const conv = conversations[existingIndex];
-			const messageExists = conv.messages.some((m) => m.id === message.id);
-
-			if (!messageExists) {
-				// Only increment unread if:
-				// 1. This is a truly new message (incrementUnread = true)
-				// 2. Conversation is not currently active
-				// 3. Message is not from us (outgoing)
-				const shouldIncrement = incrementUnread &&
-					activeConversation !== otherPubkey &&
-					!message.isOutgoing;
-
-				const newUnreadCount = shouldIncrement ? conv.unread_count + 1 : conv.unread_count;
-
-				// Send push notification for new incoming messages
-				if (shouldIncrement && conv.profile) {
-					const authorName = conv.profile.display_name || conv.profile.name || otherPubkey.slice(0, 8);
-					const preview = message.decrypted ? (message.content || 'New message') : 'Encrypted message';
-					pushNotifications.notifyDM(authorName, preview, otherPubkey);
-				}
-				
-				// Only update preview if this message is chronologically newer
-				const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0);
-				const newLastMessageAt = shouldUpdatePreview ? message.created_at : conv.last_message_at;
-				const newLastMessagePreview = shouldUpdatePreview ? (message.content || '').slice(0, 50) : conv.last_message_preview;
-				
-				conversations = [
-					{
-						...conv,
-						messages: [...conv.messages, message].sort((a, b) => a.created_at - b.created_at),
-						last_message_at: newLastMessageAt,
-						last_message_preview: newLastMessagePreview,
-						unread_count: newUnreadCount
-					},
-					...conversations.slice(0, existingIndex),
-					...conversations.slice(existingIndex + 1)
-				];
-
-				if (persist && shouldUpdatePreview) {
-					await dbHelpers.saveConversation({
-						pubkey: otherPubkey,
-						last_message_at: newLastMessageAt,
-						last_message_preview: newLastMessagePreview,
-						unread_count: newUnreadCount
-					});
-				}
-			}
+			await updateExistingConversation(
+				conversations[existingIndex], existingIndex, message, otherPubkey, persist, incrementUnread
+			);
 		} else {
-			// Create new conversation
-			const profile = await getProfile(otherPubkey);
-			
-			// Only set unread to 1 if this is a truly new incoming message
-			const newUnreadCount = (incrementUnread && !message.isOutgoing && activeConversation !== otherPubkey) ? 1 : 0;
-			
-			const newConv: ConversationWithMessages = {
-				pubkey: otherPubkey,
-				profile,
-				messages: [message],
-				last_message_at: message.created_at,
-				last_message_preview: (message.content || '').slice(0, 50),
-				unread_count: newUnreadCount
-			};
-
-			conversations = [newConv, ...conversations];
-
-			// Save to DB
-			if (persist) {
-				await dbHelpers.saveConversation({
-					pubkey: otherPubkey,
-					last_message_at: message.created_at,
-					last_message_preview: (message.content || '').slice(0, 50),
-					unread_count: newConv.unread_count
-				});
-			}
+			await createNewConversation(message, otherPubkey, persist, incrementUnread);
 		}
 	}
 

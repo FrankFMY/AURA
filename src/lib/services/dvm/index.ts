@@ -99,13 +99,6 @@ interface ActiveJob {
 class DVMService {
 	private readonly activeJobs: Map<string, ActiveJob> = new Map();
 
-	// Default relay for DVM discovery
-	private readonly dvmRelays: string[] = [
-		'wss://relay.damus.io',
-		'wss://relay.nostr.band',
-		'wss://nos.lol'
-	];
-
 	/**
 	 * Create and submit a job request
 	 */
@@ -254,6 +247,52 @@ class DVMService {
 		}
 	}
 
+	/** Parse status from result event tags */
+	private parseResultStatus(tags: string[][]): { status: DVMJobStatus; error?: string; amount?: number } {
+		const statusTag = tags.find(t => t[0] === 'status');
+		let status = DVMJobStatus.SUCCESS;
+		let error: string | undefined;
+
+		if (statusTag) {
+			switch (statusTag[1]) {
+				case 'success': status = DVMJobStatus.SUCCESS; break;
+				case 'error': status = DVMJobStatus.ERROR; error = statusTag[2]; break;
+				case 'partial': status = DVMJobStatus.PARTIAL; break;
+				default: status = DVMJobStatus.SUCCESS;
+			}
+		}
+
+		const amountTag = tags.find(t => t[0] === 'amount');
+		const amount = amountTag ? Number.parseInt(amountTag[1]) / 1000 : undefined;
+
+		return { status, error, amount };
+	}
+
+	/** Parse status from feedback event tags */
+	private parseFeedbackStatus(event: NDKEvent): { status: DVMJobStatus; error?: string; amount?: number; invoice?: string } {
+		const statusTag = event.tags.find(t => t[0] === 'status');
+		if (!statusTag) {
+			return { status: DVMJobStatus.PROCESSING };
+		}
+
+		switch (statusTag[1]) {
+			case 'processing':
+				return { status: DVMJobStatus.PROCESSING };
+			case 'payment-required': {
+				const amountTag = event.tags.find(t => t[0] === 'amount');
+				return {
+					status: DVMJobStatus.PAYMENT_REQUIRED,
+					amount: amountTag ? Number.parseInt(amountTag[1]) / 1000 : undefined,
+					invoice: amountTag?.[2]
+				};
+			}
+			case 'error':
+				return { status: DVMJobStatus.ERROR, error: statusTag[2] || event.content };
+			default:
+				return { status: DVMJobStatus.PROCESSING };
+		}
+	}
+
 	/**
 	 * Parse DVM result event
 	 */
@@ -267,69 +306,25 @@ class DVMService {
 		const requestRef = event.tags.find(t => t[0] === 'e' && t[1] === requestId);
 		if (!requestRef) return null;
 
-		let status: DVMJobStatus = DVMJobStatus.PROCESSING;
+		let parsed: { status: DVMJobStatus; error?: string; amount?: number; invoice?: string };
 		let output: string | undefined;
-		let invoice: string | undefined;
-		let error: string | undefined;
-		let amount: number | undefined;
 
 		if (isResult) {
-			// Parse result content
 			output = event.content;
-			
-			// Check status tag
-			const statusTag = event.tags.find(t => t[0] === 'status');
-			if (statusTag) {
-				switch (statusTag[1]) {
-					case 'success': status = DVMJobStatus.SUCCESS; break;
-					case 'error': status = DVMJobStatus.ERROR; error = statusTag[2]; break;
-					case 'partial': status = DVMJobStatus.PARTIAL; break;
-					default: status = DVMJobStatus.SUCCESS;
-				}
-			} else {
-				status = DVMJobStatus.SUCCESS;
-			}
-
-			// Check for amount paid
-			const amountTag = event.tags.find(t => t[0] === 'amount');
-			if (amountTag) {
-				amount = Number.parseInt(amountTag[1]) / 1000; // Convert from millisats
-			}
-		}
-
-		if (isFeedback) {
-			// Parse feedback
-			const statusTag = event.tags.find(t => t[0] === 'status');
-			if (statusTag) {
-				switch (statusTag[1]) {
-					case 'processing': status = DVMJobStatus.PROCESSING; break;
-					case 'payment-required': {
-						status = DVMJobStatus.PAYMENT_REQUIRED;
-						// Get invoice
-						const amountTag = event.tags.find(t => t[0] === 'amount');
-						if (amountTag) {
-							amount = Number.parseInt(amountTag[1]) / 1000;
-							invoice = amountTag[2]; // Invoice is in index 2
-						}
-						break;
-					}
-					case 'error':
-						status = DVMJobStatus.ERROR;
-						error = statusTag[2] || event.content;
-						break;
-				}
-			}
+			parsed = this.parseResultStatus(event.tags);
+		} else {
+			parsed = this.parseFeedbackStatus(event);
 		}
 
 		return {
 			id: event.id,
 			requestId,
 			dvmPubkey: event.pubkey,
-			status,
+			status: parsed.status,
 			output,
-			amount,
-			invoice,
-			error,
+			amount: parsed.amount,
+			invoice: parsed.invoice,
+			error: parsed.error,
 			createdAt: event.created_at ?? Math.floor(Date.now() / 1000)
 		};
 	}

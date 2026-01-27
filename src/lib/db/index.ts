@@ -546,18 +546,16 @@ export const dbHelpers = {
 		let imported = 0;
 		let skipped = 0;
 
-		// Clear if not merging
-		if (!merge) {
-			await this.clearAll();
-		}
-
-		const { data } = exportData;
-
-		// Import events
-		if (data.events && !skipEvents) {
-			for (const event of data.events) {
+		/** Import a collection of items into a table */
+		async function importCollection<T>(
+			items: T[] | undefined,
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			table: { put: (item: T) => Promise<any> }
+		): Promise<void> {
+			if (!items) return;
+			for (const item of items) {
 				try {
-					await db.events.put(event);
+					await table.put(item);
 					imported++;
 				} catch {
 					skipped++;
@@ -565,9 +563,10 @@ export const dbHelpers = {
 			}
 		}
 
-		// Import profiles
-		if (data.profiles) {
-			for (const profile of data.profiles) {
+		/** Import profiles with merge logic */
+		async function importProfiles(profiles: UserProfile[] | undefined): Promise<void> {
+			if (!profiles) return;
+			for (const profile of profiles) {
 				try {
 					if (merge) {
 						const existing = await db.profiles.get(profile.pubkey);
@@ -587,77 +586,22 @@ export const dbHelpers = {
 			}
 		}
 
-		// Import conversations
-		if (data.conversations) {
-			for (const conv of data.conversations) {
-				try {
-					await db.conversations.put(conv);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
+		// Clear if not merging
+		if (!merge) {
+			await this.clearAll();
 		}
 
-		// Import relays
-		if (data.relays) {
-			for (const relay of data.relays) {
-				try {
-					await db.relays.put(relay);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
-		}
+		const { data } = exportData;
 
-		// Import settings
-		if (data.settings) {
-			for (const setting of data.settings) {
-				try {
-					await db.settings.put(setting);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
-		}
-
-		// Import drafts
-		if (data.drafts) {
-			for (const draft of data.drafts) {
-				try {
-					await db.drafts.put(draft);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
-		}
-
-		// Import contacts
-		if (data.contacts) {
-			for (const contact of data.contacts) {
-				try {
-					await db.contacts.put(contact);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
-		}
-
-		// Import mutes
-		if (data.mutes) {
-			for (const mute of data.mutes) {
-				try {
-					await db.mutes.put(mute);
-					imported++;
-				} catch {
-					skipped++;
-				}
-			}
-		}
+		// Import all collections
+		if (!skipEvents) await importCollection(data.events, db.events);
+		await importProfiles(data.profiles);
+		await importCollection(data.conversations, db.conversations);
+		await importCollection(data.relays, db.relays);
+		await importCollection(data.settings, db.settings);
+		await importCollection(data.drafts, db.drafts);
+		await importCollection(data.contacts, db.contacts);
+		await importCollection(data.mutes, db.mutes);
 
 		return { imported, skipped };
 	},
