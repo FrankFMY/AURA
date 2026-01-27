@@ -152,19 +152,21 @@
 				/>
 			</a>
 		{:else if mediaType === 'video'}
-			<!-- Video embed -->
-			<video
-				src={safeUrl}
-				controls
-				preload="metadata"
-				class="max-h-96 w-full"
-				poster=""
-				onerror={handleVideoError}
-				onloadeddata={handleLoad}
-			>
-				<track kind="captions" />
-				Your browser does not support video playback.
-			</video>
+			<!-- Video embed - centered with max dimensions for vertical videos -->
+			<div class="flex items-center justify-center bg-black/5">
+				<video
+					src={safeUrl}
+					controls
+					preload="metadata"
+					class="max-h-[500px] max-w-full"
+					poster=""
+					onerror={handleVideoError}
+					onloadeddata={handleLoad}
+				>
+					<track kind="captions" />
+					Your browser does not support video playback.
+				</video>
+			</div>
 		{:else if mediaType === 'youtube' && embedData.id}
 			<!-- YouTube embed -->
 			{#if showYouTubeEmbed}
