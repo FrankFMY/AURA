@@ -161,12 +161,15 @@ function createMessagesStore() {
 		console.debug('[Messages] Attempting decryption:', {
 			eventId: event.id.slice(0, 8),
 			decryptWithPubkey: otherPubkey,  // FULL pubkey we're decrypting with
+			myPubkey: authStore.pubkey,  // Our pubkey for reference
 			contentLength: content?.length,
 			contentFormat,
 			nip44Version,
 			contentPreview: content?.slice(0, 60),
 			hasNip04: !!window.nostr?.nip04,
-			hasNip44: !!window.nostr?.nip44
+			hasNip44: !!window.nostr?.nip44,
+			// Check pubkey relationship
+			isDecryptingOwnMessage: event.pubkey === authStore.pubkey
 		});
 
 		// If content looks like NIP-44, try NIP-44 FIRST
@@ -202,12 +205,26 @@ function createMessagesStore() {
 			try {
 				method = 'NIP-04 (detected)';
 				const normalizedContent = normalizeNip04Content(content);
+				console.debug('[Messages] Trying NIP-04 decrypt:', {
+					otherPubkey,
+					myPubkey: authStore.pubkey,
+					normalizedContentLen: normalizedContent.length,
+					hasIvSeparator: normalizedContent.includes('?iv=')
+				});
 				result = await window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
 				if (result && result.trim()) {
-					console.debug('[Messages] NIP-04 decryption succeeded');
+					console.debug('[Messages] NIP-04 decryption succeeded, result:', result.slice(0, 50));
 				}
 			} catch (e) {
-				console.debug('[Messages] NIP-04 decryption failed:', e);
+				const errorMsg = e instanceof Error ? e.message : String(e);
+				console.debug('[Messages] NIP-04 decryption failed:', {
+					error: errorMsg,
+					otherPubkey: otherPubkey.slice(0, 16),
+					// Common Alby error patterns
+					isAlbyError: errorMsg.includes('Failed to'),
+					isKeyError: errorMsg.includes('key'),
+					isDecryptError: errorMsg.includes('decrypt')
+				});
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
@@ -481,6 +498,25 @@ function createMessagesStore() {
 		const pTag = event.tags.find((t) => t[0] === 'p')?.[1];
 		const isOutgoing = event.pubkey === authStore.pubkey;
 
+		// For NIP-04 DMs:
+		// - Outgoing: we are sender (event.pubkey = us), recipient is in p-tag
+		// - Incoming: sender is event.pubkey, we are recipient (p-tag should = us)
+
+		// Validate that we are involved in this message
+		const weAreSender = event.pubkey === authStore.pubkey;
+		const weAreRecipient = pTag === authStore.pubkey;
+
+		if (!weAreSender && !weAreRecipient) {
+			// This message is not for us - we can't decrypt it
+			console.warn('[Messages] DM not involving us, skipping:', {
+				eventId: event.id.slice(0, 8),
+				eventPubkey: event.pubkey.slice(0, 16),
+				pTag: pTag?.slice(0, 16),
+				myPubkey: authStore.pubkey.slice(0, 16)
+			});
+			return;
+		}
+
 		// Determine the other party (the one we need to decrypt with)
 		const otherPubkey = isOutgoing ? pTag : event.pubkey;
 
@@ -490,11 +526,11 @@ function createMessagesStore() {
 			pTag: pTag,  // FULL p-tag for debugging
 			myPubkey: authStore.pubkey,  // FULL my pubkey
 			isOutgoing,
+			weAreSender,
+			weAreRecipient,
 			otherPubkey: otherPubkey,  // FULL other pubkey we'll decrypt with
-			allTags: event.tags,
 			contentLen: event.content?.length,
-			// Check if p-tag matches my pubkey
-			pTagMatchesMe: pTag === authStore.pubkey
+			contentFormat: getContentFormat(event.content || '')
 		});
 
 		if (!otherPubkey) {
