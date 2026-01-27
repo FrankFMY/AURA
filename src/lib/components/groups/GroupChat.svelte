@@ -14,6 +14,8 @@
 	import Hash from 'lucide-svelte/icons/hash';
 	import Reply from 'lucide-svelte/icons/reply';
 	import X from 'lucide-svelte/icons/x';
+	import LogOut from 'lucide-svelte/icons/log-out';
+	import MoreVertical from 'lucide-svelte/icons/more-vertical';
 	import { onMount, tick } from 'svelte';
 
 	interface Props {
@@ -28,6 +30,8 @@
 	let replyingTo = $state<GroupMessage | null>(null);
 	let messagesContainer: HTMLDivElement;
 	let isSending = $state(false);
+	let showGroupMenu = $state(false);
+	let showLeaveConfirm = $state(false);
 
 	const messages = $derived(groupsStore.messages.get(group.id) || []);
 	const isLoadingMessages = $derived(groupsStore.isLoadingMessages);
@@ -130,6 +134,12 @@
 			current.createdAt - previous.createdAt > 300
 		);
 	}
+
+	function handleLeaveGroup() {
+		groupsStore.leaveGroup(group.id);
+		showLeaveConfirm = false;
+		onBack();
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -160,6 +170,30 @@
 				<Settings class="h-5 w-5" />
 			</Button>
 		{/if}
+
+		<!-- Group menu -->
+		<div class="relative">
+			<Button
+				variant="ghost"
+				size="icon"
+				onclick={() => showGroupMenu = !showGroupMenu}
+			>
+				<MoreVertical class="h-5 w-5" />
+			</Button>
+			{#if showGroupMenu}
+				<div
+					class="absolute right-0 top-full mt-1 w-48 rounded-lg border border-border bg-background shadow-lg z-50"
+				>
+					<button
+						class="flex w-full items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-muted transition-colors"
+						onclick={() => { showLeaveConfirm = true; showGroupMenu = false; }}
+					>
+						<LogOut class="h-4 w-4" />
+						Leave group
+					</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Messages -->
@@ -296,3 +330,54 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Leave Confirmation Modal -->
+{#if showLeaveConfirm}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		onclick={() => showLeaveConfirm = false}
+		onkeydown={(e) => e.key === 'Escape' && (showLeaveConfirm = false)}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<div
+			class="w-full max-w-sm rounded-2xl bg-background p-6 shadow-xl"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			role="document"
+		>
+			<h3 class="text-lg font-semibold mb-2">Leave group?</h3>
+			<p class="text-sm text-muted-foreground mb-6">
+				You can rejoin this group anytime from the groups list.
+			</p>
+			<div class="flex gap-3">
+				<Button
+					variant="outline"
+					class="flex-1"
+					onclick={() => showLeaveConfirm = false}
+				>
+					Cancel
+				</Button>
+				<Button
+					variant="destructive"
+					class="flex-1"
+					onclick={handleLeaveGroup}
+				>
+					Leave
+				</Button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Click outside to close group menu -->
+{#if showGroupMenu}
+	<div
+		class="fixed inset-0 z-40"
+		onclick={() => showGroupMenu = false}
+		onkeydown={(e) => e.key === 'Escape' && (showGroupMenu = false)}
+		role="presentation"
+		tabindex="-1"
+	></div>
+{/if}

@@ -768,6 +768,25 @@ function createMessagesStore() {
 		activeConversation = null;
 	}
 
+	/** Delete a conversation (local only) */
+	async function deleteConversation(pubkeyOrNpub: string): Promise<void> {
+		const pubkey = validatePubkey(pubkeyOrNpub);
+		if (!pubkey) {
+			throw new Error('Invalid public key');
+		}
+
+		// Close if active
+		if (activeConversation === pubkey) {
+			activeConversation = null;
+		}
+
+		// Remove from memory
+		conversations = conversations.filter(c => c.pubkey !== pubkey);
+
+		// Remove from database
+		await dbHelpers.deleteConversation(pubkey);
+	}
+
 	/** Get active conversation data */
 	function getActiveConversation(): ConversationWithMessages | null {
 		if (!activeConversation) return null;
@@ -825,6 +844,7 @@ function createMessagesStore() {
 		sendMessage,
 		startConversation,
 		closeConversation,
+		deleteConversation,
 		getActiveConversation,
 		cleanup,
 		setPreferNip17

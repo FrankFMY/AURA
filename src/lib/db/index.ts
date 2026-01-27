@@ -353,6 +353,11 @@ export const dbHelpers = {
 		await db.conversations.update(pubkey, { unread_count: 0 });
 	},
 
+	/** Delete a conversation */
+	async deleteConversation(pubkey: string): Promise<void> {
+		await db.conversations.delete(pubkey);
+	},
+
 	/** Get setting */
 	async getSetting<T>(key: string, defaultValue?: T): Promise<T | undefined> {
 		const setting = await db.settings.get(key);

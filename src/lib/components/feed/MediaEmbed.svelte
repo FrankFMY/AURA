@@ -168,22 +168,22 @@
 				</video>
 			</div>
 		{:else if mediaType === 'youtube' && embedData.id}
-			<!-- YouTube embed -->
+			<!-- YouTube embed - limited height to not take over the feed -->
 			{#if showYouTubeEmbed}
-				<div class="aspect-video">
+				<div class="aspect-video max-h-[360px]">
 					<iframe
 						src="https://www.youtube-nocookie.com/embed/{embedData.id}?autoplay=1&rel=0"
 						title="YouTube video"
 						frameborder="0"
 						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
 						allowfullscreen
-						class="h-full w-full"
+						class="h-full w-full max-h-[360px]"
 					></iframe>
 				</div>
 			{:else}
 				<!-- YouTube thumbnail with play button -->
 				<button
-					class="relative aspect-video w-full cursor-pointer group"
+					class="relative aspect-video w-full max-h-[360px] cursor-pointer group"
 					onclick={handleYouTubeClick}
 				>
 					<img

@@ -35,6 +35,8 @@
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
 	import Coins from 'lucide-svelte/icons/coins';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import MoreVertical from 'lucide-svelte/icons/more-vertical';
 	import type { RecordingResult } from '$lib/utils/audio-recorder';
 
 	let messageInput = $state('');
@@ -44,6 +46,9 @@
 	let messagesContainer: HTMLElement | undefined = $state(undefined);
 	let showSendCashu = $state(false);
 	let isUploadingVoice = $state(false);
+	let showDeleteConfirm = $state(false);
+	let deleteTarget = $state<string | null>(null);
+	let showChatMenu = $state(false);
 
 	const activeConv = $derived(messagesStore.getActiveConversation());
 	const hasCashuBalance = $derived(cashuStore.isConnected && cashuStore.totalBalance > 0);
@@ -224,6 +229,27 @@
 		showNewConversation = false;
 	}
 
+	function confirmDeleteChat(pubkey: string) {
+		deleteTarget = pubkey;
+		showDeleteConfirm = true;
+		showChatMenu = false;
+	}
+
+	async function handleDeleteChat() {
+		if (!deleteTarget) return;
+
+		try {
+			await messagesStore.deleteConversation(deleteTarget);
+			notificationsStore.success('Deleted', 'Chat deleted successfully');
+		} catch (e) {
+			console.error('Failed to delete chat:', e);
+			notificationsStore.error('Error', 'Failed to delete chat');
+		} finally {
+			showDeleteConfirm = false;
+			deleteTarget = null;
+		}
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
@@ -321,50 +347,59 @@
 				/>
 			{:else}
 				{#each filteredConversations as conversation (conversation.pubkey)}
-					<button
-						class="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/50
-							{messagesStore.activeConversation === conversation.pubkey ? 'bg-muted' : ''}"
-						onclick={() =>
-							messagesStore.openConversation(conversation.pubkey)}
-					>
-						<Avatar size="lg">
-							<AvatarImage src={conversation.profile?.picture} />
-							<AvatarFallback>
-								{(conversation.profile?.display_name ||
-									conversation.profile?.name ||
-									conversation.pubkey)?.[0]?.toUpperCase() ||
-									'?'}
-							</AvatarFallback>
-						</Avatar>
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center justify-between">
-								<p class="font-medium">
-									{conversation.profile?.display_name ||
+					<div class="group relative flex items-center hover:bg-muted/50 transition-colors {messagesStore.activeConversation === conversation.pubkey ? 'bg-muted' : ''}">
+						<button
+							class="flex w-full items-center gap-3 p-4 text-left"
+							onclick={() =>
+								messagesStore.openConversation(conversation.pubkey)}
+						>
+							<Avatar size="lg">
+								<AvatarImage src={conversation.profile?.picture} />
+								<AvatarFallback>
+									{(conversation.profile?.display_name ||
 										conversation.profile?.name ||
-										truncatePubkey(conversation.pubkey)}
+										conversation.pubkey)?.[0]?.toUpperCase() ||
+										'?'}
+								</AvatarFallback>
+							</Avatar>
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center justify-between">
+									<p class="font-medium">
+										{conversation.profile?.display_name ||
+											conversation.profile?.name ||
+											truncatePubkey(conversation.pubkey)}
+									</p>
+									{#if conversation.unread_count > 0}
+										<Badge
+											variant="default"
+											class="text-xs"
+										>
+											{conversation.unread_count}
+										</Badge>
+									{/if}
+								</div>
+								<p class="truncate text-sm text-muted-foreground">
+									{conversation.last_message_preview ||
+										'Start chatting'}
 								</p>
-								{#if conversation.unread_count > 0}
-									<Badge
-										variant="default"
-										class="text-xs"
-									>
-										{conversation.unread_count}
-									</Badge>
+								{#if conversation.last_message_at && conversation.last_message_preview}
+									<p class="text-xs text-muted-foreground">
+										{formatRelativeTime(
+											conversation.last_message_at,
+										)}
+									</p>
 								{/if}
 							</div>
-							<p class="truncate text-sm text-muted-foreground">
-								{conversation.last_message_preview ||
-									'Start chatting'}
-							</p>
-							{#if conversation.last_message_at && conversation.last_message_preview}
-								<p class="text-xs text-muted-foreground">
-									{formatRelativeTime(
-										conversation.last_message_at,
-									)}
-								</p>
-							{/if}
-						</div>
-					</button>
+						</button>
+						<!-- Delete button on hover -->
+						<button
+							class="absolute right-2 opacity-0 group-hover:opacity-100 p-2 rounded-full bg-destructive/10 hover:bg-destructive/20 text-destructive transition-all"
+							onclick={(e) => { e.stopPropagation(); confirmDeleteChat(conversation.pubkey); }}
+							title="Delete chat"
+						>
+							<Trash2 class="h-4 w-4" />
+						</button>
+					</div>
 				{/each}
 			{/if}
 		</div>
@@ -441,6 +476,30 @@
 						showLabel={false}
 						callType="video"
 					/>
+				</div>
+
+				<!-- Chat menu -->
+				<div class="relative">
+					<Button
+						variant="ghost"
+						size="icon"
+						onclick={() => showChatMenu = !showChatMenu}
+					>
+						<MoreVertical class="h-5 w-5" />
+					</Button>
+					{#if showChatMenu}
+						<div
+							class="absolute right-0 top-full mt-1 w-48 rounded-lg border border-border bg-background shadow-lg z-50"
+						>
+							<button
+								class="flex w-full items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-muted transition-colors"
+								onclick={() => confirmDeleteChat(activeConv.pubkey)}
+							>
+								<Trash2 class="h-4 w-4" />
+								Delete chat
+							</button>
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -664,3 +723,54 @@
 	onSend={handleSendCashu}
 	onClose={() => showSendCashu = false}
 />
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteConfirm}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		onclick={() => showDeleteConfirm = false}
+		onkeydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<div
+			class="w-full max-w-sm rounded-2xl bg-background p-6 shadow-xl"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			role="document"
+		>
+			<h3 class="text-lg font-semibold mb-2">Delete chat?</h3>
+			<p class="text-sm text-muted-foreground mb-6">
+				This will delete the chat from your device. Messages on the Nostr network cannot be deleted.
+			</p>
+			<div class="flex gap-3">
+				<Button
+					variant="outline"
+					class="flex-1"
+					onclick={() => showDeleteConfirm = false}
+				>
+					Cancel
+				</Button>
+				<Button
+					variant="destructive"
+					class="flex-1"
+					onclick={handleDeleteChat}
+				>
+					Delete
+				</Button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Click outside to close chat menu -->
+{#if showChatMenu}
+	<div
+		class="fixed inset-0 z-40"
+		onclick={() => showChatMenu = false}
+		onkeydown={(e) => e.key === 'Escape' && (showChatMenu = false)}
+		role="presentation"
+		tabindex="-1"
+	></div>
+{/if}
