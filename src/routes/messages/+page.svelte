@@ -608,11 +608,21 @@
 								:	'bg-muted'}"
 							>
 								{#if !message.decrypted}
-									<div
-										class="flex items-center gap-2 text-sm text-warning"
-									>
-										<AlertCircle class="h-4 w-4" />
-										<span>Failed to decrypt</span>
+									<div class="space-y-1">
+										<div
+											class="flex items-center gap-2 text-sm text-warning"
+										>
+											<AlertCircle class="h-4 w-4" />
+											<span>Failed to decrypt</span>
+										</div>
+										{#if message.error}
+											<p class="text-xs text-muted-foreground/70 break-all">
+												{message.error}
+											</p>
+										{/if}
+										<p class="text-xs text-muted-foreground/50 font-mono break-all">
+											From: {message.pubkey.slice(0, 16)}...
+										</p>
 									</div>
 								{:else if isEmptyMessage(message.content)}
 									<div
