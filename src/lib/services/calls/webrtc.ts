@@ -83,10 +83,10 @@ class WebRTCService {
 	get isSupported(): boolean {
 		if (!browser) return false;
 		return (
-			typeof navigator !== 'undefined' &&
-			typeof navigator.mediaDevices !== 'undefined' &&
+			navigator !== undefined &&
+			navigator.mediaDevices !== undefined &&
 			typeof navigator.mediaDevices.getUserMedia === 'function' &&
-			typeof window.RTCPeerConnection === 'function'
+			typeof globalThis.RTCPeerConnection === 'function'
 		);
 	}
 
@@ -207,10 +207,12 @@ class WebRTCService {
 		this.peer.on('signal', (data) => {
 			console.log('[WebRTC] Got signal to send:', data.type || 'ice-candidate');
 
-			const signalType: SignalType =
-				data.type === 'offer' ? 'offer' :
-				data.type === 'answer' ? 'answer' :
-				'ice-candidate';
+			let signalType: SignalType = 'ice-candidate';
+			if (data.type === 'offer') {
+				signalType = 'offer';
+			} else if (data.type === 'answer') {
+				signalType = 'answer';
+			}
 
 			const signal: WebRTCSignal = {
 				type: 'webrtc_signal',

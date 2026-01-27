@@ -53,10 +53,10 @@
 	}: Props = $props();
 
 	// Local state for reactions/reposts - tracks user's actions even if feed state doesn't update
-	let localHasReacted = $state(initialHasReacted);
-	let localHasReposted = $state(initialHasReposted);
-	let localReactionCount = $state(initialReactionCount);
-	let localRepostCount = $state(initialRepostCount);
+	let localHasReacted = $state(false);
+	let localHasReposted = $state(false);
+	let localReactionCount = $state(0);
+	let localRepostCount = $state(0);
 
 	// Sync with props when they change (e.g., when feed refreshes)
 	$effect(() => {
@@ -335,7 +335,7 @@
 				</div>
 			{:else}
 				<!-- Regular note content - Safely sanitized HTML -->
-				<div class="mb-3 wrap-break-words text-foreground note-content">
+				<div class="mb-3 wrap-break-word text-foreground note-content">
 					{@html safeHtml}
 				</div>
 			{/if}

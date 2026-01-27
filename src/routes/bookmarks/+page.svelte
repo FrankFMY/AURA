@@ -163,7 +163,7 @@
 
 								<!-- Content -->
 								<a href="/note/{event.id}" class="block">
-									<div class="mb-3 wrap-break-words text-foreground note-content">
+									<div class="mb-3 wrap-break-word text-foreground note-content">
 										{@html parsedContent.html}
 									</div>
 

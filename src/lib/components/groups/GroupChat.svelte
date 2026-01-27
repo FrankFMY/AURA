@@ -255,7 +255,7 @@
 							{#if repliedMessage}
 								<div class="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1 mb-1 ml-1 border-l-2 border-primary/50">
 									<span class="font-medium">{getDisplayName(repliedMessage)}</span>
-									<p class="truncate max-w-[200px]">{repliedMessage.content}</p>
+									<p class="truncate max-w-50">{repliedMessage.content}</p>
 								</div>
 							{/if}
 						{/if}
@@ -266,7 +266,7 @@
 								? 'bg-primary text-primary-foreground rounded-br-md'
 								: 'bg-muted rounded-bl-md'}"
 						>
-							<p class="whitespace-pre-wrap break-words">{message.content}</p>
+							<p class="whitespace-pre-wrap wrap-break-word">{message.content}</p>
 
 							<!-- Time (shown on hover) -->
 							<span
@@ -341,6 +341,7 @@
 		aria-modal="true"
 		tabindex="-1"
 	>
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
 			class="w-full max-w-sm rounded-2xl bg-background p-6 shadow-xl"
 			onclick={(e) => e.stopPropagation()}

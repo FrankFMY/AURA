@@ -21,8 +21,15 @@
 	let isPlaying = $state(false);
 	let isLoading = $state(true);
 	let currentTime = $state(0);
-	let totalDuration = $state(propDuration || 0);
+	let totalDuration = $state(0);
 	let error = $state<string | null>(null);
+
+	// Initialize totalDuration from prop
+	$effect(() => {
+		if (propDuration) {
+			totalDuration = propDuration;
+		}
+	});
 
 	// Default waveform if not provided
 	const defaultWaveform = Array(30).fill(0).map(() => 0.2 + Math.random() * 0.6);

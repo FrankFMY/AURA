@@ -20,7 +20,12 @@
 
 	let { userStory, startIndex = 0, onClose, onNext, onPrev }: Props = $props();
 
-	let currentIndex = $state(startIndex);
+	let currentIndex = $state(0);
+
+	// Initialize from startIndex prop
+	$effect(() => {
+		currentIndex = startIndex;
+	});
 	let progress = $state(0);
 	let isPaused = $state(false);
 	let progressInterval: ReturnType<typeof setInterval> | null = null;
@@ -225,7 +230,7 @@
 
 			<!-- Caption overlay for media stories -->
 			{#if (currentItem.contentType === 'image' || currentItem.contentType === 'video') && currentItem.content && !currentItem.content.startsWith('http')}
-				<div class="absolute bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent">
+				<div class="absolute bottom-20 left-0 right-0 p-4 bg-linear-to-t from-black/60 to-transparent">
 					<p class="text-white text-center">{currentItem.content}</p>
 				</div>
 			{/if}

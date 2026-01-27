@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { callsStore, type IncomingCallData } from '$stores/calls.svelte';
+	import { type IncomingCallData } from '$stores/calls.svelte';
 	import { Avatar, AvatarImage, AvatarFallback } from '$components/ui/avatar';
-	import { Button } from '$components/ui/button';
 	import Phone from 'lucide-svelte/icons/phone';
 	import PhoneOff from 'lucide-svelte/icons/phone-off';
 	import Video from 'lucide-svelte/icons/video';
@@ -43,7 +42,7 @@
 </script>
 
 <!-- Fullscreen incoming call overlay -->
-<div class="fixed inset-0 z-[100] flex items-center justify-center bg-gradient-to-b from-background to-background/95 backdrop-blur-lg">
+<div class="fixed inset-0 z-100 flex items-center justify-center bg-linear-to-b from-background to-background/95 backdrop-blur-lg">
 	<!-- Animated background rings -->
 	<div class="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
 		<div class="absolute w-64 h-64 rounded-full border border-primary/20 animate-ping-slow"></div>
@@ -65,7 +64,7 @@
 		<!-- Caller avatar with pulse -->
 		<div class="relative">
 			<div class="absolute -inset-4 rounded-full bg-primary/20 animate-pulse"></div>
-			<Avatar size="xl" class="relative border-4 border-primary/50 !h-24 !w-24">
+			<Avatar size="xl" class="relative border-4 border-primary/50 h-24! w-24!">
 				{#if call.callerProfile?.picture}
 					<AvatarImage src={call.callerProfile.picture} alt={displayName} />
 				{/if}

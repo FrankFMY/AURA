@@ -657,7 +657,7 @@
 									</div>
 								{:else}
 									<p
-										class="whitespace-pre-wrap wrap-break-words break-all"
+										class="whitespace-pre-wrap wrap-break-word break-all"
 									>
 										{message.content}
 									</p>
@@ -719,7 +719,7 @@
 						bind:value={messageInput}
 						placeholder="Type a message..."
 						rows={1}
-						class="min-h-[44px] max-h-32 resize-none"
+						class="min-h-11 max-h-32 resize-none"
 						onkeydown={handleKeydown}
 					/>
 					<Button
@@ -769,6 +769,7 @@
 		aria-modal="true"
 		tabindex="-1"
 	>
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
 			class="w-full max-w-sm rounded-2xl bg-background p-6 shadow-xl"
 			onclick={(e) => e.stopPropagation()}

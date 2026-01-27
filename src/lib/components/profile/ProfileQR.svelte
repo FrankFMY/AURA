@@ -130,11 +130,11 @@
 			<!-- QR Code -->
 			<div class="flex flex-col items-center p-4 sm:p-6">
 				{#if isLoading}
-					<div class="flex aspect-square w-full max-w-[240px] sm:max-w-[280px] items-center justify-center">
+					<div class="flex aspect-square w-full max-w-60 sm:max-w-70 items-center justify-center">
 						<Spinner size="lg" />
 					</div>
 				{:else if error}
-					<div class="flex aspect-square w-full max-w-[240px] sm:max-w-[280px] flex-col items-center justify-center text-center">
+					<div class="flex aspect-square w-full max-w-60 sm:max-w-70 flex-col items-center justify-center text-center">
 						<p class="text-destructive mb-4">{error}</p>
 						<Button variant="outline" onclick={generateQR}>
 							Retry
@@ -145,7 +145,7 @@
 						<img
 							src={qrDataURL}
 							alt="QR Code for {displayName}"
-							class="w-full max-w-[240px] sm:max-w-[280px] aspect-square"
+							class="w-full max-w-60 sm:max-w-70 aspect-square"
 						/>
 					</div>
 				{/if}

@@ -86,7 +86,7 @@
 						<div
 							class="w-12 h-12 sm:w-14 sm:h-14 rounded-full p-0.5
 								{userStory.hasUnviewed
-								? 'bg-gradient-to-tr from-primary via-purple-500 to-pink-500'
+								? 'bg-linear-to-tr from-primary via-purple-500 to-pink-500'
 								: 'bg-muted'}"
 						>
 							<div class="w-full h-full rounded-full bg-background p-0.5">

@@ -83,7 +83,7 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-[100] flex flex-col bg-black">
+<div class="fixed inset-0 z-100 flex flex-col bg-black">
 	<!-- Remote video (full screen) -->
 	{#if call.callType === 'video'}
 		<div class="absolute inset-0">
@@ -95,7 +95,7 @@
 					class="w-full h-full object-cover"
 				></video>
 			{:else}
-				<div class="w-full h-full flex items-center justify-center bg-gradient-to-b from-slate-900 to-black">
+				<div class="w-full h-full flex items-center justify-center bg-linear-to-b from-slate-900 to-black">
 					<div class="text-center">
 						<Avatar size="xl" class="mx-auto mb-4 w-32 h-32">
 							{#if call.peerProfile?.picture}
@@ -127,7 +127,7 @@
 		{/if}
 	{:else}
 		<!-- Audio call - show avatar -->
-		<div class="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-900 to-black">
+		<div class="absolute inset-0 flex items-center justify-center bg-linear-to-b from-slate-900 to-black">
 			<div class="text-center">
 				<div class="relative">
 					<Avatar size="xl" class="mx-auto mb-6 w-40 h-40">
@@ -159,7 +159,7 @@
 	{/if}
 
 	<!-- Header overlay -->
-	<div class="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/60 to-transparent">
+	<div class="absolute top-0 left-0 right-0 z-20 p-4 bg-linear-to-b from-black/60 to-transparent">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
 				{#if call.callType === 'video'}
@@ -198,7 +198,7 @@
 	</div>
 
 	<!-- Controls overlay -->
-	<div class="absolute bottom-0 left-0 right-0 z-20 p-8 bg-gradient-to-t from-black/80 to-transparent">
+	<div class="absolute bottom-0 left-0 right-0 z-20 p-8 bg-linear-to-t from-black/80 to-transparent">
 		<div class="flex items-center justify-center gap-6">
 			<!-- Mute button -->
 			<button

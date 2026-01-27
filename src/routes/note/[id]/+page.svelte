@@ -321,7 +321,7 @@
 				</div>
 
 				<!-- Content (larger text for main note) -->
-				<div class="text-lg whitespace-pre-wrap wrap-break-words mb-4">
+				<div class="text-lg whitespace-pre-wrap wrap-break-word mb-4">
 					{note.content}
 				</div>
 

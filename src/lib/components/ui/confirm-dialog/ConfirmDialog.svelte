@@ -96,10 +96,12 @@
 
 {#if open}
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<!-- svelte-ignore a11y_interactive_supports_focus -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
+		tabindex="-1"
 		aria-labelledby="confirm-dialog-title"
 		aria-describedby={message ? 'confirm-dialog-description' : undefined}
 		onclick={handleBackdropClick}

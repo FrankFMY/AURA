@@ -16,7 +16,6 @@
 		onclose
 	}: Props = $props();
 
-	let sheetRef: HTMLDivElement | undefined = $state(undefined);
 	let startY = $state(0);
 	let currentY = $state(0);
 	let isDragging = $state(false);
@@ -75,7 +74,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<!-- svelte-ignore a11y_interactive_supports_focus -->
 	<div
-		class="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300"
+		class="fixed inset-0 z-60 flex items-end justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300"
 		class:opacity-100={open}
 		role="dialog"
 		aria-modal="true"
@@ -84,7 +83,6 @@
 		onkeydown={handleKeyDown}
 	>
 		<div
-			bind:this={sheetRef}
 			class="relative w-full max-w-lg rounded-t-2xl bg-background shadow-xl border-t border-x border-border safe-area-pb transition-transform duration-300 ease-out"
 			style="transform: translateY({currentY}px)"
 			ontouchstart={handleTouchStart}

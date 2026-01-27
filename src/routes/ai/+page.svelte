@@ -320,7 +320,7 @@
 			<Textarea
 				bind:value={inputValue}
 				placeholder="Type your message..."
-				class="min-h-[44px] max-h-32 resize-none"
+				class="min-h-11 max-h-32 resize-none"
 				rows={1}
 				onkeydown={handleKeydown}
 				disabled={dvmStore.isProcessing}

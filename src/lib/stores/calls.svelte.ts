@@ -74,6 +74,33 @@ export interface CallResponseMessage {
 const ROOM_PREFIX = 'aura-';
 const CALL_TIMEOUT = 60000; // 60 seconds
 
+/** Format call duration */
+function formatDuration(ms: number): string {
+	const seconds = Math.floor(ms / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const hours = Math.floor(minutes / 60);
+
+	if (hours > 0) {
+		return `${hours}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+	}
+	return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/** Send call response message */
+async function sendCallResponse(
+	peerPubkey: string,
+	roomId: string,
+	action: 'accept' | 'decline' | 'end'
+): Promise<void> {
+	const response: CallResponseMessage = {
+		type: 'call_response',
+		roomId,
+		action
+	};
+
+	await messagesStore.sendMessage(peerPubkey, JSON.stringify(response));
+}
+
 /** Generate unique room ID */
 function generateRoomId(): string {
 	const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -434,7 +461,7 @@ function createCallsStore() {
 
 	/** Handle call response from peer */
 	async function handleCallResponse(
-		peerPubkey: string,
+		_peerPubkey: string,
 		response: CallResponseMessage
 	): Promise<void> {
 		if (!activeCall || activeCall.roomId !== response.roomId) {
@@ -499,7 +526,7 @@ function createCallsStore() {
 
 	/** Mark call as connected */
 	function markConnected(): void {
-		if (activeCall && activeCall.status === 'connecting') {
+		if (activeCall?.status === 'connecting') {
 			activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
 			console.log('[Calls] Call connected');
 		}
@@ -552,21 +579,6 @@ function createCallsStore() {
 		console.log('[Calls] Call ended:', status);
 	}
 
-	/** Send call response message */
-	async function sendCallResponse(
-		peerPubkey: string,
-		roomId: string,
-		action: 'accept' | 'decline' | 'end'
-	): Promise<void> {
-		const response: CallResponseMessage = {
-			type: 'call_response',
-			roomId,
-			action
-		};
-
-		await messagesStore.sendMessage(peerPubkey, JSON.stringify(response));
-	}
-
 	/** Add call to history */
 	function addToHistory(entry: Omit<CallHistoryEntry, 'id'>): void {
 		const historyEntry: CallHistoryEntry = {
@@ -588,18 +600,6 @@ function createCallsStore() {
 	function toggleVideo(): boolean {
 		isVideoEnabled = webrtcService.toggleVideo();
 		return isVideoEnabled;
-	}
-
-	/** Format call duration */
-	function formatDuration(ms: number): string {
-		const seconds = Math.floor(ms / 1000);
-		const minutes = Math.floor(seconds / 60);
-		const hours = Math.floor(minutes / 60);
-
-		if (hours > 0) {
-			return `${hours}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-		}
-		return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 	}
 
 	/** Force reset all call state (for debugging stuck calls) */

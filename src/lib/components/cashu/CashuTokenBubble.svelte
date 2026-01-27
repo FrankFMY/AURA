@@ -61,7 +61,7 @@
 </script>
 
 <div
-	class="inline-flex flex-col gap-2 rounded-xl p-3 max-w-[280px]
+	class="inline-flex flex-col gap-2 rounded-xl p-3 max-w-70
 		{isOutgoing 
 			? 'bg-primary/10 border border-primary/20' 
 			: 'bg-amber-500/10 border border-amber-500/20'}"
