@@ -111,7 +111,7 @@ class BlossomService {
 	 * Add a server
 	 */
 	addServer(server: BlossomServer): void {
-		if (!this.servers.find(s => s.url === server.url)) {
+		if (!this.servers.some(s => s.url === server.url)) {
 			this.servers.push(server);
 		}
 	}

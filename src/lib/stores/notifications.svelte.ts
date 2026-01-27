@@ -48,16 +48,16 @@ const DEFAULT_DURATIONS: Record<NotificationType, number> = {
 /** Maximum number of visible toasts */
 const MAX_TOASTS = 5;
 
+/** Generate unique ID */
+function generateId(): string {
+	return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 /** Create notifications store */
 function createNotificationsStore() {
 	let toasts = $state<Toast[]>([]);
 	let timeouts = new Map<string, ReturnType<typeof setTimeout>>();
 	let errorListenerRemover: (() => void) | null = null;
-
-	/** Generate unique ID */
-	function generateId(): string {
-		return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-	}
 
 	/** Add a toast notification */
 	function addToast(options: ToastOptions): string {
@@ -177,7 +177,7 @@ function createNotificationsStore() {
 	}
 
 	// Connect to error handler
-	if (typeof window !== 'undefined') {
+	if (globalThis.window !== undefined) {
 		errorListenerRemover = ErrorHandler.addListener((auraError) => {
 			// Auto-show errors with severity >= warning
 			if (['error', 'critical'].includes(auraError.severity)) {

@@ -60,7 +60,7 @@ class JitsiService {
 
 		this.loadPromise = new Promise((resolve, reject) => {
 			// Check if already loaded
-			if (window.JitsiMeetExternalAPI) {
+			if ((globalThis as typeof globalThis & { JitsiMeetExternalAPI?: unknown }).JitsiMeetExternalAPI) {
 				this.isApiLoaded = true;
 				resolve();
 				return;
@@ -163,7 +163,9 @@ class JitsiService {
 		};
 
 		console.log('[Jitsi] Creating JitsiMeetExternalAPI instance');
-		this.api = new window.JitsiMeetExternalAPI('meet.jit.si', options);
+		type JitsiAPIConstructor = new (domain: string, options: Record<string, unknown>) => JitsiMeetExternalAPI;
+		const JitsiAPI = (globalThis as typeof globalThis & { JitsiMeetExternalAPI: JitsiAPIConstructor }).JitsiMeetExternalAPI;
+		this.api = new JitsiAPI('meet.jit.si', options);
 		console.log('[Jitsi] API instance created');
 
 		// Set avatar if provided
@@ -248,17 +250,13 @@ class JitsiService {
 	}
 
 	/** Set audio mute state */
-	setAudioMuted(muted: boolean): void {
-		if (this.api) {
-			this.api.executeCommand('toggleAudio');
-		}
+	setAudioMuted(_muted: boolean): void {
+		this.toggleAudio();
 	}
 
 	/** Set video mute state */
-	setVideoMuted(muted: boolean): void {
-		if (this.api) {
-			this.api.executeCommand('toggleVideo');
-		}
+	setVideoMuted(_muted: boolean): void {
+		this.toggleVideo();
 	}
 
 	/** End the call */

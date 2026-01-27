@@ -83,9 +83,7 @@ class WebRTCService {
 	get isSupported(): boolean {
 		if (!browser) return false;
 		return (
-			navigator !== undefined &&
-			navigator.mediaDevices !== undefined &&
-			typeof navigator.mediaDevices.getUserMedia === 'function' &&
+			typeof navigator?.mediaDevices?.getUserMedia === 'function' &&
 			typeof globalThis.RTCPeerConnection === 'function'
 		);
 	}

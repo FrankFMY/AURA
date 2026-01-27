@@ -19,9 +19,9 @@ export interface ContactWithProfile extends Contact {
  * Contacts Service Class
  */
 class ContactsService {
-	private _contacts: Map<string, Contact> = new Map();
+	private readonly _contacts: Map<string, Contact> = new Map();
 	private _lastFetch: number = 0;
-	private _cacheTimeout = 5 * 60 * 1000; // 5 minutes
+	private readonly _cacheTimeout = 5 * 60 * 1000; // 5 minutes
 
 	/** Get all contacts */
 	get contacts(): Contact[] {

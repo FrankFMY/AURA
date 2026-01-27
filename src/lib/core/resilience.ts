@@ -99,7 +99,7 @@ export class CircuitBreaker {
 	private failures = 0;
 	private successes = 0;
 	private lastFailure: number | null = null;
-	private config: CircuitBreakerConfig;
+	private readonly config: CircuitBreakerConfig;
 
 	constructor(config: Partial<CircuitBreakerConfig> = {}) {
 		this.config = { ...DEFAULT_CIRCUIT_CONFIG, ...config };
@@ -188,9 +188,9 @@ export class CircuitBreaker {
 
 /** Request deduplication cache */
 export class RequestDeduplicator<T> {
-	private pending = new Map<string, Promise<T>>();
-	private cache = new Map<string, { value: T; timestamp: number }>();
-	private ttl: number;
+	private readonly pending = new Map<string, Promise<T>>();
+	private readonly cache = new Map<string, { value: T; timestamp: number }>();
+	private readonly ttl: number;
 
 	constructor(ttlMs: number = 5000) {
 		this.ttl = ttlMs;
