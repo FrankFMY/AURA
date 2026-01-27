@@ -39,6 +39,22 @@ export interface UserStory {
 const STORY_DURATION = 24 * 60 * 60; // 24 hours in seconds
 const STORY_TAG = 'story';
 
+/** Get time remaining for a story */
+function getTimeRemaining(expiresAt: number): string {
+	const now = Math.floor(Date.now() / 1000);
+	const diff = expiresAt - now;
+
+	if (diff <= 0) return 'Expired';
+
+	const hours = Math.floor(diff / 3600);
+	const minutes = Math.floor((diff % 3600) / 60);
+
+	if (hours > 0) {
+		return `${hours}h left`;
+	}
+	return `${minutes}m left`;
+}
+
 /** Create stories store */
 function createStoriesStore() {
 	let stories = $state<Map<string, UserStory>>(new Map());
@@ -91,7 +107,8 @@ function createStoriesStore() {
 			let mediaUrl: string | undefined;
 
 			// Check for media URLs
-			const urlMatch = event.content.match(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov)/i);
+			const mediaUrlRegex = /https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov)/i;
+			const urlMatch = mediaUrlRegex.exec(event.content);
 			if (urlMatch) {
 				const url = urlMatch[0].toLowerCase();
 				if (/\.(mp4|webm|mov)$/i.test(url)) {
@@ -250,7 +267,7 @@ function createStoriesStore() {
 		saveViewedStories();
 
 		// Update hasUnviewed for affected user
-		for (const [pubkey, userStory] of stories) {
+		for (const [, userStory] of stories) {
 			if (userStory.items.some((i) => i.id === storyId)) {
 				userStory.hasUnviewed = userStory.items.some((i) => !viewedStories.has(i.id));
 				stories = new Map(stories);
@@ -313,22 +330,6 @@ function createStoriesStore() {
 			activeSubscription.stop();
 			activeSubscription = null;
 		}
-	}
-
-	/** Get time remaining for a story */
-	function getTimeRemaining(expiresAt: number): string {
-		const now = Math.floor(Date.now() / 1000);
-		const diff = expiresAt - now;
-
-		if (diff <= 0) return 'Expired';
-
-		const hours = Math.floor(diff / 3600);
-		const minutes = Math.floor((diff % 3600) / 60);
-
-		if (hours > 0) {
-			return `${hours}h left`;
-		}
-		return `${minutes}m left`;
 	}
 
 	return {

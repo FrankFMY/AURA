@@ -19,6 +19,12 @@ import { subscriptionManager, type SubscriptionCallbacks } from './subscription-
 import { db, dbHelpers } from '$db';
 import { NetworkError, AuthError, ErrorCode } from '$lib/core/errors';
 
+/**
+ * Regex to match control characters (C0 codes U+0000-U+001F and C1 codes U+007F-U+009F)
+ * Used to clean JSON content from user profiles
+ */
+const CONTROL_CHARS_REGEX = /[\u0000-\u001f\u007f-\u009f]/g;
+
 // Re-export sub-modules
 export { relayManager, DEFAULT_RELAYS, BACKUP_RELAYS, type RelayHealth } from './relay-manager';
 export { eventPublisher, type QueuedEvent } from './event-publisher';
@@ -381,7 +387,7 @@ class NDKService {
 				}
 
 				// Replace control characters
-				cleanContent = cleanContent.replace(/[\x00-\x1F\x7F-\x9F]/g, (char) => {
+				cleanContent = cleanContent.replaceAll(CONTROL_CHARS_REGEX, (char) => {
 					switch (char) {
 						case '\n': return '\\n';
 						case '\r': return '\\r';

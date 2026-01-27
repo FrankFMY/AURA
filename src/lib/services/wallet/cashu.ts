@@ -92,8 +92,8 @@ export interface MeltQuoteResult {
  * - Receiving tokens (P2P)
  */
 class CashuService {
-	private wallets: Map<string, Wallet> = new Map();
-	private mints: Map<string, Mint> = new Map();
+	private readonly wallets: Map<string, Wallet> = new Map();
+	private readonly mints: Map<string, Mint> = new Map();
 
 	/**
 	 * Get or create a wallet for a mint

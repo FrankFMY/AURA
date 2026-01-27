@@ -15,10 +15,9 @@
  *   node scripts/deploy-ipfs.js [--provider pinata|web3storage|local]
  */
 
-import { execSync } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, relative } from 'path';
-import { createReadStream } from 'fs';
+import { execSync } from 'node:child_process';
+import { readFileSync, existsSync, readdirSync, statSync, createReadStream } from 'node:fs';
+import { join, relative } from 'node:path';
 
 // Configuration
 const BUILD_DIR = 'build';

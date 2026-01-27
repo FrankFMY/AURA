@@ -112,16 +112,16 @@ export class NWCClient {
 	private _ourPubkey: string | null = null;
 	private _secretKeyBytes: Uint8Array | null = null;
 	private _ws: WebSocket | null = null;
-	private _pendingRequests: Map<string, {
+	private readonly _pendingRequests: Map<string, {
 		resolve: (value: unknown) => void;
 		reject: (error: Error) => void;
 		timeout: ReturnType<typeof setTimeout>;
 	}> = new Map();
 	private _isConnected = false;
 	private _reconnectAttempts = 0;
-	private _maxReconnectAttempts = 5;
-	private _reconnectDelay = 2000;
-	private _eventListeners: Set<(event: NWCEvent) => void> = new Set();
+	private readonly _maxReconnectAttempts = 5;
+	private readonly _reconnectDelay = 2000;
+	private readonly _eventListeners: Set<(event: NWCEvent) => void> = new Set();
 
 	/** Check if connected */
 	get isConnected(): boolean {
@@ -130,7 +130,7 @@ export class NWCClient {
 
 	/** Get wallet pubkey */
 	get walletPubkey(): string | null {
-		return this._connectionInfo?.walletPubkey || null;
+		return this._connectionInfo?.walletPubkey ?? null;
 	}
 
 	/**

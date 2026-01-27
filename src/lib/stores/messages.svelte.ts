@@ -7,12 +7,18 @@ import { validatePubkey } from '$lib/validators/schemas';
 import { giftWrap } from '$lib/services/crypto';
 import { pushNotifications } from '$services/push-notifications';
 
+/** NIP-04 format regex: base64?iv=base64 */
+const NIP04_REGEX = /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/;
+/** NIP-04 URL-encoded format regex: base64%3Fiv%3Dbase64 */
+const NIP04_URLENCODED_REGEX = /^[A-Za-z0-9+/=]+%3Fiv%3D[A-Za-z0-9+/=]+$/i;
+/** Base64 validation regex */
+const BASE64_REGEX = /^[A-Za-z0-9+/]+=*$/;
+
 /** Detect if content is NIP-04 format (ciphertext?iv=...) */
 function isNip04Format(content: string): boolean {
 	// NIP-04 format: base64?iv=base64
 	// Also check for URL-encoded version: base64%3Fiv%3Dbase64
-	return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content) ||
-		/^[A-Za-z0-9+/=]+%3Fiv%3D[A-Za-z0-9+/=]+$/i.test(content);
+	return NIP04_REGEX.test(content) || NIP04_URLENCODED_REGEX.test(content);
 }
 
 /** Try to normalize NIP-04 content (handle URL-encoded variants) */
@@ -34,8 +40,7 @@ function isNip44Format(content: string): boolean {
 	// It's typically longer than 50 chars and starts with version byte
 	if (!content || content.includes('?iv=')) return false;
 	// Check if it's valid base64
-	const base64Regex = /^[A-Za-z0-9+/]+=*$/;
-	if (!base64Regex.test(content)) return false;
+	if (!BASE64_REGEX.test(content)) return false;
 	// NIP-44 messages are typically at least 100 bytes (version + nonce + ciphertext + mac)
 	return content.length >= 50;
 }
