@@ -90,34 +90,87 @@ function createMessagesStore() {
 		return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content);
 	}
 
+	/** Detect if content looks like NIP-44 format */
+	function isNip44Format(content: string): boolean {
+		// NIP-44 is pure base64 without ?iv= separator
+		// It's typically longer than 50 chars and starts with version byte
+		if (!content || content.includes('?iv=')) return false;
+		// Check if it's valid base64
+		const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+		if (!base64Regex.test(content)) return false;
+		// NIP-44 messages are typically at least 100 bytes (version + nonce + ciphertext + mac)
+		return content.length >= 50;
+	}
+
+	/** Get content format info for debugging */
+	function getContentFormat(content: string): string {
+		if (isNip04Format(content)) return 'NIP-04';
+		if (isNip44Format(content)) return 'NIP-44 (likely)';
+		if (content.startsWith('{')) return 'JSON (plaintext)';
+		if (content.length < 20) return 'Short/Unknown';
+		return 'Unknown';
+	}
+
 	/** Decrypt message content (NIP-04 for now, NIP-44 preferred) */
 	async function decryptMessage(event: NDKEvent, otherPubkey: string): Promise<string> {
 		let result: string | undefined;
 		let method: string = 'unknown';
 		let lastError: Error | null = null;
 		const content = event.content;
+		const contentFormat = getContentFormat(content);
 
 		// Detect encryption format
 		const isNip04 = isNip04Format(content);
+		const isNip44 = isNip44Format(content);
 
-		// If content looks like NIP-04, try NIP-04 FIRST
-		if (isNip04 && window.nostr?.nip04) {
+		console.debug('[Messages] Attempting decryption:', {
+			eventId: event.id.slice(0, 8),
+			from: otherPubkey.slice(0, 8),
+			contentLength: content?.length,
+			contentFormat,
+			contentPreview: content?.slice(0, 30) + '...',
+			hasNip04: !!window.nostr?.nip04,
+			hasNip44: !!window.nostr?.nip44
+		});
+
+		// If content looks like NIP-44, try NIP-44 FIRST
+		if (isNip44 && window.nostr?.nip44) {
+			try {
+				method = 'NIP-44 (detected)';
+				result = await window.nostr.nip44.decrypt(otherPubkey, content);
+				if (result && result.trim()) {
+					console.debug('[Messages] NIP-44 decryption succeeded');
+				}
+			} catch (e) {
+				console.debug('[Messages] NIP-44 decryption failed:', e);
+				lastError = e instanceof Error ? e : new Error(String(e));
+			}
+		}
+
+		// If content looks like NIP-04, try NIP-04
+		if ((!result || result.trim() === '') && isNip04 && window.nostr?.nip04) {
 			try {
 				method = 'NIP-04 (detected)';
 				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+				if (result && result.trim()) {
+					console.debug('[Messages] NIP-04 decryption succeeded');
+				}
 			} catch (e) {
 				console.debug('[Messages] NIP-04 decryption failed:', e);
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
 
-		// Try NIP-44 if NIP-04 wasn't detected or failed
-		if ((!result || result.trim() === '') && window.nostr?.nip44) {
+		// Try NIP-44 as fallback if not already tried
+		if ((!result || result.trim() === '') && !isNip44 && window.nostr?.nip44) {
 			try {
-				method = 'NIP-44';
+				method = 'NIP-44 (fallback)';
 				result = await window.nostr.nip44.decrypt(otherPubkey, content);
+				if (result && result.trim()) {
+					console.debug('[Messages] NIP-44 fallback succeeded');
+				}
 			} catch (e) {
-				console.debug('[Messages] NIP-44 decryption failed:', e);
+				console.debug('[Messages] NIP-44 fallback failed:', e);
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
@@ -127,6 +180,9 @@ function createMessagesStore() {
 			try {
 				method = 'NIP-04 (fallback)';
 				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+				if (result && result.trim()) {
+					console.debug('[Messages] NIP-04 fallback succeeded');
+				}
 			} catch (e) {
 				console.debug('[Messages] NIP-04 fallback decryption failed:', e);
 				lastError = e instanceof Error ? e : new Error(String(e));
@@ -141,6 +197,9 @@ function createMessagesStore() {
 					method = 'NDK';
 					const user = ndkService.ndk.getUser({ pubkey: otherPubkey });
 					result = await (signer as any).decrypt(user, event.content);
+					if (result && result.trim()) {
+						console.debug('[Messages] NDK decryption succeeded');
+					}
 				} catch (e) {
 					console.debug('[Messages] NDK decryption failed:', e);
 					lastError = e instanceof Error ? e : new Error(String(e));
@@ -150,12 +209,13 @@ function createMessagesStore() {
 
 		// If all methods failed or returned empty
 		if (!result || result.trim() === '') {
-			console.warn('[Messages] All decryption methods failed or returned empty:', {
+			console.warn('[Messages] All decryption methods failed:', {
 				method,
 				eventId: event.id,
 				from: otherPubkey.slice(0, 8),
 				encryptedLength: content?.length,
-				isNip04Format: isNip04
+				contentFormat,
+				contentPreview: content?.slice(0, 50)
 			});
 
 			if (lastError) {
@@ -344,19 +404,33 @@ function createMessagesStore() {
 	 * @param protocol - Which protocol was used
 	 */
 	async function handleIncomingDM(
-		event: NDKEvent, 
+		event: NDKEvent,
 		persist: boolean = true,
 		incrementUnread: boolean = false,
 		protocol: EncryptionProtocol = 'nip04'
 	): Promise<void> {
 		if (!authStore.pubkey) return;
 
-		// Determine the other party
-		const otherPubkey = event.pubkey === authStore.pubkey
-			? event.tags.find((t) => t[0] === 'p')?.[1] || ''
-			: event.pubkey;
+		// Get the p tag recipient
+		const pTag = event.tags.find((t) => t[0] === 'p')?.[1];
+		const isOutgoing = event.pubkey === authStore.pubkey;
 
-		if (!otherPubkey) return;
+		// Determine the other party (the one we need to decrypt with)
+		const otherPubkey = isOutgoing ? pTag : event.pubkey;
+
+		console.debug('[Messages] Processing DM:', {
+			eventId: event.id.slice(0, 8),
+			eventPubkey: event.pubkey.slice(0, 8),
+			pTag: pTag?.slice(0, 8),
+			myPubkey: authStore.pubkey.slice(0, 8),
+			isOutgoing,
+			otherPubkey: otherPubkey?.slice(0, 8)
+		});
+
+		if (!otherPubkey) {
+			console.warn('[Messages] No otherPubkey found for DM', event.id.slice(0, 8));
+			return;
+		}
 
 		// Try to decrypt
 		let content: string;
