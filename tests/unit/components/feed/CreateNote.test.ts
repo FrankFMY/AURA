@@ -47,9 +47,9 @@ describe('CreateNote.svelte', () => {
 
 		// Button should be enabled now
 		expect(postButton).not.toBeDisabled();
-		
-		// Character count should be updated
-		expect(screen.getByText('11 characters')).toBeInTheDocument();
+
+		// Character count should be updated (component uses "chars" abbreviation)
+		expect(screen.getByText(/11 chars/)).toBeInTheDocument();
 	});
 
 	it('should call feedStore.publishNote on button click and clear the textarea', async () => {

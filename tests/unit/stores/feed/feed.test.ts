@@ -635,13 +635,16 @@ describe('Feed Store', () => {
 			expect(feedStore.events[0].hasReacted).toBe(false);
 		});
 
-		it('should not react to non-existent event', async () => {
+		it('should react to event not in current feed', async () => {
+			// Events can be reacted to from detail pages, notifications, etc.
 			const fakeEvent = createMockEvent({ id: 'non-existent' }) as any;
 			mockReact.mockResolvedValueOnce(undefined);
 
 			await feedStore.react(fakeEvent, '+');
+			await vi.runAllTimersAsync();
 
-			expect(mockReact).not.toHaveBeenCalled();
+			// Should still call the API - event might be from another view
+			expect(mockReact).toHaveBeenCalledWith(fakeEvent, '+');
 		});
 	});
 
@@ -736,13 +739,18 @@ describe('Feed Store', () => {
 			expect(feedStore.events.find(e => e.event.id === 'target-event')).toBeDefined();
 		});
 
-		it('should not delete non-existent event', async () => {
+		it('should delete event not in current feed', async () => {
+			// Events can be deleted from detail pages, notifications, etc.
 			const initialLength = feedStore.events.length;
+			mockDeleteEvent.mockResolvedValueOnce(undefined);
 
 			await feedStore.deleteNote('non-existent');
+			await vi.runAllTimersAsync();
 
+			// Feed length unchanged since event wasn't there
 			expect(feedStore.events.length).toBe(initialLength);
-			expect(mockDeleteEvent).not.toHaveBeenCalled();
+			// Should still call the API - event might be from another view
+			expect(mockDeleteEvent).toHaveBeenCalledWith('non-existent');
 		});
 	});
 

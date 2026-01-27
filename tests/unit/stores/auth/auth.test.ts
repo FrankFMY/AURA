@@ -118,12 +118,16 @@ describe('Auth Store', () => {
 			content: JSON.stringify({ name: 'Test User', display_name: 'Test' })
 		});
 
+		// Mock location for redirect testing
+		const mockLocation = { href: '' };
+		vi.stubGlobal('location', mockLocation);
+
 		// Mock window.nostr
 		vi.stubGlobal('window', {
 			nostr: {
 				getPublicKey: vi.fn().mockResolvedValue(TEST_PUBKEY)
 			},
-			location: { href: '' },
+			location: mockLocation,
 			localStorage: {
 				clear: vi.fn(),
 				getItem: vi.fn(),
@@ -415,7 +419,7 @@ describe('Auth Store', () => {
 		it('should redirect to login page', async () => {
 			await authStore.panicWipe();
 
-			expect(window.location.href).toBe('/login');
+			expect(globalThis.location.href).toBe('/login');
 		});
 	});
 

@@ -296,9 +296,12 @@ describe('NDKService', () => {
 		});
 
 		it('should login with NIP-07 extension', async () => {
-			// Mock window.nostr
-			const originalWindow = global.window;
-			(global as any).window = { nostr: { getPublicKey: vi.fn() } };
+			// Mock window and nostr on globalThis
+			const originalWindow = globalThis.window;
+			const originalNostr = (globalThis as any).nostr;
+
+			(globalThis as any).window = { nostr: { getPublicKey: vi.fn() } };
+			(globalThis as any).nostr = { getPublicKey: vi.fn() };
 
 			try {
 				await ndkService.init();
@@ -307,7 +310,8 @@ describe('NDKService', () => {
 				expect(MockNDKNip07Signer).toHaveBeenCalled();
 				expect(pubkey).toBe('test-pubkey-123abc');
 			} finally {
-				(global as any).window = originalWindow;
+				(globalThis as any).window = originalWindow;
+				(globalThis as any).nostr = originalNostr;
 			}
 		});
 	});
