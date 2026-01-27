@@ -625,7 +625,7 @@
 			</CardHeader>
 			<CardContent>
 				{#if dbStats}
-					<div class="mb-4 grid grid-cols-3 gap-4">
+					<div class="mb-4 grid grid-cols-3 gap-2 sm:gap-4">
 						<div class="rounded-lg bg-muted p-3 text-center">
 							<p class="text-2xl font-bold">{dbStats.events}</p>
 							<p class="text-xs text-muted-foreground">Events</p>
@@ -1138,12 +1138,10 @@
 			</div>
 			<div class="border-t border-border p-4 space-y-4">
 				<!-- Preset amounts -->
-				<div class="grid grid-cols-4 gap-2">
+				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each PRESET_AMOUNTS as amount}
 						<Button
-							variant={donateAmount === amount ? 'default' : (
-								'outline'
-							)}
+							variant={donateAmount === amount ? 'default' : 'outline'}
 							size="sm"
 							onclick={() => (donateAmount = amount)}
 							class="font-mono"

@@ -10,17 +10,22 @@
 	import ImagePlus from 'lucide-svelte/icons/image-plus';
 	import Send from 'lucide-svelte/icons/send';
 	import X from 'lucide-svelte/icons/x';
+	import CirclePlus from 'lucide-svelte/icons/circle-plus';
 
 	interface Props {
 		replyTo?: import('@nostr-dev-kit/ndk').NDKEvent;
 		onSuccess?: () => void;
+		onCreateStory?: () => void;
 		placeholder?: string;
+		compact?: boolean;
 	}
 
 	let {
 		replyTo,
 		onSuccess,
+		onCreateStory,
 		placeholder = "What's on your mind?",
+		compact = false,
 	}: Props = $props();
 
 	let content = $state('');
@@ -84,26 +89,40 @@
 </script>
 
 <div
-	class="border-b border-border bg-card/30 p-4 transition-colors hover:bg-card/50"
+	class="border-b border-border bg-card/30 p-3 sm:p-4 transition-colors hover:bg-card/50"
 >
-	<div class="flex gap-3">
-		<Avatar
-			size="md"
-			class="ring-2 ring-primary/20 ring-offset-2 ring-offset-background"
-		>
-			<AvatarImage
-				src={authStore.avatar}
-				alt={authStore.displayName}
-			/>
-			<AvatarFallback>{avatarInitials}</AvatarFallback>
-		</Avatar>
+	<div class="flex gap-2 sm:gap-3">
+		<!-- Avatar with optional Story button -->
+		<div class="flex flex-col items-center gap-1">
+			<button
+				class="relative group"
+				onclick={onCreateStory}
+				disabled={!onCreateStory}
+			>
+				<Avatar
+					size="md"
+					class="ring-2 ring-primary/20 ring-offset-2 ring-offset-background {onCreateStory ? 'group-hover:ring-primary/40 transition-all' : ''}"
+				>
+					<AvatarImage
+						src={authStore.avatar}
+						alt={authStore.displayName}
+					/>
+					<AvatarFallback>{avatarInitials}</AvatarFallback>
+				</Avatar>
+				{#if onCreateStory}
+					<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
+						<CirclePlus class="h-2.5 w-2.5 text-primary-foreground" />
+					</div>
+				{/if}
+			</button>
+		</div>
 
 		<div class="min-w-0 flex-1">
 			<Textarea
 				bind:value={content}
 				{placeholder}
-				rows={3}
-				class="mb-3 resize-none border-none bg-transparent p-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
+				rows={compact ? 2 : 3}
+				class="mb-2 sm:mb-3 resize-none border-none bg-transparent p-0 text-sm sm:text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
 				onkeydown={handleKeydown}
 			/>
 
@@ -140,24 +159,20 @@
 				<p class="mb-2 text-sm text-destructive">{error}</p>
 			{/if}
 
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-2">
+			<div class="flex items-center justify-between gap-2">
+				<div class="flex items-center gap-1 sm:gap-2">
 					<Button
 						variant="ghost"
 						size="icon"
 						onclick={() => (showMediaUpload = !showMediaUpload)}
-						class={showMediaUpload ? 'text-primary' : ''}
+						class="h-8 w-8 sm:h-9 sm:w-9 {showMediaUpload ? 'text-primary' : ''}"
 					>
-						<ImagePlus class="h-5 w-5" />
+						<ImagePlus class="h-4 w-4 sm:h-5 sm:w-5" />
 					</Button>
-					<span class="text-xs text-muted-foreground">
-						{charCount} characters
+					<span class="text-[10px] sm:text-xs text-muted-foreground hidden sm:inline">
+						{charCount} chars
 						{#if attachedImages.length > 0}
-							· {attachedImages.length} image{(
-								attachedImages.length > 1
-							) ?
-								's'
-							:	''}
+							· {attachedImages.length} img
 						{/if}
 					</span>
 				</div>
@@ -167,13 +182,13 @@
 					size="sm"
 					onclick={handleSubmit}
 					disabled={!canSubmit}
-					class="min-w-[100px]"
+					class="min-w-[70px] sm:min-w-[100px] h-8 sm:h-9 text-xs sm:text-sm"
 				>
 					{#if isSubmitting}
 						<Spinner size="sm" />
 					{:else}
-						<Send class="h-4 w-4" />
-						Post
+						<Send class="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+						<span class="ml-1">Post</span>
 					{/if}
 				</Button>
 			</div>

@@ -38,14 +38,17 @@
 	import Bot from 'lucide-svelte/icons/bot';
 	import Bookmark from 'lucide-svelte/icons/bookmark';
 	import Users from 'lucide-svelte/icons/users';
+	import Menu from 'lucide-svelte/icons/menu';
+	import { BottomSheet } from '$components/ui/bottom-sheet';
 
 	let { children } = $props();
 
 	let isInitializing = $state(true);
 	let showUserMenu = $state(false);
 	let showWelcomeTour = $state(false);
+	let showMobileMenu = $state(false);
 
-	// Navigation items
+	// All navigation items (for desktop sidebar)
 	const navItems = [
 		{ href: '/', icon: Home, label: 'Feed' },
 		{ href: '/search', icon: Search, label: 'Search' },
@@ -55,6 +58,24 @@
 		{ href: '/ai', icon: Bot, label: 'AI' },
 		{ href: '/notifications', icon: Bell, label: 'Alerts' },
 		{ href: '/messages', icon: MessageCircle, label: 'Messages' },
+		{ href: '/wallet', icon: Wallet, label: 'Wallet' },
+		{ href: '/settings', icon: Settings, label: 'Settings' },
+	];
+
+	// Primary mobile nav items (5 items that fit comfortably)
+	const mobileNavItems = [
+		{ href: '/', icon: Home, label: 'Home' },
+		{ href: '/search', icon: Search, label: 'Search' },
+		{ href: '/messages', icon: MessageCircle, label: 'Messages' },
+		{ href: '/notifications', icon: Bell, label: 'Alerts' },
+	];
+
+	// Secondary items for "More" menu
+	const moreMenuItems = [
+		{ href: '/groups', icon: Users, label: 'Groups' },
+		{ href: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
+		{ href: '/marketplace', icon: Store, label: 'Marketplace' },
+		{ href: '/ai', icon: Bot, label: 'AI Assistant' },
 		{ href: '/wallet', icon: Wallet, label: 'Wallet' },
 		{ href: '/settings', icon: Settings, label: 'Settings' },
 	];
@@ -417,45 +438,114 @@
 				'translate-y-0'
 			:	'translate-y-full'}"
 		>
-			<div class="flex items-center justify-around py-2 px-2">
-				{#each navItems as item}
+			<div class="flex items-center justify-around py-2 px-1">
+				{#each mobileNavItems as item}
 					<a
 						href={item.href}
-						class="group/mobile relative flex flex-col items-center gap-0.5 px-3 py-2 transition-all duration-200 rounded-xl
-							{isActive(item.href) ? 'text-primary' : (
-							'text-muted-foreground hover:text-foreground'
-						)}"
+						class="group/mobile relative flex flex-col items-center gap-0.5 px-4 py-2 transition-all duration-200 rounded-xl
+							{isActive(item.href) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}"
 					>
 						{#if isActive(item.href)}
-							<span
-								class="absolute inset-0 bg-primary/10 rounded-xl"
-							></span>
+							<span class="absolute inset-0 bg-primary/10 rounded-xl"></span>
 						{/if}
 						<div class="relative">
 							<item.icon
-								class="h-5 w-5 transition-transform group-hover/mobile:scale-110 {(
-									isActive(item.href)
-								) ?
-									'drop-shadow-[0_0_8px_var(--primary)]'
-								:	''}"
+								class="h-5 w-5 transition-transform group-hover/mobile:scale-110 {isActive(item.href) ? 'drop-shadow-[0_0_8px_var(--primary)]' : ''}"
 							/>
 							{#if item.href === '/messages' && messagesStore.totalUnreadCount > 0}
 								<span
 									class="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground px-1"
 								>
-									{messagesStore.totalUnreadCount > 9 ?
-										'9+'
-									:	messagesStore.totalUnreadCount}
+									{messagesStore.totalUnreadCount > 9 ? '9+' : messagesStore.totalUnreadCount}
 								</span>
 							{/if}
 						</div>
-						<span class="relative text-[10px] font-medium"
-							>{item.label}</span
-						>
+						<span class="relative text-[10px] font-medium">{item.label}</span>
 					</a>
 				{/each}
+
+				<!-- More button -->
+				<button
+					onclick={() => (showMobileMenu = true)}
+					class="group/mobile relative flex flex-col items-center gap-0.5 px-4 py-2 transition-all duration-200 rounded-xl text-muted-foreground hover:text-foreground"
+				>
+					<Menu class="h-5 w-5 transition-transform group-hover/mobile:scale-110" />
+					<span class="relative text-[10px] font-medium">More</span>
+				</button>
 			</div>
 		</nav>
+
+		<!-- Mobile "More" menu bottom sheet -->
+		<BottomSheet bind:open={showMobileMenu} title="Menu">
+			<div class="space-y-1">
+				{#each moreMenuItems as item}
+					<a
+						href={item.href}
+						onclick={() => (showMobileMenu = false)}
+						class="flex items-center gap-4 rounded-xl px-4 py-3 transition-colors
+							{isActive(item.href) ? 'bg-primary/10 text-primary' : 'hover:bg-accent text-foreground'}"
+					>
+						<item.icon class="h-5 w-5" />
+						<span class="font-medium">{item.label}</span>
+					</a>
+				{/each}
+
+				<!-- Divider -->
+				<div class="my-3 border-t border-border"></div>
+
+				<!-- Profile & Auth section -->
+				{#if authStore.isAuthenticated}
+					<a
+						href="/profile/{authStore.pubkey}"
+						onclick={() => (showMobileMenu = false)}
+						class="flex items-center gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-accent"
+					>
+						<Avatar size="sm">
+							<AvatarImage src={authStore.avatar} alt={authStore.displayName} />
+							<AvatarFallback>{avatarInitials}</AvatarFallback>
+						</Avatar>
+						<div class="flex-1">
+							<p class="font-medium">{authStore.displayName}</p>
+							<p class="text-xs text-muted-foreground">{authStore.npub?.slice(0, 16)}...</p>
+						</div>
+					</a>
+
+					<!-- Wallet info -->
+					{#if walletStore.isConnected || (cashuStore.isConnected && cashuStore.totalBalance > 0)}
+						<div class="flex gap-2 px-4 py-2">
+							{#if walletStore.isConnected}
+								<div class="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-success">
+									<Zap class="h-4 w-4" />
+									<span class="text-sm font-medium">{walletStore.formatSats(walletStore.balance)}</span>
+								</div>
+							{/if}
+							{#if cashuStore.isConnected && cashuStore.totalBalance > 0}
+								<div class="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-amber-600 dark:text-amber-400">
+									<Coins class="h-4 w-4" />
+									<span class="text-sm font-medium">{cashuStore.formattedBalance}</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<button
+						onclick={() => { showMobileMenu = false; handleLogout(); }}
+						class="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-destructive transition-colors hover:bg-destructive/10"
+					>
+						<LogOut class="h-5 w-5" />
+						<span class="font-medium">Logout</span>
+					</button>
+				{:else}
+					<a
+						href="/login"
+						onclick={() => (showMobileMenu = false)}
+						class="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+					>
+						Login
+					</a>
+				{/if}
+			</div>
+		</BottomSheet>
 	</div>
 {/if}
 

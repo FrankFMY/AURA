@@ -540,11 +540,11 @@
 		transition:fade={{ duration: 200 }}
 	></div>
 	<div
-		class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 p-4"
+		class="fixed inset-x-0 bottom-0 sm:inset-auto sm:left-1/2 sm:top-1/2 z-50 w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:p-4"
 		transition:scale={{ duration: 250, start: 0.95, easing: cubicOut }}
 	>
 		<div
-			class="rounded-lg border border-border bg-background shadow-xl card-elevated-lg"
+			class="rounded-t-xl sm:rounded-lg border border-border bg-background shadow-xl card-elevated-lg safe-area-pb"
 		>
 			<div
 				class="flex items-center justify-between border-b border-border p-4"

@@ -107,15 +107,15 @@
 
 	<!-- Modal -->
 	<div
-		class="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 p-4"
+		class="fixed left-1/2 top-1/2 z-50 w-full max-w-[calc(100%-2rem)] sm:max-w-sm -translate-x-1/2 -translate-y-1/2 px-2 sm:px-4"
 		transition:scale={{ duration: 250, start: 0.95, easing: cubicOut }}
 	>
 		<div class="rounded-xl border border-border bg-background shadow-2xl">
 			<!-- Header -->
-			<div class="flex items-center justify-between border-b border-border p-4">
+			<div class="flex items-center justify-between border-b border-border p-3 sm:p-4">
 				<div class="flex items-center gap-2">
 					<QrCode class="h-5 w-5 text-primary" />
-					<h2 class="font-semibold">{displayName}</h2>
+					<h2 class="font-semibold text-sm sm:text-base truncate">{displayName}</h2>
 				</div>
 				<Button
 					variant="ghost"
@@ -128,24 +128,24 @@
 			</div>
 
 			<!-- QR Code -->
-			<div class="flex flex-col items-center p-6">
+			<div class="flex flex-col items-center p-4 sm:p-6">
 				{#if isLoading}
-					<div class="flex h-[280px] w-[280px] items-center justify-center">
+					<div class="flex aspect-square w-full max-w-[240px] sm:max-w-[280px] items-center justify-center">
 						<Spinner size="lg" />
 					</div>
 				{:else if error}
-					<div class="flex h-[280px] w-[280px] flex-col items-center justify-center text-center">
+					<div class="flex aspect-square w-full max-w-[240px] sm:max-w-[280px] flex-col items-center justify-center text-center">
 						<p class="text-destructive mb-4">{error}</p>
 						<Button variant="outline" onclick={generateQR}>
 							Retry
 						</Button>
 					</div>
 				{:else if qrDataURL}
-					<div class="rounded-xl bg-white p-4 shadow-inner">
+					<div class="rounded-xl bg-white p-3 sm:p-4 shadow-inner">
 						<img
 							src={qrDataURL}
 							alt="QR Code for {displayName}"
-							class="h-[280px] w-[280px]"
+							class="w-full max-w-[240px] sm:max-w-[280px] aspect-square"
 						/>
 					</div>
 				{/if}
@@ -159,34 +159,34 @@
 			</div>
 
 			<!-- Actions -->
-			<div class="flex items-center justify-center gap-2 border-t border-border p-4">
+			<div class="flex items-center justify-center gap-1.5 sm:gap-2 border-t border-border p-3 sm:p-4">
 				<Button
 					variant="outline"
 					size="sm"
 					onclick={handleCopy}
-					class="gap-2"
+					class="gap-1.5 px-2.5 sm:px-3 sm:gap-2"
 				>
 					<Copy class="h-4 w-4" />
-					Copy
+					<span class="sr-only sm:not-sr-only">Copy</span>
 				</Button>
 				<Button
 					variant="outline"
 					size="sm"
 					onclick={handleDownload}
 					disabled={!qrDataURL}
-					class="gap-2"
+					class="gap-1.5 px-2.5 sm:px-3 sm:gap-2"
 				>
 					<Download class="h-4 w-4" />
-					Save
+					<span class="sr-only sm:not-sr-only">Save</span>
 				</Button>
 				<Button
 					variant="glow"
 					size="sm"
 					onclick={handleShare}
-					class="gap-2"
+					class="gap-1.5 px-2.5 sm:px-3 sm:gap-2"
 				>
 					<Share2 class="h-4 w-4" />
-					Share
+					<span class="sr-only sm:not-sr-only">Share</span>
 				</Button>
 			</div>
 		</div>

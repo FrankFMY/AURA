@@ -176,10 +176,13 @@
 
 	<!-- Create note (if authenticated) -->
 	{#if authStore.isAuthenticated}
-		<CreateNote />
+		<CreateNote
+			onCreateStory={() => (showCreateStory = true)}
+			compact={true}
+		/>
 	{/if}
 
-	<!-- Stories bar -->
+	<!-- Stories bar (only shows when there are stories) -->
 	<StoriesBar
 		onViewStory={handleViewStory}
 		onCreateStory={() => (showCreateStory = true)}

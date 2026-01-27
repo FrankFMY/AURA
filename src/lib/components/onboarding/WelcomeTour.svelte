@@ -99,12 +99,12 @@
 	</button>
 
 	<div
-		class="w-full max-w-lg px-4"
+		class="w-full max-w-lg px-3 sm:px-4"
 		in:scale={{ duration: 400, start: 0.9, easing: cubicOut, delay: 100 }}
 	>
 		<!-- Slide content -->
 		<div
-			class="relative min-h-[400px] overflow-hidden rounded-2xl border border-border bg-card p-8 shadow-xl card-elevated-xl"
+			class="relative min-h-[320px] sm:min-h-[400px] overflow-hidden rounded-2xl border border-border bg-card p-5 sm:p-8 shadow-xl card-elevated-xl"
 		>
 			<!-- Decorative gradient -->
 			<div
@@ -138,7 +138,7 @@
 						easing: cubicOut,
 					}}
 				>
-					<h2 class="text-2xl font-bold mb-2">
+					<h2 class="text-xl sm:text-2xl font-bold mb-2">
 						{currentSlideData.title}
 					</h2>
 					<p class="text-sm font-medium {currentSlideData.color}">

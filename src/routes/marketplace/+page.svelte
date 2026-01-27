@@ -206,7 +206,7 @@
 			<!-- Filters Panel -->
 			{#if showFilters}
 				<div class="mt-4 p-4 rounded-lg bg-muted/50 space-y-4">
-					<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
 						<!-- Category -->
 						<div class="space-y-1">
 							<label for="category-filter" class="text-sm font-medium">Category</label>
@@ -448,14 +448,14 @@
 {#if marketplaceStore.selectedListing}
 	{@const listing = marketplaceStore.selectedListing}
 	<div
-		class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+		class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4"
 		onclick={() => marketplaceStore.selectListing(null)}
 		onkeydown={(e) => e.key === 'Escape' && marketplaceStore.selectListing(null)}
 		role="button"
 		tabindex="0"
 	>
 		<Card
-			class="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card"
+			class="w-full sm:max-w-2xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto bg-card rounded-t-2xl sm:rounded-xl safe-area-pb"
 			onclick={(e) => e.stopPropagation()}
 		>
 			<!-- Images -->
