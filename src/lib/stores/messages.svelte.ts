@@ -84,31 +84,88 @@ function createMessagesStore() {
 		return null;
 	}
 
+	/** Detect if content is NIP-04 format (ciphertext?iv=...) */
+	function isNip04Format(content: string): boolean {
+		// NIP-04 format: base64?iv=base64
+		return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content);
+	}
+
 	/** Decrypt message content (NIP-04 for now, NIP-44 preferred) */
 	async function decryptMessage(event: NDKEvent, otherPubkey: string): Promise<string> {
-		try {
-			// Try NIP-44 first if available
-			if (window.nostr?.nip44) {
-				return await window.nostr.nip44.decrypt(otherPubkey, event.content);
-			}
+		let result: string | undefined;
+		let method: string = 'unknown';
+		let lastError: Error | null = null;
+		const content = event.content;
 
-			// Fall back to NIP-04
-			if (window.nostr?.nip04) {
-				return await window.nostr.nip04.decrypt(otherPubkey, event.content);
-			}
+		// Detect encryption format
+		const isNip04 = isNip04Format(content);
 
-			// Use NDK decryption
+		// If content looks like NIP-04, try NIP-04 FIRST
+		if (isNip04 && window.nostr?.nip04) {
+			try {
+				method = 'NIP-04 (detected)';
+				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+			} catch (e) {
+				console.debug('[Messages] NIP-04 decryption failed:', e);
+				lastError = e instanceof Error ? e : new Error(String(e));
+			}
+		}
+
+		// Try NIP-44 if NIP-04 wasn't detected or failed
+		if ((!result || result.trim() === '') && window.nostr?.nip44) {
+			try {
+				method = 'NIP-44';
+				result = await window.nostr.nip44.decrypt(otherPubkey, content);
+			} catch (e) {
+				console.debug('[Messages] NIP-44 decryption failed:', e);
+				lastError = e instanceof Error ? e : new Error(String(e));
+			}
+		}
+
+		// Try NIP-04 as fallback if not already tried
+		if ((!result || result.trim() === '') && !isNip04 && window.nostr?.nip04) {
+			try {
+				method = 'NIP-04 (fallback)';
+				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+			} catch (e) {
+				console.debug('[Messages] NIP-04 fallback decryption failed:', e);
+				lastError = e instanceof Error ? e : new Error(String(e));
+			}
+		}
+
+		// Try NDK decryption as last resort
+		if (!result || result.trim() === '') {
 			const signer = ndkService.signer;
 			if (signer && 'decrypt' in signer && ndkService.ndk) {
-				const user = ndkService.ndk.getUser({ pubkey: otherPubkey });
-				return await (signer as any).decrypt(user, event.content);
+				try {
+					method = 'NDK';
+					const user = ndkService.ndk.getUser({ pubkey: otherPubkey });
+					result = await (signer as any).decrypt(user, event.content);
+				} catch (e) {
+					console.debug('[Messages] NDK decryption failed:', e);
+					lastError = e instanceof Error ? e : new Error(String(e));
+				}
 			}
-
-			throw new Error('No decryption method available');
-		} catch (e) {
-			console.error('Failed to decrypt message:', e);
-			throw e;
 		}
+
+		// If all methods failed or returned empty
+		if (!result || result.trim() === '') {
+			console.warn('[Messages] All decryption methods failed or returned empty:', {
+				method,
+				eventId: event.id,
+				from: otherPubkey.slice(0, 8),
+				encryptedLength: content?.length,
+				isNip04Format: isNip04
+			});
+
+			if (lastError) {
+				throw lastError;
+			}
+			// Return empty string instead of undefined
+			return '';
+		}
+
+		return result;
 	}
 
 	/** Encrypt message content */
@@ -308,10 +365,20 @@ function createMessagesStore() {
 
 		try {
 			content = await decryptMessage(event, otherPubkey);
+
+			// Debug: log incoming message content (especially for call messages)
+			if (content && (content.includes('call_invite') || content.includes('call_response'))) {
+				console.log('[Messages] Received call message:', {
+					from: otherPubkey.slice(0, 8),
+					content: content.slice(0, 100),
+					isOutgoing: event.pubkey === authStore.pubkey
+				});
+			}
 		} catch (e) {
 			content = '[Encrypted message]';
 			decrypted = false;
 			decryptError = e instanceof Error ? e.message : 'Decryption failed';
+			console.error('[Messages] Decryption error for message from', otherPubkey.slice(0, 8), e);
 		}
 
 		const message: Message = {

@@ -19,7 +19,13 @@
 	import VoiceMessage from '$lib/components/messages/VoiceMessage.svelte';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { notificationsStore } from '$stores/notifications.svelte';
+	import { isCallInvite, isCallResponse } from '$stores/calls.svelte';
+	import { CallButton } from '$components/calls';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
+	import Phone from 'lucide-svelte/icons/phone';
+	import Video from 'lucide-svelte/icons/video';
+	import PhoneOutgoing from 'lucide-svelte/icons/phone-outgoing';
+	import PhoneIncoming from 'lucide-svelte/icons/phone-incoming';
 	import Send from 'lucide-svelte/icons/send';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Search from 'lucide-svelte/icons/search';
@@ -90,6 +96,46 @@
 		} finally {
 			isUploadingVoice = false;
 		}
+	}
+
+	/**
+	 * Check if message is a call-related message (invite or response)
+	 */
+	function isCallMessage(content: string | undefined | null): boolean {
+		if (!content) return false;
+		const trimmed = content.trim();
+		return isCallInvite(trimmed) !== null || isCallResponse(trimmed) !== null;
+	}
+
+	/**
+	 * Get call message data for rendering
+	 */
+	function getCallMessageData(content: string | undefined | null): {
+		type: 'invite' | 'response';
+		callType: 'audio' | 'video';
+		action?: 'accept' | 'decline' | 'end';
+	} | null {
+		if (!content) return null;
+		const trimmed = content.trim();
+
+		const invite = isCallInvite(trimmed);
+		if (invite) {
+			return { type: 'invite', callType: invite.callType };
+		}
+
+		const response = isCallResponse(trimmed);
+		if (response) {
+			return { type: 'response', callType: 'video', action: response.action };
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check if message content is empty (whitespace only or null/undefined)
+	 */
+	function isEmptyMessage(content: string | undefined | null): boolean {
+		return !content || content.trim().length === 0;
 	}
 
 	/**
@@ -345,7 +391,7 @@
 				</Button>
 				<a
 					href="/profile/{activeConv.pubkey}"
-					class="flex items-center gap-3 hover:opacity-80 transition-opacity"
+					class="flex flex-1 items-center gap-3 hover:opacity-80 transition-opacity min-w-0"
 				>
 					<Avatar>
 						<AvatarImage src={activeConv.profile?.picture} />
@@ -355,8 +401,8 @@
 								activeConv.pubkey)?.[0]?.toUpperCase() || '?'}
 						</AvatarFallback>
 					</Avatar>
-					<div>
-						<p class="font-medium">
+					<div class="min-w-0">
+						<p class="font-medium truncate">
 							{activeConv.profile?.display_name ||
 								activeConv.profile?.name ||
 								truncatePubkey(activeConv.pubkey)}
@@ -378,6 +424,24 @@
 						{/if}
 					</div>
 				</a>
+
+				<!-- Call buttons -->
+				<div class="flex items-center gap-1">
+					<CallButton
+						pubkey={activeConv.pubkey}
+						variant="ghost"
+						size="icon"
+						showLabel={false}
+						callType="audio"
+					/>
+					<CallButton
+						pubkey={activeConv.pubkey}
+						variant="ghost"
+						size="icon"
+						showLabel={false}
+						callType="video"
+					/>
+				</div>
 			</div>
 
 			<!-- Messages -->
@@ -391,7 +455,59 @@
 							'justify-start'
 						)}"
 					>
-						{#if message.decrypted && containsCashuToken(message.content)}
+						{#if message.decrypted && isCallMessage(message.content)}
+							<!-- Call Message (Invite/Response) -->
+							{@const callData = getCallMessageData(message.content)}
+							{#if callData}
+								<div
+									class="flex items-center gap-3 rounded-2xl px-4 py-3 {(
+										message.isOutgoing
+									) ?
+										'bg-primary/10 text-primary'
+									:	'bg-muted'}"
+								>
+									<div
+										class="flex h-10 w-10 items-center justify-center rounded-full {(
+											message.isOutgoing
+										) ?
+											'bg-primary/20'
+										:	'bg-accent'}"
+									>
+										{#if callData.type === 'invite'}
+											{#if message.isOutgoing}
+												<PhoneOutgoing class="h-5 w-5" />
+											{:else}
+												<PhoneIncoming class="h-5 w-5" />
+											{/if}
+										{:else if callData.callType === 'video'}
+											<Video class="h-5 w-5" />
+										{:else}
+											<Phone class="h-5 w-5" />
+										{/if}
+									</div>
+									<div class="flex flex-col">
+										<span class="text-sm font-medium">
+											{#if callData.type === 'invite'}
+												{#if message.isOutgoing}
+													{callData.callType === 'video' ? 'Video call' : 'Voice call'}
+												{:else}
+													Incoming {callData.callType === 'video' ? 'video' : 'voice'} call
+												{/if}
+											{:else if callData.action === 'accept'}
+												Call accepted
+											{:else if callData.action === 'decline'}
+												Call declined
+											{:else}
+												Call ended
+											{/if}
+										</span>
+										<span class="text-xs text-muted-foreground">
+											{formatRelativeTime(message.created_at)}
+										</span>
+									</div>
+								</div>
+							{/if}
+						{:else if message.decrypted && containsCashuToken(message.content)}
 							<!-- Cashu Token Message -->
 							{@const token = extractCashuToken(message.content)}
 							{#if token}
@@ -438,6 +554,12 @@
 									>
 										<AlertCircle class="h-4 w-4" />
 										<span>Failed to decrypt</span>
+									</div>
+								{:else if isEmptyMessage(message.content)}
+									<div
+										class="flex items-center gap-2 text-sm text-muted-foreground italic"
+									>
+										<span>Empty message</span>
 									</div>
 								{:else}
 									<p

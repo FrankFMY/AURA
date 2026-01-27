@@ -373,7 +373,15 @@ class NDKService {
 			try {
 				// Sanitize content before parsing (remove control characters that break JSON)
 				// Replace unescaped newlines/tabs with escaped versions or remove them
-				const cleanContent = event.content.replace(/[\x00-\x1F\x7F-\x9F]/g, (char) => {
+				let cleanContent = event.content.trim();
+
+				// Remove BOM if present
+				if (cleanContent.charCodeAt(0) === 0xFEFF) {
+					cleanContent = cleanContent.slice(1);
+				}
+
+				// Replace control characters
+				cleanContent = cleanContent.replace(/[\x00-\x1F\x7F-\x9F]/g, (char) => {
 					switch (char) {
 						case '\n': return '\\n';
 						case '\r': return '\\r';
@@ -383,7 +391,13 @@ class NDKService {
 						default: return ''; // Remove other control chars
 					}
 				});
-				
+
+				// Skip if not valid JSON object
+				if (!cleanContent.startsWith('{')) {
+					console.warn('Profile content is not a JSON object for', pubkey);
+					return event;
+				}
+
 				const profile = JSON.parse(cleanContent);
 				await dbHelpers.saveProfile({
 					pubkey,
