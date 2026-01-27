@@ -23,7 +23,19 @@ import { NetworkError, AuthError, ErrorCode } from '$lib/core/errors';
  * Regex to match control characters (C0 codes U+0000-U+001F and C1 codes U+007F-U+009F)
  * Used to clean JSON content from user profiles
  */
-const CONTROL_CHARS_REGEX = /[\u0000-\u001f\u007f-\u009f]/g;
+const CONTROL_CHARS_PATTERN = String.raw`[\x00-\x1f\x7f-\x9f]`;
+const CONTROL_CHARS_REGEX = new RegExp(CONTROL_CHARS_PATTERN, 'g');
+
+/**
+ * Map of control characters to their escaped string representations
+ */
+const CONTROL_CHAR_ESCAPES: Record<string, string> = {
+	[String.fromCodePoint(10)]: String.raw`\n`, // newline
+	[String.fromCodePoint(13)]: String.raw`\r`, // carriage return
+	[String.fromCodePoint(9)]: String.raw`\t`,  // tab
+	[String.fromCodePoint(8)]: String.raw`\b`,  // backspace
+	[String.fromCodePoint(12)]: String.raw`\f`  // form feed
+};
 
 // Re-export sub-modules
 export { relayManager, DEFAULT_RELAYS, BACKUP_RELAYS, type RelayHealth } from './relay-manager';
@@ -244,7 +256,7 @@ class NDKService {
 			if (decoded.type !== 'nsec') {
 				throw new AuthError('Invalid nsec key', { code: ErrorCode.INVALID_KEY });
 			}
-			const keyBytes = decoded.data as Uint8Array;
+			const keyBytes = decoded.data;
 			hexKey = Array.from(keyBytes)
 				.map((b) => b.toString(16).padStart(2, '0'))
 				.join('');
@@ -344,15 +356,14 @@ class NDKService {
 		event.tags.push(['client', 'AURA']);
 
 		if (replyTo) {
-			event.tags.push(['e', replyTo.id, '', 'reply']);
-			event.tags.push(['p', replyTo.pubkey]);
-
 			const rootTag = replyTo.tags.find((t) => t[0] === 'e' && t[3] === 'root');
-			if (rootTag) {
-				event.tags.push(['e', rootTag[1], '', 'root']);
-			} else {
-				event.tags.push(['e', replyTo.id, '', 'root']);
-			}
+			const rootEventId = rootTag ? rootTag[1] : replyTo.id;
+
+			event.tags.push(
+				['e', replyTo.id, '', 'reply'],
+				['p', replyTo.pubkey],
+				['e', rootEventId, '', 'root']
+			);
 		}
 
 		await this.publish(event);
@@ -388,14 +399,7 @@ class NDKService {
 
 				// Replace control characters
 				cleanContent = cleanContent.replaceAll(CONTROL_CHARS_REGEX, (char) => {
-					switch (char) {
-						case '\n': return '\\n';
-						case '\r': return '\\r';
-						case '\t': return '\\t';
-						case '\b': return '\\b';
-						case '\f': return '\\f';
-						default: return ''; // Remove other control chars
-					}
+					return CONTROL_CHAR_ESCAPES[char] ?? ''; // Remove unknown control chars
 				});
 
 				// Skip if not valid JSON object

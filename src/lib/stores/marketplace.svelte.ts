@@ -121,7 +121,7 @@ function parseListingEvent(event: NDKEvent, seller: UserProfile | null): Product
 	} else {
 		const priceTag = tags.find(t => t[0] === 'price');
 		if (priceTag) {
-			price = parseFloat(priceTag[1]) || 0;
+			price = Number.parseFloat(priceTag[1]) || 0;
 			currency = priceTag[2] || getTag('currency') || 'sat';
 		}
 	}
@@ -150,7 +150,7 @@ function parseListingEvent(event: NDKEvent, seller: UserProfile | null): Product
 		shipping = shippingTags.map((t, i) => ({
 			id: `ship-${i}`,
 			name: t[1] || 'Standard',
-			cost: parseFloat(t[2]) || 0,
+			cost: Number.parseFloat(t[2]) || 0,
 			regions: t[3] ? t[3].split(',') : undefined
 		}));
 	}

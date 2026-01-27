@@ -296,7 +296,7 @@ export class SubscriptionManager {
 		createSubscription();
 
 		return {
-			id: currentId || '',
+			id: currentId ?? '',
 			stop: () => {
 				stopped = true;
 				if (currentId) {

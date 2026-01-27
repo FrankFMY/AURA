@@ -431,8 +431,8 @@ class CashuService {
 	 * Add a new mint
 	 */
 	async addMint(mintUrl: string, trusted: boolean = false): Promise<DBCashuMint> {
-		// Validate mint by connecting to it
-		const wallet = await this.getWallet(mintUrl);
+		// Validate mint by connecting to it (getWallet populates this.mints)
+		await this.getWallet(mintUrl);
 		const mint = this.mints.get(mintUrl)!;
 		const mintInfo = await mint.getInfo();
 		

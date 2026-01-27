@@ -292,8 +292,8 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
 			}
 			lastCall = now;
 			fn(...args);
-		} else if (!timeoutId) {
-			timeoutId = setTimeout(() => {
+		} else {
+			timeoutId ??= setTimeout(() => {
 				lastCall = Date.now();
 				timeoutId = null;
 				fn(...args);

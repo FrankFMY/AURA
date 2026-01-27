@@ -29,7 +29,7 @@ const CACHE_TTL = 5 * 60 * 1000;
  * Manages fetching and caching of user's interactions with events.
  */
 class UserInteractionsService {
-	private _state: UserInteractionState = {
+	private readonly _state: UserInteractionState = {
 		reactions: new Set(),
 		reposts: new Set(),
 		deletions: new Set(),

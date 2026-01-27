@@ -51,8 +51,8 @@ class SyncManager {
 		if (!browser) return;
 
 		// Listen for online/offline events
-		window.addEventListener('online', () => this.handleOnline());
-		window.addEventListener('offline', () => this.handleOffline());
+		globalThis.addEventListener('online', () => this.handleOnline());
+		globalThis.addEventListener('offline', () => this.handleOffline());
 
 		// Start periodic sync
 		this.startPeriodicSync();

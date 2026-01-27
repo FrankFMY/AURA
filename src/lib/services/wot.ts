@@ -52,15 +52,15 @@ export interface WoTResult {
  * Web of Trust Service
  */
 class WoTService {
-	private graph: Map<string, TrustNode> = new Map();
+	private readonly graph: Map<string, TrustNode> = new Map();
 	private myPubkey: string | null = null;
 	private myFollows: Set<string> = new Set();
 	private myMuted: Set<string> = new Set();
 	private initialized = false;
-	
+
 	// Cache for computed trust
-	private trustCache: Map<string, WoTResult> = new Map();
-	private cacheExpiry = 5 * 60 * 1000; // 5 minutes
+	private readonly trustCache: Map<string, WoTResult> = new Map();
+	private readonly cacheExpiry = 5 * 60 * 1000; // 5 minutes
 	private lastCacheUpdate = 0;
 
 	/**

@@ -180,7 +180,7 @@ export class NWCClient {
 	 * This is a lightweight method that doesn't throw, useful for pre-flight checks
 	 */
 	static extractRelayUrl(connectionString: string): string | null {
-		if (!connectionString || !connectionString.startsWith('nostr+walletconnect://')) {
+		if (!connectionString?.startsWith('nostr+walletconnect://')) {
 			return null;
 		}
 
@@ -352,7 +352,7 @@ export class NWCClient {
 		const request: NWCRequest = { method, params };
 
 		// Encrypt the request using NIP-04
-		const encryptedContent = await nip04.encrypt(
+		const encryptedContent = nip04.encrypt(
 			this._connectionInfo.secret,
 			this._connectionInfo.walletPubkey,
 			JSON.stringify(request)
@@ -412,7 +412,7 @@ export class NWCClient {
 				const event = message[2];
 				
 				// Decrypt the response
-				const decryptedContent = await nip04.decrypt(
+				const decryptedContent = nip04.decrypt(
 					this._connectionInfo!.secret,
 					this._connectionInfo!.walletPubkey,
 					event.content

@@ -6,7 +6,7 @@
 
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
-import { dbHelpers, type UserProfile } from '$db';
+import { dbHelpers } from '$db';
 import authStore from './auth.svelte';
 
 /** Profile metadata fields */
