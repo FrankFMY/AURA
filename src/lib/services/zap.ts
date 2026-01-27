@@ -70,6 +70,9 @@ export interface ZapResult {
  * Zap Service Class
  */
 class ZapService {
+	/** Lightning address regex */
+	private static readonly LN_ADDRESS_REGEX = /^([^@]+)@([^@]+)$/;
+
 	/** Parse Lightning address to LNURL */
 	parseLightningAddress(address: string): string | null {
 		// Check if it's already an LNURL
@@ -78,7 +81,7 @@ class ZapService {
 		}
 
 		// Parse Lightning address (user@domain.com)
-		const match = address.match(/^([^@]+)@([^@]+)$/);
+		const match = ZapService.LN_ADDRESS_REGEX.exec(address);
 		if (!match) {
 			return null;
 		}
@@ -296,11 +299,11 @@ class ZapService {
 			}
 		}
 		// Try WebLN if available
-		else if (typeof window !== 'undefined' && window.webln) {
+		else if (globalThis.window?.webln) {
 			result.paymentAttempted = true;
 			try {
-				await window.webln.enable();
-				const payResult = await window.webln.sendPayment(invoice);
+				await globalThis.window.webln.enable();
+				const payResult = await globalThis.window.webln.sendPayment(invoice);
 				result.paymentResult = {
 					success: true,
 					preimage: payResult.preimage

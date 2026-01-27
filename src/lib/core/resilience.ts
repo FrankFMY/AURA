@@ -134,9 +134,7 @@ export class CircuitBreaker {
 		this.failures++;
 		this.lastFailure = Date.now();
 
-		if (this.state === 'half-open') {
-			this.open();
-		} else if (this.failures >= this.config.failureThreshold) {
+		if (this.state === 'half-open' || this.failures >= this.config.failureThreshold) {
 			this.open();
 		}
 	}

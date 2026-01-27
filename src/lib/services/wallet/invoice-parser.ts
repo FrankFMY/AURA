@@ -48,6 +48,12 @@ const AMOUNT_MULTIPLIERS: Record<string, number> = {
 	p: 0.000000000001
 };
 
+/** Invoice prefix regex */
+const PREFIX_REGEX = /^(lnbc|lntb|lnbcrt|lnsb)/;
+
+/** Amount extraction regex */
+const AMOUNT_REGEX = /^(\d+)([munp])?/;
+
 /**
  * Parse a BOLT11 invoice
  */
@@ -57,17 +63,17 @@ export function parseInvoice(invoice: string): ParsedInvoice {
 	}
 	// Normalize invoice
 	const normalizedInvoice = invoice.toLowerCase().trim();
-	
+
 	// Validate prefix
-	const prefixMatch = normalizedInvoice.match(/^(lnbc|lntb|lnbcrt|lnsb)/);
+	const prefixMatch = PREFIX_REGEX.exec(normalizedInvoice);
 	if (!prefixMatch) {
 		throw new Error('Invalid invoice: unknown network prefix');
 	}
-	
+
 	const prefix = prefixMatch[1];
-	
+
 	// Extract amount (if present)
-	const amountMatch = normalizedInvoice.slice(prefix.length).match(/^(\d+)([munp])?/);
+	const amountMatch = AMOUNT_REGEX.exec(normalizedInvoice.slice(prefix.length));
 	let amountMsat: number | null = null;
 	let amountSat: number | null = null;
 	
@@ -145,9 +151,9 @@ export function isValidInvoice(invoice: string): boolean {
 	}
 	
 	const normalized = invoice.toLowerCase().trim();
-	
+
 	// Check prefix
-	if (!normalized.match(/^(lnbc|lntb|lnbcrt|lnsb)/)) {
+	if (!PREFIX_REGEX.test(normalized)) {
 		return false;
 	}
 	
@@ -155,9 +161,9 @@ export function isValidInvoice(invoice: string): boolean {
 	if (normalized.length < 50) {
 		return false;
 	}
-	
+
 	// Check for valid bech32 characters
-	if (!normalized.match(/^[a-z0-9]+$/)) {
+	if (!/^[a-z0-9]+$/.test(normalized)) {
 		return false;
 	}
 	
@@ -170,13 +176,13 @@ export function isValidInvoice(invoice: string): boolean {
 export function getInvoiceNetwork(invoice: string): string | null {
 	if (!invoice) return null;
 	const normalized = invoice.toLowerCase().trim();
-	const prefixMatch = normalized.match(/^(lnbc|lntb|lnbcrt|lnsb)/);
-	
+	const prefixMatch = PREFIX_REGEX.exec(normalized);
+
 	if (!prefixMatch) {
 		return null;
 	}
-	
-	return NETWORK_PREFIXES[prefixMatch[1] as keyof typeof NETWORK_PREFIXES] || null;
+
+	return NETWORK_PREFIXES[prefixMatch[1] as keyof typeof NETWORK_PREFIXES] ?? null;
 }
 
 export default {

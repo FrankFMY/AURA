@@ -10,6 +10,85 @@ import authStore from './auth.svelte';
 /** WoT filter settings */
 export type WoTFilterLevel = 'all' | 'extended' | 'fof' | 'trusted';
 
+/** Get trust info for a pubkey */
+function getTrust(pubkey: string): WoTResult {
+	return wotService.getTrust(pubkey);
+}
+
+/** Get trust level */
+function getTrustLevel(pubkey: string): TrustLevel {
+	return wotService.getTrustLevel(pubkey);
+}
+
+/** Get trust score (0-100) */
+function getTrustScore(pubkey: string): number {
+	return wotService.getTrustScore(pubkey);
+}
+
+/** Get trust indicator for UI */
+function getTrustIndicator(pubkey: string): {
+	level: TrustLevel;
+	color: string;
+	icon: string;
+	label: string;
+	score: number;
+} {
+	const trust = wotService.getTrust(pubkey);
+	const color = wotService.getTrustColor(pubkey);
+
+	let icon: string;
+	let label: string;
+
+	switch (trust.level) {
+		case 'self':
+			icon = '👤';
+			label = 'You';
+			break;
+		case 'trusted':
+			icon = '✓';
+			label = 'Trusted';
+			break;
+		case 'friend-of-friend':
+			icon = '◐';
+			label = 'Friend of Friend';
+			break;
+		case 'extended':
+			icon = '○';
+			label = 'Extended Network';
+			break;
+		case 'muted':
+			icon = '🚫';
+			label = 'Muted';
+			break;
+		default:
+			icon = '?';
+			label = 'Unknown';
+	}
+
+	return {
+		level: trust.level,
+		color,
+		icon,
+		label,
+		score: trust.score
+	};
+}
+
+/** Check if user is trusted (level 1 or 2) */
+function isTrusted(pubkey: string): boolean {
+	return wotService.isTrusted(pubkey);
+}
+
+/** Check if user is muted */
+function isMuted(pubkey: string): boolean {
+	return wotService.isMuted(pubkey);
+}
+
+/** Get follow recommendations */
+function getRecommendations(limit: number = 10): string[] {
+	return wotService.getRecommendations(limit);
+}
+
 function createWoTStore() {
 	// State
 	let isInitialized = $state(false);
@@ -55,27 +134,6 @@ function createWoTStore() {
 	}
 
 	/**
-	 * Get trust info for a pubkey
-	 */
-	function getTrust(pubkey: string): WoTResult {
-		return wotService.getTrust(pubkey);
-	}
-
-	/**
-	 * Get trust level
-	 */
-	function getTrustLevel(pubkey: string): TrustLevel {
-		return wotService.getTrustLevel(pubkey);
-	}
-
-	/**
-	 * Get trust score (0-100)
-	 */
-	function getTrustScore(pubkey: string): number {
-		return wotService.getTrustScore(pubkey);
-	}
-
-	/**
 	 * Check if user passes current filter
 	 */
 	function passesFilter(pubkey: string): boolean {
@@ -97,71 +155,6 @@ function createWoTStore() {
 			default:
 				return true;
 		}
-	}
-
-	/**
-	 * Get trust indicator for UI
-	 */
-	function getTrustIndicator(pubkey: string): {
-		level: TrustLevel;
-		color: string;
-		icon: string;
-		label: string;
-		score: number;
-	} {
-		const trust = wotService.getTrust(pubkey);
-		const color = wotService.getTrustColor(pubkey);
-		
-		let icon: string;
-		let label: string;
-		
-		switch (trust.level) {
-			case 'self':
-				icon = '👤';
-				label = 'You';
-				break;
-			case 'trusted':
-				icon = '✓';
-				label = 'Trusted';
-				break;
-			case 'friend-of-friend':
-				icon = '◐';
-				label = 'Friend of Friend';
-				break;
-			case 'extended':
-				icon = '○';
-				label = 'Extended Network';
-				break;
-			case 'muted':
-				icon = '🚫';
-				label = 'Muted';
-				break;
-			default:
-				icon = '?';
-				label = 'Unknown';
-		}
-
-		return {
-			level: trust.level,
-			color,
-			icon,
-			label,
-			score: trust.score
-		};
-	}
-
-	/**
-	 * Check if user is trusted (level 1 or 2)
-	 */
-	function isTrusted(pubkey: string): boolean {
-		return wotService.isTrusted(pubkey);
-	}
-
-	/**
-	 * Check if user is muted
-	 */
-	function isMuted(pubkey: string): boolean {
-		return wotService.isMuted(pubkey);
 	}
 
 	/**
@@ -192,13 +185,6 @@ function createWoTStore() {
 	 */
 	function toggleShowUnknown(): void {
 		showUnknown = !showUnknown;
-	}
-
-	/**
-	 * Get follow recommendations
-	 */
-	function getRecommendations(limit: number = 10): string[] {
-		return wotService.getRecommendations(limit);
 	}
 
 	/**

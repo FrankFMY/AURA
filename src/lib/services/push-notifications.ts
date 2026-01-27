@@ -43,10 +43,10 @@ class PushNotificationsService {
 	 */
 	isSupported(): boolean {
 		return (
-			typeof window !== 'undefined' &&
-			'serviceWorker' in navigator &&
-			'PushManager' in window &&
-			'Notification' in window
+			globalThis.window !== undefined &&
+			'serviceWorker' in globalThis.navigator &&
+			'PushManager' in globalThis.window &&
+			'Notification' in globalThis.window
 		);
 	}
 

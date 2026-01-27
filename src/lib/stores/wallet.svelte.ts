@@ -11,6 +11,11 @@ import { dbHelpers } from '$db';
 import { ErrorHandler, WalletError, ErrorCode } from '$lib/core/errors';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
+/** Parse invoice details */
+function parseInvoiceDetails(invoice: string) {
+	return parseInvoice(invoice);
+}
+
 /** Wallet connection status */
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -337,11 +342,6 @@ function createWalletStore() {
 		} finally {
 			isLoading = false;
 		}
-	}
-
-	/** Parse invoice details */
-	function parseInvoiceDetails(invoice: string) {
-		return parseInvoice(invoice);
 	}
 
 	/** Clear error */

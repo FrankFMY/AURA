@@ -54,7 +54,7 @@ class AnalyticsService {
 
 	constructor() {
 		if (browser) {
-			this.init();
+			void this.init();
 		}
 	}
 

@@ -313,7 +313,7 @@ class KeyManager {
 		const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 		let binary = '';
 		for (let i = 0; i < bytes.byteLength; i++) {
-			binary += String.fromCharCode(bytes[i]);
+			binary += String.fromCodePoint(bytes[i]);
 		}
 		return btoa(binary);
 	}

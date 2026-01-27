@@ -262,9 +262,9 @@ class ProfileManager {
 	/**
 	 * Search local profile cache
 	 */
-	private async searchLocalProfiles(query: string, limit: number): Promise<UserProfile[]> {
-		const allProfiles = await dbHelpers.getProfile(''); // This won't work, need to implement search
-		// For now, return empty - would need to implement proper search in DB
+	private async searchLocalProfiles(_query: string, _limit: number): Promise<UserProfile[]> {
+		// TODO: Implement proper search in DB
+		// For now, return empty - would need to implement proper search
 		return [];
 	}
 

@@ -131,8 +131,6 @@ function createDVMStore() {
 		const messageIndex = messages.findIndex(m => m.id === messageId);
 		if (messageIndex === -1) return;
 
-		const message = messages[messageIndex];
-
 		if (result.status === DVMJobStatus.SUCCESS) {
 			messages = messages.map((m, i) =>
 				i === messageIndex

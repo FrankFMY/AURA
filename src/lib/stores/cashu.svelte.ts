@@ -9,6 +9,26 @@ import { cashuService, DEFAULT_MINTS, type SendResult, type ReceiveResult, type 
 import { type CashuMint, type CashuTransaction } from '$db';
 import { ErrorHandler, WalletError, ErrorCode } from '$lib/core/errors';
 
+/** Check if a string looks like a Cashu token */
+function looksLikeCashuToken(text: string | null | undefined): boolean {
+	if (!text) return false;
+	// Cashu v4 tokens start with "cashuB" (base64url encoded)
+	// or "cashuA" for v3 tokens
+	const trimmed = text.trim();
+	return trimmed.startsWith('cashuA') || trimmed.startsWith('cashuB');
+}
+
+/** Token pattern regex */
+const CASHU_TOKEN_REGEX = /cashu[AB][A-Za-z0-9_-]+/;
+
+/** Extract Cashu token from text if present */
+function extractToken(text: string | null | undefined): string | null {
+	if (!text) return null;
+	// Match cashuA... or cashuB... tokens
+	const match = CASHU_TOKEN_REGEX.exec(text);
+	return match ? match[0] : null;
+}
+
 /** Cashu connection status */
 export type CashuStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -325,27 +345,6 @@ function createCashuStore() {
 	 */
 	function getMintBalance(mintUrl: string): number {
 		return balanceByMint.get(mintUrl) || 0;
-	}
-
-	/**
-	 * Check if a string looks like a Cashu token
-	 */
-	function looksLikeCashuToken(text: string | null | undefined): boolean {
-		if (!text) return false;
-		// Cashu v4 tokens start with "cashuB" (base64url encoded)
-		// or "cashuA" for v3 tokens
-		const trimmed = text.trim();
-		return trimmed.startsWith('cashuA') || trimmed.startsWith('cashuB');
-	}
-
-	/**
-	 * Extract Cashu token from text if present
-	 */
-	function extractToken(text: string | null | undefined): string | null {
-		if (!text) return null;
-		// Match cashuA... or cashuB... tokens
-		const match = text.match(/cashu[AB][A-Za-z0-9_-]+/);
-		return match ? match[0] : null;
 	}
 
 	return {

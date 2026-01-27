@@ -290,8 +290,8 @@ class MediaService {
 		if (!content) return null;
 
 		// Look for URLs that end with audio extensions
-		const urlRegex = /https?:\/\/[^\s]+\.(webm|ogg|mp3|m4a|wav)(\?[^\s]*)?/gi;
-		const match = content.match(urlRegex);
+		const urlRegex = /https?:\/\/[^\s]+\.(webm|ogg|mp3|m4a|wav)(\?[^\s]*)?/i;
+		const match = urlRegex.exec(content);
 		return match ? match[0] : null;
 	}
 

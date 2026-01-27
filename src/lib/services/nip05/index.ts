@@ -236,8 +236,7 @@ export async function loadCachedVerification(
 
 	try {
 		const stored = await dbHelpers.getSetting<NIP05VerificationResult & { expiresAt: number } | null>(
-			dbKey,
-			undefined
+			dbKey
 		) ?? null;
 
 		if (stored && stored.expiresAt > Date.now()) {
