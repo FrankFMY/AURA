@@ -20,11 +20,14 @@ export type AnalyticsEventType =
 	| 'performance'
 	| 'user_action';
 
+/** Property value types */
+export type PropertyValue = string | number | boolean;
+
 /** Analytics event */
 export interface AnalyticsEvent {
 	type: AnalyticsEventType;
 	name: string;
-	properties?: Record<string, string | number | boolean>;
+	properties?: Record<string, PropertyValue>;
 	timestamp: number;
 }
 
@@ -51,18 +54,16 @@ class AnalyticsService {
 	private session: SessionInfo | null = null;
 	private eventQueue: AnalyticsEvent[] = [];
 	private flushInterval: ReturnType<typeof setInterval> | null = null;
+	private initialized: boolean = false;
 
-	constructor() {
-		if (browser) {
-			void this.init();
-		}
-	}
+	/** Initialize analytics - call this on app startup */
+	async initialize(): Promise<void> {
+		if (!browser || this.initialized) return;
+		this.initialized = true;
 
-	/** Initialize analytics */
-	private async init(): Promise<void> {
 		// Check if user has opted in
 		const optedIn = await dbHelpers.getSetting<boolean>('analytics_enabled', false);
-		
+
 		// Also check feature flag
 		if (optedIn && featureFlags.isEnabled('ANALYTICS')) {
 			this.enable();
@@ -136,19 +137,19 @@ class AnalyticsService {
 	}
 
 	/** Track a feature usage */
-	public trackFeatureUsed(feature: string, properties?: Record<string, string | number | boolean>): void {
+	public trackFeatureUsed(feature: string, properties?: Record<string, PropertyValue>): void {
 		if (!this.enabled) return;
 		this.track('feature_used', feature, properties);
 	}
 
 	/** Track a user action */
-	public trackAction(action: string, properties?: Record<string, string | number | boolean>): void {
+	public trackAction(action: string, properties?: Record<string, PropertyValue>): void {
 		if (!this.enabled) return;
 		this.track('user_action', action, properties);
 	}
 
 	/** Track an error */
-	public trackError(error: string, properties?: Record<string, string | number | boolean>): void {
+	public trackError(error: string, properties?: Record<string, PropertyValue>): void {
 		if (!this.enabled) return;
 		this.track('error', error, {
 			...properties,
@@ -170,7 +171,7 @@ class AnalyticsService {
 	private track(
 		type: AnalyticsEventType,
 		name: string,
-		properties?: Record<string, string | number | boolean>
+		properties?: Record<string, PropertyValue>
 	): void {
 		if (!this.enabled) return;
 
@@ -240,11 +241,11 @@ export const analytics = new AnalyticsService();
 
 /** Convenience functions */
 export const trackPageView = (path: string) => analytics.trackPageView(path);
-export const trackFeature = (feature: string, props?: Record<string, string | number | boolean>) => 
+export const trackFeature = (feature: string, props?: Record<string, PropertyValue>) => 
 	analytics.trackFeatureUsed(feature, props);
-export const trackAction = (action: string, props?: Record<string, string | number | boolean>) => 
+export const trackAction = (action: string, props?: Record<string, PropertyValue>) => 
 	analytics.trackAction(action, props);
-export const trackError = (error: string, props?: Record<string, string | number | boolean>) => 
+export const trackError = (error: string, props?: Record<string, PropertyValue>) => 
 	analytics.trackError(error, props);
 export const trackPerformance = (metric: PerformanceMetric) => analytics.trackPerformance(metric);
 

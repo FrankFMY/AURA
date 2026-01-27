@@ -34,6 +34,11 @@ interface OptimisticUpdate {
 	eventId?: string;
 }
 
+/** Check if an event should be filtered (deleted by user) */
+function shouldFilterEvent(eventId: string): boolean {
+	return userInteractionsService.isDeleted(eventId);
+}
+
 /** Create feed store */
 function createFeedStore() {
 	// State
@@ -122,11 +127,6 @@ function createFeedStore() {
 		}
 		// Also clean up by label as fallback
 		subscriptionManager.unsubscribeByLabel(subscriptionLabel);
-	}
-
-	/** Check if an event should be filtered (deleted by user) */
-	function shouldFilterEvent(eventId: string): boolean {
-		return userInteractionsService.isDeleted(eventId);
 	}
 
 	/** Build filter based on feed type */

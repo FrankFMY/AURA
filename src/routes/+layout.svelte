@@ -10,6 +10,7 @@
 	import { messagesStore } from '$stores/messages.svelte';
 	import { wotStore } from '$stores/wot.svelte';
 	import ndkService, { eventPublisher } from '$services/ndk';
+	import { analytics } from '$services/analytics';
 	import { dbHelpers } from '$db';
 	import { browser } from '$app/environment';
 	import { setupI18n } from '$lib/i18n';
@@ -116,6 +117,9 @@
 
 			// Initialize auth state
 			await authStore.init();
+
+			// Initialize analytics (non-blocking)
+			void analytics.initialize();
 
 			// Initialize wallet, cashu, WoT and load messages if previously connected
 			// Each service is wrapped in try-catch so one failure doesn't block others

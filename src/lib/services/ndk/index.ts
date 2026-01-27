@@ -20,11 +20,10 @@ import { db, dbHelpers } from '$db';
 import { NetworkError, AuthError, ErrorCode } from '$lib/core/errors';
 
 /**
- * Regex to match control characters (C0 codes U+0000-U+001F and C1 codes U+007F-U+009F)
+ * Regex to match control characters (Unicode Cc category)
  * Used to clean JSON content from user profiles
  */
-const CONTROL_CHARS_PATTERN = String.raw`[\x00-\x1f\x7f-\x9f]`;
-const CONTROL_CHARS_REGEX = new RegExp(CONTROL_CHARS_PATTERN, 'g');
+const CONTROL_CHARS_REGEX = /\p{Cc}/gu;
 
 /**
  * Map of control characters to their escaped string representations
