@@ -7,7 +7,6 @@
 	import VideoOff from 'lucide-svelte/icons/video-off';
 	import Mic from 'lucide-svelte/icons/mic';
 	import MicOff from 'lucide-svelte/icons/mic-off';
-	import SwitchCamera from 'lucide-svelte/icons/switch-camera';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { onMount, onDestroy } from 'svelte';
 
@@ -18,8 +17,8 @@
 
 	let { call, onEnd }: Props = $props();
 
-	let localVideoEl: HTMLVideoElement;
-	let remoteVideoEl: HTMLVideoElement;
+	let localVideoEl = $state<HTMLVideoElement | null>(null);
+	let remoteVideoEl = $state<HTMLVideoElement | null>(null);
 	let callDuration = $state('0:00');
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
 

@@ -134,6 +134,9 @@ function createCallsStore() {
 	let remoteStream = $state<MediaStream | null>(null);
 	let callTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
+	// Buffer for signals that arrive before call is accepted
+	let pendingSignals: Map<string, WebRTCSignal[]> = new Map();
+
 	// Load call history from localStorage
 	function loadCallHistory(): void {
 		if (!browser) return;
@@ -367,6 +370,9 @@ function createCallsStore() {
 			localStream = webrtcService.localMediaStream;
 			isVideoEnabled = callType === 'video';
 
+			// Process any buffered signals that arrived before we accepted
+			processPendingSignals(roomId);
+
 			// Send accept response
 			await sendCallResponse(callerPubkey, roomId, 'accept');
 
@@ -376,6 +382,7 @@ function createCallsStore() {
 			console.error('[Calls] Failed to accept call:', e);
 			webrtcService.endCall();
 			activeCall = null;
+			clearPendingSignals(roomId);
 			await sendCallResponse(callerPubkey, roomId, 'decline');
 			return null;
 		}
@@ -391,6 +398,9 @@ function createCallsStore() {
 		}
 
 		const { roomId, callerPubkey, callerProfile, callType } = incomingCall;
+
+		// Clear any buffered signals
+		clearPendingSignals(roomId);
 
 		// Send decline response
 		await sendCallResponse(callerPubkey, roomId, 'decline');
@@ -415,6 +425,9 @@ function createCallsStore() {
 		if (callTimeoutId) {
 			clearTimeout(callTimeoutId);
 			callTimeoutId = null;
+		}
+		if (incomingCall) {
+			clearPendingSignals(incomingCall.roomId);
 		}
 		incomingCall = null;
 	}
@@ -445,12 +458,43 @@ function createCallsStore() {
 
 	/** Handle WebRTC signal from peer */
 	function handleWebRTCSignal(signal: WebRTCSignal): void {
-		if (!activeCall || activeCall.roomId !== signal.roomId) {
-			console.log('[Calls] Ignoring signal for different room');
+		// If we have an active call for this room, forward signal directly
+		if (activeCall && activeCall.roomId === signal.roomId) {
+			console.log('[Calls] Forwarding signal to WebRTC:', signal.signalType);
+			webrtcService.handleSignal(signal);
 			return;
 		}
 
-		webrtcService.handleSignal(signal);
+		// If we have an incoming call for this room, buffer the signal
+		// (signals may arrive before user accepts the call)
+		if (incomingCall && incomingCall.roomId === signal.roomId) {
+			console.log('[Calls] Buffering signal for incoming call:', signal.signalType);
+			const buffered = pendingSignals.get(signal.roomId) || [];
+			buffered.push(signal);
+			pendingSignals.set(signal.roomId, buffered);
+			return;
+		}
+
+		console.log('[Calls] Ignoring signal for unknown room:', signal.roomId);
+	}
+
+	/** Process buffered signals for a room */
+	function processPendingSignals(roomId: string): void {
+		const signals = pendingSignals.get(roomId);
+		if (!signals || signals.length === 0) return;
+
+		console.log('[Calls] Processing', signals.length, 'buffered signals for room:', roomId);
+
+		for (const signal of signals) {
+			webrtcService.handleSignal(signal);
+		}
+
+		pendingSignals.delete(roomId);
+	}
+
+	/** Clear buffered signals for a room */
+	function clearPendingSignals(roomId: string): void {
+		pendingSignals.delete(roomId);
 	}
 
 	/** Mark call as connected */
@@ -474,6 +518,9 @@ function createCallsStore() {
 		const duration = activeCall.connectedAt
 			? endedAt - activeCall.connectedAt
 			: undefined;
+
+		// Clear any pending signals for this room
+		clearPendingSignals(activeCall.roomId);
 
 		// Send end response if we're ending the call
 		if (status === 'ended' && activeCall.status === 'connected') {
@@ -569,6 +616,7 @@ function createCallsStore() {
 		remoteStream = null;
 		isMuted = false;
 		isVideoEnabled = true;
+		pendingSignals.clear();
 	}
 
 	// Initialize
