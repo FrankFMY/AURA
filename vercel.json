@@ -4,15 +4,21 @@
   "outputDirectory": "build",
   "installCommand": "bun install",
   "buildCommand": "bun run build",
+  "trailingSlash": false,
   "headers": [
     {
       "source": "/.well-known/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" },
-        { "key": "Content-Type", "value": "application/json" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api|_app|.*\\..*).*)",
+      "destination": "/index.html"
     }
   ]
 }
