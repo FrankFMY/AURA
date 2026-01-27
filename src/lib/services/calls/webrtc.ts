@@ -213,10 +213,18 @@ class WebRTCService {
 
 		const Peer = await getSimplePeer();
 
+		// Explicitly provide browser WebRTC APIs to avoid detection issues
+		const wrtc = {
+			RTCPeerConnection: globalThis.RTCPeerConnection,
+			RTCSessionDescription: globalThis.RTCSessionDescription,
+			RTCIceCandidate: globalThis.RTCIceCandidate
+		};
+
 		this.peer = new Peer({
 			initiator,
 			stream: this.localStream || undefined,
 			trickle: true,
+			wrtc,
 			config: {
 				iceServers: ICE_SERVERS
 			}
