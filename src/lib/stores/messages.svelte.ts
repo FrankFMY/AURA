@@ -87,7 +87,22 @@ function createMessagesStore() {
 	/** Detect if content is NIP-04 format (ciphertext?iv=...) */
 	function isNip04Format(content: string): boolean {
 		// NIP-04 format: base64?iv=base64
-		return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content);
+		// Also check for URL-encoded version: base64%3Fiv%3Dbase64
+		return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content) ||
+			/^[A-Za-z0-9+/=]+%3Fiv%3D[A-Za-z0-9+/=]+$/i.test(content);
+	}
+
+	/** Try to normalize NIP-04 content (handle URL-encoded variants) */
+	function normalizeNip04Content(content: string): string {
+		// URL decode if needed
+		if (content.includes('%3F') || content.includes('%3D')) {
+			try {
+				return decodeURIComponent(content);
+			} catch {
+				return content;
+			}
+		}
+		return content;
 	}
 
 	/** Detect if content looks like NIP-44 format */
@@ -102,10 +117,27 @@ function createMessagesStore() {
 		return content.length >= 50;
 	}
 
+	/** Get NIP-44 version from encrypted content */
+	function getNip44Version(content: string): number | null {
+		try {
+			// Decode base64 and check first byte (version)
+			const decoded = atob(content);
+			if (decoded.length > 0) {
+				return decoded.charCodeAt(0);
+			}
+		} catch {
+			// Invalid base64
+		}
+		return null;
+	}
+
 	/** Get content format info for debugging */
 	function getContentFormat(content: string): string {
 		if (isNip04Format(content)) return 'NIP-04';
-		if (isNip44Format(content)) return 'NIP-44 (likely)';
+		if (isNip44Format(content)) {
+			const version = getNip44Version(content);
+			return `NIP-44 v${version ?? '?'}`;
+		}
 		if (content.startsWith('{')) return 'JSON (plaintext)';
 		if (content.length < 20) return 'Short/Unknown';
 		return 'Unknown';
@@ -123,12 +155,16 @@ function createMessagesStore() {
 		const isNip04 = isNip04Format(content);
 		const isNip44 = isNip44Format(content);
 
+		// Get NIP-44 version for debugging
+		const nip44Version = isNip44 ? getNip44Version(content) : null;
+
 		console.debug('[Messages] Attempting decryption:', {
 			eventId: event.id.slice(0, 8),
 			from: otherPubkey.slice(0, 8),
 			contentLength: content?.length,
 			contentFormat,
-			contentPreview: content?.slice(0, 30) + '...',
+			nip44Version,
+			contentPreview: content?.slice(0, 40) + '...',
 			hasNip04: !!window.nostr?.nip04,
 			hasNip44: !!window.nostr?.nip44
 		});
@@ -137,12 +173,26 @@ function createMessagesStore() {
 		if (isNip44 && window.nostr?.nip44) {
 			try {
 				method = 'NIP-44 (detected)';
+				console.debug('[Messages] Trying NIP-44 decrypt with:', {
+					otherPubkey: otherPubkey.slice(0, 16),
+					contentLen: content.length,
+					version: nip44Version
+				});
 				result = await window.nostr.nip44.decrypt(otherPubkey, content);
 				if (result && result.trim()) {
-					console.debug('[Messages] NIP-44 decryption succeeded');
+					console.debug('[Messages] NIP-44 decryption succeeded, result length:', result.length);
 				}
 			} catch (e) {
-				console.debug('[Messages] NIP-44 decryption failed:', e);
+				const errorMsg = e instanceof Error ? e.message : String(e);
+				console.debug('[Messages] NIP-44 decryption failed:', {
+					error: errorMsg,
+					errorType: e instanceof Error ? e.constructor.name : typeof e,
+					// Check for common NIP-44 errors
+					isVersionError: errorMsg.includes('version'),
+					isMacError: errorMsg.includes('MAC') || errorMsg.includes('mac') || errorMsg.includes('tag'),
+					isPaddingError: errorMsg.includes('padding'),
+					isKeyError: errorMsg.includes('key')
+				});
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
@@ -151,7 +201,8 @@ function createMessagesStore() {
 		if ((!result || result.trim() === '') && isNip04 && window.nostr?.nip04) {
 			try {
 				method = 'NIP-04 (detected)';
-				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+				const normalizedContent = normalizeNip04Content(content);
+				result = await window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
 				if (result && result.trim()) {
 					console.debug('[Messages] NIP-04 decryption succeeded');
 				}
@@ -179,7 +230,8 @@ function createMessagesStore() {
 		if ((!result || result.trim() === '') && !isNip04 && window.nostr?.nip04) {
 			try {
 				method = 'NIP-04 (fallback)';
-				result = await window.nostr.nip04.decrypt(otherPubkey, content);
+				const normalizedContent = normalizeNip04Content(content);
+				result = await window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
 				if (result && result.trim()) {
 					console.debug('[Messages] NIP-04 fallback succeeded');
 				}
@@ -209,13 +261,29 @@ function createMessagesStore() {
 
 		// If all methods failed or returned empty
 		if (!result || result.trim() === '') {
+			// Try to decode base64 to understand the structure
+			let rawBytesInfo: string = 'unknown';
+			try {
+				const decoded = atob(content);
+				const bytes = new Uint8Array(decoded.length);
+				for (let i = 0; i < decoded.length; i++) {
+					bytes[i] = decoded.charCodeAt(i);
+				}
+				rawBytesInfo = `len=${bytes.length}, first4=[${bytes.slice(0, 4).join(',')}]`;
+			} catch {
+				rawBytesInfo = 'invalid base64';
+			}
+
 			console.warn('[Messages] All decryption methods failed:', {
 				method,
 				eventId: event.id,
 				from: otherPubkey.slice(0, 8),
 				encryptedLength: content?.length,
 				contentFormat,
-				contentPreview: content?.slice(0, 50)
+				nip44Version,
+				rawBytesInfo,
+				contentPreview: content?.slice(0, 50),
+				lastError: lastError?.message
 			});
 
 			if (lastError) {
@@ -228,27 +296,25 @@ function createMessagesStore() {
 		return result;
 	}
 
-	/** Encrypt message content */
-	async function encryptMessage(content: string, recipientPubkey: string): Promise<string> {
+	/** Encrypt message content for NIP-04 (kind:4 DMs)
+	 * NIP-04 spec requires NIP-04 encryption, NOT NIP-44
+	 */
+	async function encryptMessageNip04(content: string, recipientPubkey: string): Promise<string> {
 		try {
-			// Try NIP-44 first if available
-			if (window.nostr?.nip44) {
-				return await window.nostr.nip44.encrypt(recipientPubkey, content);
-			}
-
-			// Fall back to NIP-04
+			// NIP-04 encryption only (for kind:4 compatibility)
 			if (window.nostr?.nip04) {
+				console.debug('[Messages] Encrypting with NIP-04 for kind:4');
 				return await window.nostr.nip04.encrypt(recipientPubkey, content);
 			}
 
-			// Use NDK encryption
+			// Use NDK encryption as fallback
 			const signer = ndkService.signer;
 			if (signer && 'encrypt' in signer && ndkService.ndk) {
 				const user = ndkService.ndk.getUser({ pubkey: recipientPubkey });
 				return await (signer as any).encrypt(user, content);
 			}
 
-			throw new Error('No encryption method available');
+			throw new Error('No NIP-04 encryption method available');
 		} catch (e) {
 			console.error('Failed to encrypt message:', e);
 			throw e;
@@ -424,7 +490,9 @@ function createMessagesStore() {
 			pTag: pTag?.slice(0, 8),
 			myPubkey: authStore.pubkey.slice(0, 8),
 			isOutgoing,
-			otherPubkey: otherPubkey?.slice(0, 8)
+			otherPubkey: otherPubkey?.slice(0, 8),
+			allTags: event.tags.map(t => [t[0], t[1]?.slice(0, 8)]),
+			contentLen: event.content?.length
 		});
 
 		if (!otherPubkey) {
@@ -781,8 +849,8 @@ function createMessagesStore() {
 	async function sendNip04Message(recipientPubkey: string, content: string): Promise<Message> {
 		if (!authStore.pubkey) throw new Error('Not authenticated');
 
-		// Encrypt the content
-		const encrypted = await encryptMessage(content, recipientPubkey);
+		// Encrypt the content using NIP-04 (required for kind:4 compatibility)
+		const encrypted = await encryptMessageNip04(content, recipientPubkey);
 
 		// Create and publish the event
 		const NDKEvent = (await import('@nostr-dev-kit/ndk')).NDKEvent;
