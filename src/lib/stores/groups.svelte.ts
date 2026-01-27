@@ -166,7 +166,7 @@ function createGroupsStore() {
 
 		try {
 			const filter = {
-				kinds: [KIND_CHANNEL_CREATE as number],
+				kinds: [KIND_CHANNEL_CREATE],
 				limit: 100
 			};
 
@@ -207,7 +207,7 @@ function createGroupsStore() {
 
 		try {
 			const filter = {
-				kinds: [KIND_CHANNEL_MESSAGE as number],
+				kinds: [KIND_CHANNEL_MESSAGE],
 				'#e': [groupId],
 				limit: 100
 			};

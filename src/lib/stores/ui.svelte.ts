@@ -43,7 +43,7 @@ function createUIStore() {
 	let searchOpen = $state(false);
 	let commandPaletteOpen = $state(false);
 	let bottomNavVisible = $state(true);
-	let isOnline = $state(browser ? navigator.onLine : true);
+	let isOnline = $state(browser ? globalThis.navigator.onLine : true);
 	let isReducedMotion = $state(false);
 	let breakpoint = $state<Breakpoint>('lg');
 
@@ -74,7 +74,7 @@ function createUIStore() {
 		updateResolvedTheme();
 
 		// Listen for system theme changes
-		themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+		themeMediaQuery = globalThis.matchMedia('(prefers-color-scheme: dark)');
 		themeChangeHandler = () => {
 			if (theme === 'system') {
 				updateResolvedTheme();
@@ -83,7 +83,7 @@ function createUIStore() {
 		themeMediaQuery.addEventListener('change', themeChangeHandler);
 
 		// Listen for reduced motion preference
-		motionMediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+		motionMediaQuery = globalThis.matchMedia('(prefers-reduced-motion: reduce)');
 		isReducedMotion = motionMediaQuery.matches;
 		motionChangeHandler = (e) => {
 			isReducedMotion = e.matches;
@@ -97,18 +97,18 @@ function createUIStore() {
 		offlineHandler = () => {
 			isOnline = false;
 		};
-		window.addEventListener('online', onlineHandler);
-		window.addEventListener('offline', offlineHandler);
+		globalThis.addEventListener('online', onlineHandler);
+		globalThis.addEventListener('offline', offlineHandler);
 
 		// Listen for resize
 		resizeHandler = updateBreakpoint;
 		updateBreakpoint();
-		window.addEventListener('resize', resizeHandler);
+		globalThis.addEventListener('resize', resizeHandler);
 	}
 
 	function updateResolvedTheme() {
 		if (theme === 'system') {
-			const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+			const prefersDark = globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
 			resolvedTheme = prefersDark ? 'dark' : 'light';
 		} else {
 			resolvedTheme = theme;
@@ -123,7 +123,7 @@ function createUIStore() {
 	function updateBreakpoint() {
 		if (!browser) return;
 
-		const width = window.innerWidth;
+		const width = globalThis.innerWidth;
 		if (width < 640) breakpoint = 'xs';
 		else if (width < 768) breakpoint = 'sm';
 		else if (width < 1024) breakpoint = 'md';
@@ -216,13 +216,13 @@ function createUIStore() {
 			motionMediaQuery.removeEventListener('change', motionChangeHandler);
 		}
 		if (onlineHandler) {
-			window.removeEventListener('online', onlineHandler);
+			globalThis.removeEventListener('online', onlineHandler);
 		}
 		if (offlineHandler) {
-			window.removeEventListener('offline', offlineHandler);
+			globalThis.removeEventListener('offline', offlineHandler);
 		}
 		if (resizeHandler) {
-			window.removeEventListener('resize', resizeHandler);
+			globalThis.removeEventListener('resize', resizeHandler);
 		}
 
 		// Clear references

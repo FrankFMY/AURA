@@ -39,7 +39,7 @@ const DEFAULT_OPTIONS: CompressionOptions = {
 };
 
 /** MIME types that can be compressed */
-const COMPRESSIBLE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const COMPRESSIBLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /** Check if browser supports WebP encoding */
 function supportsWebP(): boolean {
@@ -159,7 +159,7 @@ export async function compressImage(
 	const originalSize = file.size;
 
 	// Skip non-compressible types (GIF, SVG)
-	if (!COMPRESSIBLE_TYPES.includes(file.type)) {
+	if (!COMPRESSIBLE_TYPES.has(file.type)) {
 		return {
 			file,
 			originalSize,
@@ -267,7 +267,7 @@ export function formatBytes(bytes: number): string {
 	const k = 1024;
 	const sizes = ['B', 'KB', 'MB', 'GB'];
 	const i = Math.floor(Math.log(bytes) / Math.log(k));
-	return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+	return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 export default {

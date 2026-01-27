@@ -78,7 +78,14 @@ class MediaService {
 		}
 
 		// Validate file size
-		const maxSize = isImage ? MAX_IMAGE_SIZE : isVideo ? MAX_VIDEO_SIZE : MAX_AUDIO_SIZE;
+		let maxSize: number;
+		if (isImage) {
+			maxSize = MAX_IMAGE_SIZE;
+		} else if (isVideo) {
+			maxSize = MAX_VIDEO_SIZE;
+		} else {
+			maxSize = MAX_AUDIO_SIZE;
+		}
 		if (file.size > maxSize) {
 			throw new NetworkError(`File too large. Max size: ${maxSize / 1024 / 1024}MB`, {
 				code: ErrorCode.VALIDATION_ERROR
@@ -296,7 +303,7 @@ class MediaService {
 		const k = 1024;
 		const sizes = ['B', 'KB', 'MB', 'GB'];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+		return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 	}
 }
 

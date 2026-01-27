@@ -168,7 +168,7 @@ function createStoriesStore() {
 			}
 
 			const filter = {
-				kinds: [1 as number],
+				kinds: [1],
 				'#t': [STORY_TAG],
 				since,
 				limit: 200

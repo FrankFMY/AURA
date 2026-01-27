@@ -52,9 +52,9 @@ class KeyManager {
 	 * Check if Web Crypto API is available
 	 */
 	isSupported(): boolean {
-		return typeof crypto !== 'undefined' && 
-			typeof crypto.subtle !== 'undefined' &&
-			typeof crypto.getRandomValues !== 'undefined';
+		return globalThis.crypto !== undefined &&
+			globalThis.crypto?.subtle !== undefined &&
+			globalThis.crypto?.getRandomValues !== undefined;
 	}
 
 	/**
@@ -322,7 +322,7 @@ class KeyManager {
 		const binary = atob(base64);
 		const bytes = new Uint8Array(binary.length);
 		for (let i = 0; i < binary.length; i++) {
-			bytes[i] = binary.charCodeAt(i);
+			bytes[i] = binary.codePointAt(i) ?? 0;
 		}
 		return bytes.buffer;
 	}

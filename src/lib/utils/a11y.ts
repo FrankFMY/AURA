@@ -60,7 +60,7 @@ export function createFocusTrap(options: FocusTrapOptions): {
 			if (focusable.length === 0) return;
 
 			const first = focusable[0];
-			const last = focusable[focusable.length - 1];
+			const last = focusable.at(-1)!;
 
 			if (event.shiftKey && document.activeElement === first) {
 				event.preventDefault();
@@ -130,7 +130,7 @@ export function announce(message: string, priority: 'polite' | 'assertive' = 'po
 
 	// Remove after announcement
 	setTimeout(() => {
-		document.body.removeChild(announcer);
+		announcer.remove();
 	}, 1000);
 }
 
@@ -207,7 +207,7 @@ export function generateId(prefix: string = 'aura'): string {
  */
 export function prefersReducedMotion(): boolean {
 	if (!browser) return false;
-	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	return globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**
@@ -215,7 +215,7 @@ export function prefersReducedMotion(): boolean {
  */
 export function prefersHighContrast(): boolean {
 	if (!browser) return false;
-	return window.matchMedia('(prefers-contrast: more)').matches;
+	return globalThis.matchMedia('(prefers-contrast: more)').matches;
 }
 
 /**
@@ -246,8 +246,6 @@ export function createRovingTabindex(
 	const items = Array.from(container.querySelectorAll<HTMLElement>(selector));
 	if (items.length === 0) return () => {};
 
-	let currentIndex = 0;
-
 	// Initialize tabindex
 	items.forEach((item, index) => {
 		item.setAttribute('tabindex', index === 0 ? '0' : '-1');
@@ -267,7 +265,6 @@ export function createRovingTabindex(
 		if (newIndex !== index) {
 			items[index].setAttribute('tabindex', '-1');
 			items[newIndex].setAttribute('tabindex', '0');
-			currentIndex = newIndex;
 		}
 	}
 

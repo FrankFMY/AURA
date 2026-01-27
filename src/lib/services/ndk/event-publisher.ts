@@ -61,11 +61,11 @@ const DEFAULT_CONFIG: PublisherConfig = {
 export class EventPublisher {
 	private _ndk: NDK | null = null;
 	private _signer: NDKSigner | null = null;
-	private _config: PublisherConfig;
-	private _queue: Map<string, QueuedEvent> = new Map();
+	private readonly _config: PublisherConfig;
+	private readonly _queue: Map<string, QueuedEvent> = new Map();
 	private _processing: boolean = false;
-	private _publishedIds: Set<string> = new Set(); // Deduplication cache
-	private _listeners: Set<(event: PublisherEvent) => void> = new Set();
+	private readonly _publishedIds: Set<string> = new Set(); // Deduplication cache
+	private readonly _listeners: Set<(event: PublisherEvent) => void> = new Set();
 
 	constructor(config: Partial<PublisherConfig> = {}) {
 		this._config = { ...DEFAULT_CONFIG, ...config };
@@ -326,11 +326,11 @@ export class EventPublisher {
 			await dbHelpers.saveEvent({
 				id: event.id,
 				pubkey: event.pubkey,
-				kind: event.kind!,
-				created_at: event.created_at!,
+				kind: event.kind ?? 1,
+				created_at: event.created_at ?? Math.floor(Date.now() / 1000),
 				content: event.content,
 				tags: event.tags,
-				sig: event.sig!
+				sig: event.sig ?? ''
 			});
 		} catch (error) {
 			console.error('Failed to cache event:', error);

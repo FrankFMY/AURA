@@ -87,7 +87,7 @@ class AnalyticsService {
 		});
 
 		// Flush on page unload
-		window.addEventListener('beforeunload', () => this.flush());
+		globalThis.addEventListener('beforeunload', () => this.flush());
 	}
 
 	/** Disable analytics */
@@ -106,7 +106,7 @@ class AnalyticsService {
 	private startSession(): void {
 		if (!browser) return;
 
-		const screenWidth = window.innerWidth;
+		const screenWidth = globalThis.innerWidth;
 		let deviceType: 'mobile' | 'tablet' | 'desktop' = 'desktop';
 		if (screenWidth < 768) deviceType = 'mobile';
 		else if (screenWidth < 1024) deviceType = 'tablet';
@@ -115,9 +115,9 @@ class AnalyticsService {
 			id: this.generateSessionId(),
 			startTime: Date.now(),
 			pageViews: 0,
-			locale: navigator.language || 'en',
+			locale: globalThis.navigator.language || 'en',
 			theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
-			screenSize: `${screenWidth}x${window.innerHeight}`,
+			screenSize: `${screenWidth}x${globalThis.innerHeight}`,
 			deviceType
 		};
 	}

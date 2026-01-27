@@ -49,8 +49,7 @@ export const noteIdSchema = z
  * Relay URL validation
  */
 export const relayUrlSchema = z
-	.string()
-	.url('Invalid URL format')
+	.url({ message: 'Invalid URL format' })
 	.refine(
 		(url) => url.startsWith('wss://') || url.startsWith('ws://'),
 		'Relay URL must use WebSocket protocol (wss:// or ws://)'
@@ -80,8 +79,7 @@ export const nwcUrlSchema = z
  * Lightning address validation (lud16)
  */
 export const lightningAddressSchema = z
-	.string()
-	.email('Invalid Lightning address format')
+	.email({ message: 'Invalid Lightning address format' })
 	.refine(
 		(addr) => !addr.includes('+'),
 		'Lightning address cannot contain + character'
@@ -137,11 +135,11 @@ export const profileMetadataSchema = z.object({
 		.string()
 		.max(2000, 'About exceeds maximum length')
 		.optional(),
-	picture: z.string().url('Invalid picture URL').optional().or(z.literal('')),
-	banner: z.string().url('Invalid banner URL').optional().or(z.literal('')),
-	nip05: nip05Schema.optional().or(z.literal('')),
-	lud16: lightningAddressSchema.optional().or(z.literal('')),
-	website: z.string().url('Invalid website URL').optional().or(z.literal(''))
+	picture: z.union([z.url({ message: 'Invalid picture URL' }), z.literal('')]).optional(),
+	banner: z.union([z.url({ message: 'Invalid banner URL' }), z.literal('')]).optional(),
+	nip05: z.union([nip05Schema, z.literal('')]).optional(),
+	lud16: z.union([lightningAddressSchema, z.literal('')]).optional(),
+	website: z.union([z.url({ message: 'Invalid website URL' }), z.literal('')]).optional()
 });
 
 /**
@@ -197,7 +195,7 @@ export function validatePubkey(input: string): string | null {
 		try {
 			const decoded = nip19.decode(input);
 			if (decoded.type === 'npub') {
-				return decoded.data as string;
+				return decoded.data;
 			}
 		} catch {
 			return null;
@@ -223,8 +221,7 @@ export function validatePrivateKey(input: string): string | null {
 			const decoded = nip19.decode(input);
 			if (decoded.type === 'nsec') {
 				// Convert Uint8Array to hex
-				const bytes = decoded.data as Uint8Array;
-				const hex = Array.from(bytes)
+				const hex = Array.from(decoded.data)
 					.map((b) => b.toString(16).padStart(2, '0'))
 					.join('');
 				// Verify the result is a valid 64-char hex key

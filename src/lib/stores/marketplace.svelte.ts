@@ -186,6 +186,20 @@ function parseListingEvent(event: NDKEvent, seller: UserProfile | null): Product
 	};
 }
 
+/** Format price for display */
+function formatPrice(price: number, currency: string = 'sat'): string {
+	if (currency === 'sat' || currency === 'sats') {
+		return `${price.toLocaleString()} sats`;
+	}
+	if (currency === 'btc') {
+		return `${price} BTC`;
+	}
+	if (currency === 'usd') {
+		return `$${price.toFixed(2)}`;
+	}
+	return `${price} ${currency}`;
+}
+
 /** Normalize category string to ProductCategory */
 function normalizeCategory(cat: string): ProductCategory {
 	const normalized = cat.toLowerCase().trim();
@@ -246,12 +260,12 @@ function createMarketplaceStore() {
 		}
 
 		// Fetch in background
-		ndkService.fetchProfile(pubkey).then(async () => {
+		void ndkService.fetchProfile(pubkey).then(async () => {
 			const profile = await dbHelpers.getProfile(pubkey);
 			if (profile) {
 				profileCache.set(pubkey, profile);
 				// Update listings with new profile
-				listings = listings.map(l => 
+				listings = listings.map(l =>
 					l.pubkey === pubkey ? { ...l, seller: profile } : l
 				);
 			}
@@ -309,7 +323,7 @@ function createMarketplaceStore() {
 			}
 
 			// Sort by date (newest first)
-			listings = newListings.sort((a, b) => b.created_at - a.created_at);
+			listings = newListings.toSorted((a, b) => b.created_at - a.created_at);
 			hasMore = events.size >= 50;
 
 			// Subscribe to new listings
@@ -337,16 +351,18 @@ function createMarketplaceStore() {
 		}
 
 		subscriptionId = ndkService.subscribe(filter, { closeOnEose: false }, {
-			onEvent: async (event: NDKEvent) => {
+			onEvent: (event: NDKEvent) => {
 				if (seenIds.has(event.id)) return;
 				seenIds.add(event.id);
 
-				const seller = await getProfile(event.pubkey);
-				const listing = parseListingEvent(event, seller);
+				void (async () => {
+					const seller = await getProfile(event.pubkey);
+					const listing = parseListingEvent(event, seller);
 
-				if (matchesFilters(listing, filters)) {
-					listings = [listing, ...listings];
-				}
+					if (matchesFilters(listing, filters)) {
+						listings = [listing, ...listings];
+					}
+				})();
 			}
 		});
 	}
@@ -358,7 +374,7 @@ function createMarketplaceStore() {
 		isLoadingMore = true;
 
 		try {
-			const oldestListing = listings[listings.length - 1];
+			const oldestListing = listings.at(-1)!;
 			
 			const filter: NDKFilter = {
 				kinds: [LISTING_KIND],
@@ -391,7 +407,8 @@ function createMarketplaceStore() {
 			}
 
 			if (newListings.length > 0) {
-				listings = [...listings, ...newListings.sort((a, b) => b.created_at - a.created_at)];
+				const sortedNewListings = newListings.toSorted((a, b) => b.created_at - a.created_at);
+				listings = [...listings, ...sortedNewListings];
 			}
 
 			hasMore = events.size >= 50;
@@ -518,20 +535,6 @@ function createMarketplaceStore() {
 		// Import messages store dynamically to avoid circular deps
 		const { messagesStore } = await import('./messages.svelte');
 		await messagesStore.startConversation(listing.pubkey);
-	}
-
-	/** Format price for display */
-	function formatPrice(price: number, currency: string = 'sat'): string {
-		if (currency === 'sat' || currency === 'sats') {
-			return `${price.toLocaleString()} sats`;
-		}
-		if (currency === 'btc') {
-			return `${price} BTC`;
-		}
-		if (currency === 'usd') {
-			return `$${price.toFixed(2)}`;
-		}
-		return `${price} ${currency}`;
 	}
 
 	/** Cleanup */

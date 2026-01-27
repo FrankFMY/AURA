@@ -3,6 +3,11 @@ import ndkService from '$services/ndk';
 import { db, dbHelpers, type UserProfile } from '$db';
 import { validatePrivateKey, pubkeySchema } from '$lib/validators/schemas';
 
+/** Check if NIP-07 extension is available */
+function hasExtension(): boolean {
+	return globalThis.window !== undefined && !!globalThis.window.nostr;
+}
+
 /** Auth method used for login */
 export type AuthMethod = 'extension' | 'privatekey' | 'generated';
 
@@ -55,7 +60,7 @@ function createAuthStore() {
 				// Try to restore session
 				if (storedMethod === 'extension') {
 					// Re-authenticate with extension (with timeout to prevent hanging)
-					if (window.nostr) {
+					if (globalThis.window?.nostr) {
 						try {
 							const extensionPromise = loginWithExtension();
 							const timeoutPromise = new Promise<never>((_, reject) =>
@@ -297,11 +302,6 @@ function createAuthStore() {
 		await dbHelpers.setSetting('auth_method', null);
 	}
 
-	/** Check if extension is available */
-	function hasExtension(): boolean {
-		return typeof window !== 'undefined' && !!window.nostr;
-	}
-
 	/**
 	 * PANIC WIPE - Security feature
 	 * Completely wipes all local data including:
@@ -340,7 +340,7 @@ function createAuthStore() {
 			}
 
 			// 5. Clear Service Worker caches
-			if ('caches' in window) {
+			if ('caches' in globalThis) {
 				const cacheNames = await caches.keys();
 				await Promise.all(
 					cacheNames.map((cacheName) => caches.delete(cacheName))
@@ -364,14 +364,14 @@ function createAuthStore() {
 			error = null;
 
 			// 8. Redirect to login
-			if (typeof window !== 'undefined') {
-				window.location.href = '/login';
+			if (globalThis.window !== undefined) {
+				globalThis.location.href = '/login';
 			}
 		} catch (e) {
 			console.error('Panic wipe failed:', e);
 			// Even if some steps fail, try to redirect
-			if (typeof window !== 'undefined') {
-				window.location.href = '/login';
+			if (globalThis.window !== undefined) {
+				globalThis.location.href = '/login';
 			}
 		} finally {
 			isLoading = false;

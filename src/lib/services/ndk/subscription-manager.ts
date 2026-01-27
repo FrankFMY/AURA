@@ -34,7 +34,7 @@ export interface SubscriptionCallbacks {
  */
 export class SubscriptionManager {
 	private _ndk: NDK | null = null;
-	private _subscriptions: Map<string, SubscriptionMeta> = new Map();
+	private readonly _subscriptions: Map<string, SubscriptionMeta> = new Map();
 	private _counter: number = 0;
 
 	/** Set NDK instance */
@@ -220,7 +220,7 @@ export class SubscriptionManager {
 			throw new Error('NDK not initialized');
 		}
 
-		const timeout = options.timeout ?? 10000;
+		const timeout = options.timeout ?? 10_000;
 		const events: NDKEvent[] = [];
 
 		return new Promise((resolve, reject) => {
@@ -265,8 +265,8 @@ export class SubscriptionManager {
 			label?: string;
 		} = {}
 	): { id: string; stop: () => void } {
-		const reconnectDelay = options.reconnectDelay ?? 5000;
-		const maxReconnects = options.maxReconnects ?? Infinity;
+		const reconnectDelay = options.reconnectDelay ?? 5_000;
+		const maxReconnects = options.maxReconnects ?? Number.POSITIVE_INFINITY;
 		let reconnects = 0;
 		let currentId: string | null = null;
 		let stopped = false;

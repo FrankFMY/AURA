@@ -27,6 +27,28 @@ export interface SocialNotification {
 	read: boolean;
 }
 
+/** BOLT11 amount regex pattern */
+const BOLT11_AMOUNT_PATTERN = /lnbc(\d+)([munp]?)/i;
+
+/** Parse zap amount from BOLT11 invoice */
+function parseZapAmount(bolt11: string | undefined | null): number | undefined {
+	if (!bolt11) return undefined;
+	// Simple parsing - look for amount in the invoice
+	const match = BOLT11_AMOUNT_PATTERN.exec(bolt11);
+	if (!match) return undefined;
+
+	const value = Number.parseInt(match[1], 10);
+	const unit = match[2]?.toLowerCase();
+
+	switch (unit) {
+		case 'm': return value * 100000; // milli
+		case 'u': return value * 100; // micro
+		case 'n': return Math.floor(value / 10); // nano
+		case 'p': return Math.floor(value / 10000); // pico
+		default: return value * 100000000; // sat
+	}
+}
+
 /** Create social notifications store */
 function createSocialNotificationsStore() {
 	let notifications = $state<SocialNotification[]>([]);
@@ -107,7 +129,7 @@ function createSocialNotificationsStore() {
 				targetEventId = event.tags.find(t => t[0] === 'e')?.[1];
 				content = event.content || '+';
 				break;
-			case 9735: // Zap receipt
+			case 9735: { // Zap receipt
 				type = 'zap';
 				targetEventId = event.tags.find(t => t[0] === 'e')?.[1];
 				// Parse zap amount from bolt11 tag
@@ -116,6 +138,7 @@ function createSocialNotificationsStore() {
 					amount = parseZapAmount(bolt11);
 				}
 				break;
+			}
 			case 3: // Contact list (follow)
 				type = 'follow';
 				break;
@@ -137,25 +160,6 @@ function createSocialNotificationsStore() {
 			createdAt: event.created_at || Math.floor(Date.now() / 1000),
 			read: false
 		};
-	}
-
-	/** Parse zap amount from BOLT11 invoice */
-	function parseZapAmount(bolt11: string | undefined | null): number | undefined {
-		if (!bolt11) return undefined;
-		// Simple parsing - look for amount in the invoice
-		const match = bolt11.match(/lnbc(\d+)([munp]?)/i);
-		if (!match) return undefined;
-		
-		const value = Number.parseInt(match[1], 10);
-		const unit = match[2]?.toLowerCase();
-		
-		switch (unit) {
-			case 'm': return value * 100000; // milli
-			case 'u': return value * 100; // micro
-			case 'n': return Math.floor(value / 10); // nano
-			case 'p': return Math.floor(value / 10000); // pico
-			default: return value * 100000000; // sat
-		}
 	}
 
 	/** Start subscriptions */
@@ -263,7 +267,7 @@ function createSocialNotificationsStore() {
 				filter,
 				{ closeOnEose: false },
 				{
-					onEvent: handleEvent,
+					onEvent: (event) => void handleEvent(event),
 					onEose: () => {
 						isLoading = false;
 					}

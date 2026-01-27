@@ -26,10 +26,10 @@ export type SyncEvent =
  */
 class SyncManager {
 	private _status: SyncStatus = 'idle';
-	private _isOnline = browser ? navigator.onLine : true;
+	private _isOnline = browser ? globalThis.navigator.onLine : true;
 	private _syncInterval: ReturnType<typeof setInterval> | null = null;
-	private _listeners: Set<(event: SyncEvent) => void> = new Set();
-	private _circuitBreaker = new CircuitBreaker({
+	private readonly _listeners: Set<(event: SyncEvent) => void> = new Set();
+	private readonly _circuitBreaker = new CircuitBreaker({
 		failureThreshold: 3,
 		resetTimeout: 60000
 	});

@@ -97,10 +97,10 @@ interface ActiveJob {
  * DVM Service
  */
 class DVMService {
-	private activeJobs: Map<string, ActiveJob> = new Map();
-	
+	private readonly activeJobs: Map<string, ActiveJob> = new Map();
+
 	// Default relay for DVM discovery
-	private dvmRelays: string[] = [
+	private readonly dvmRelays: string[] = [
 		'wss://relay.damus.io',
 		'wss://relay.nostr.band',
 		'wss://nos.lol'
@@ -303,7 +303,7 @@ class DVMService {
 			if (statusTag) {
 				switch (statusTag[1]) {
 					case 'processing': status = DVMJobStatus.PROCESSING; break;
-					case 'payment-required':
+					case 'payment-required': {
 						status = DVMJobStatus.PAYMENT_REQUIRED;
 						// Get invoice
 						const amountTag = event.tags.find(t => t[0] === 'amount');
@@ -312,6 +312,7 @@ class DVMService {
 							invoice = amountTag[2]; // Invoice is in index 2
 						}
 						break;
+					}
 					case 'error':
 						status = DVMJobStatus.ERROR;
 						error = statusTag[2] || event.content;
@@ -338,8 +339,8 @@ class DVMService {
 	 */
 	cancelJob(requestId: string): void {
 		const job = this.activeJobs.get(requestId);
-		if (job?.subscription) {
-			job.subscription.stop();
+		if (job) {
+			job.subscription?.stop();
 		}
 		this.activeJobs.delete(requestId);
 	}

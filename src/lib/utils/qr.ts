@@ -98,5 +98,5 @@ export function downloadQRImage(dataURL: string, filename: string): void {
 	link.download = `${filename}.png`;
 	document.body.appendChild(link);
 	link.click();
-	document.body.removeChild(link);
+	link.remove();
 }

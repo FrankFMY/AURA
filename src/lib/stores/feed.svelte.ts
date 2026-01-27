@@ -72,7 +72,7 @@ function createFeedStore() {
 		}
 
 		// Fetch in background
-		ndkService.fetchProfile(pubkey).then(async () => {
+		void ndkService.fetchProfile(pubkey).then(async () => {
 			const profile = await dbHelpers.getProfile(pubkey);
 			if (profile) {
 				profileCache.set(pubkey, profile);
@@ -255,7 +255,7 @@ function createFeedStore() {
 				filter,
 				{ closeOnEose: false },
 				{
-					onEvent: async (event: NDKEvent) => {
+					onEvent: (event: NDKEvent) => {
 						// Deduplicate
 						if (seenIds.has(event.id)) return;
 						seenIds.add(event.id);
@@ -263,39 +263,41 @@ function createFeedStore() {
 						// Skip deleted events
 						if (shouldFilterEvent(event.id)) return;
 
-						const feedEvent = await toFeedEvent(event);
+						void (async () => {
+							const feedEvent = await toFeedEvent(event);
 
-						// If we are not loading (initial load done), queue the event
-						if (!isLoading) {
-							queuedEvents = [feedEvent, ...queuedEvents];
-							return;
-						}
+							// If we are not loading (initial load done), queue the event
+							if (!isLoading) {
+								queuedEvents = [feedEvent, ...queuedEvents];
+								return;
+							}
 
-						// Insert in chronological order
-						const insertIndex = events.findIndex(
-							(e) => (e.event.created_at || 0) < (event.created_at || 0)
-						);
+							// Insert in chronological order
+							const insertIndex = events.findIndex(
+								(e) => (e.event.created_at || 0) < (event.created_at || 0)
+							);
 
-						if (insertIndex === -1) {
-							events = [...events, feedEvent];
-						} else {
-							events = [
-								...events.slice(0, insertIndex),
-								feedEvent,
-								...events.slice(insertIndex)
-							];
-						}
+							if (insertIndex === -1) {
+								events = [...events, feedEvent];
+							} else {
+								events = [
+									...events.slice(0, insertIndex),
+									feedEvent,
+									...events.slice(insertIndex)
+								];
+							}
 
-						// Cache event
-						dbHelpers.saveEvent({
-							id: event.id,
-							pubkey: event.pubkey,
-							kind: event.kind!,
-							created_at: event.created_at!,
-							content: event.content,
-							tags: event.tags,
-							sig: event.sig!
-						}).catch(console.error);
+							// Cache event
+							void dbHelpers.saveEvent({
+								id: event.id,
+								pubkey: event.pubkey,
+								kind: event.kind!,
+								created_at: event.created_at!,
+								content: event.content,
+								tags: event.tags,
+								sig: event.sig!
+							}).catch(console.error);
+						})();
 					},
 					onEose: () => {
 						isLoading = false;
@@ -326,7 +328,7 @@ function createFeedStore() {
 		isLoadingMore = true;
 
 		try {
-			const oldestEvent = events[events.length - 1];
+			const oldestEvent = events.at(-1)!;
 			const until = oldestEvent.event.created_at;
 
 			const filter = buildFilter();
@@ -356,9 +358,10 @@ function createFeedStore() {
 				if (feedEvents.length === 0) {
 					hasMore = false;
 				} else {
-					events = [...events, ...feedEvents.sort((a, b) =>
+					const sortedFeedEvents = feedEvents.toSorted((a, b) =>
 						(b.event.created_at || 0) - (a.event.created_at || 0)
-					)];
+					);
+					events = [...events, ...sortedFeedEvents];
 
 					// Cache events
 					for (const event of newEvents) {
@@ -541,10 +544,10 @@ function createFeedStore() {
 
 		// Merge and sort
 		const allEvents = [...queuedEvents, ...events];
-		events = allEvents.sort((a, b) => 
+		events = allEvents.toSorted((a, b) =>
 			(b.event.created_at || 0) - (a.event.created_at || 0)
 		);
-		
+
 		queuedEvents = [];
 	}
 

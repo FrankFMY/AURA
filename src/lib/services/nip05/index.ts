@@ -250,7 +250,8 @@ export async function loadCachedVerification(
 		}
 
 		return null;
-	} catch (e) {
+	} catch {
+		// Failed to load from IndexedDB
 		return null;
 	}
 }

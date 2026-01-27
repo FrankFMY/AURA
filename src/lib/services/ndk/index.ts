@@ -213,7 +213,7 @@ class NDKService {
 
 	/** Login with NIP-07 browser extension */
 	async loginWithExtension(): Promise<string> {
-		if (typeof window === 'undefined' || !window.nostr) {
+		if (globalThis.window === undefined || !(globalThis as typeof globalThis & { nostr?: unknown }).nostr) {
 			throw new AuthError('No NIP-07 extension found. Please install Alby, nos2x, or similar.', {
 				code: ErrorCode.NO_EXTENSION
 			});
@@ -376,7 +376,7 @@ class NDKService {
 				let cleanContent = event.content.trim();
 
 				// Remove BOM if present
-				if (cleanContent.charCodeAt(0) === 0xFEFF) {
+				if (cleanContent.codePointAt(0) === 0xFEFF) {
 					cleanContent = cleanContent.slice(1);
 				}
 

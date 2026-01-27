@@ -95,7 +95,7 @@ function createPollsStore() {
 
 		try {
 			const filter = {
-				kinds: [VOTE_KIND as number],
+				kinds: [VOTE_KIND],
 				'#e': [pollId],
 				limit: 1000
 			};
@@ -293,7 +293,7 @@ function createPollsStore() {
 		}
 
 		const filter = {
-			kinds: [POLL_KIND as number],
+			kinds: [POLL_KIND],
 			limit: 50
 		};
 
@@ -305,7 +305,7 @@ function createPollsStore() {
 				polls.set(event.id, poll);
 				polls = new Map(polls);
 				// Fetch votes asynchronously
-				fetchVotes(event.id);
+				void fetchVotes(event.id);
 			}
 		});
 	}
@@ -328,8 +328,9 @@ function createPollsStore() {
 		if (!isPollEvent(event)) return null;
 
 		// Check cache first
-		if (polls.has(event.id)) {
-			return polls.get(event.id) || null;
+		const cached = polls.get(event.id);
+		if (cached) {
+			return cached;
 		}
 
 		// Parse and cache
@@ -338,7 +339,7 @@ function createPollsStore() {
 			polls.set(event.id, poll);
 			polls = new Map(polls);
 			// Fetch votes asynchronously
-			fetchVotes(event.id);
+			void fetchVotes(event.id);
 		}
 
 		return poll;

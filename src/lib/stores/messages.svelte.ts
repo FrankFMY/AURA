@@ -1,10 +1,44 @@
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
+import { NDKUser } from '@nostr-dev-kit/ndk';
 import ndkService from '$services/ndk';
 import { dbHelpers, type Conversation, type UserProfile } from '$db';
 import authStore from './auth.svelte';
 import { validatePubkey } from '$lib/validators/schemas';
 import { giftWrap } from '$lib/services/crypto';
 import { pushNotifications } from '$services/push-notifications';
+
+/** Detect if content is NIP-04 format (ciphertext?iv=...) */
+function isNip04Format(content: string): boolean {
+	// NIP-04 format: base64?iv=base64
+	// Also check for URL-encoded version: base64%3Fiv%3Dbase64
+	return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content) ||
+		/^[A-Za-z0-9+/=]+%3Fiv%3D[A-Za-z0-9+/=]+$/i.test(content);
+}
+
+/** Try to normalize NIP-04 content (handle URL-encoded variants) */
+function normalizeNip04Content(content: string): string {
+	// URL decode if needed
+	if (content.includes('%3F') || content.includes('%3D')) {
+		try {
+			return decodeURIComponent(content);
+		} catch {
+			return content;
+		}
+	}
+	return content;
+}
+
+/** Detect if content looks like NIP-44 format */
+function isNip44Format(content: string): boolean {
+	// NIP-44 is pure base64 without ?iv= separator
+	// It's typically longer than 50 chars and starts with version byte
+	if (!content || content.includes('?iv=')) return false;
+	// Check if it's valid base64
+	const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+	if (!base64Regex.test(content)) return false;
+	// NIP-44 messages are typically at least 100 bytes (version + nonce + ciphertext + mac)
+	return content.length >= 50;
+}
 
 /** Encryption protocol used for a message */
 export type EncryptionProtocol = 'nip04' | 'nip17' | 'unknown';
@@ -64,7 +98,7 @@ function createMessagesStore() {
 		}
 
 		// Fetch in background
-		ndkService.fetchProfile(pubkey).then(async () => {
+		void ndkService.fetchProfile(pubkey).then(async () => {
 			const profile = await dbHelpers.getProfile(pubkey);
 			if (profile) {
 				profileCache.set(pubkey, profile);
@@ -81,39 +115,6 @@ function createMessagesStore() {
 		return null;
 	}
 
-	/** Detect if content is NIP-04 format (ciphertext?iv=...) */
-	function isNip04Format(content: string): boolean {
-		// NIP-04 format: base64?iv=base64
-		// Also check for URL-encoded version: base64%3Fiv%3Dbase64
-		return /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]+$/.test(content) ||
-			/^[A-Za-z0-9+/=]+%3Fiv%3D[A-Za-z0-9+/=]+$/i.test(content);
-	}
-
-	/** Try to normalize NIP-04 content (handle URL-encoded variants) */
-	function normalizeNip04Content(content: string): string {
-		// URL decode if needed
-		if (content.includes('%3F') || content.includes('%3D')) {
-			try {
-				return decodeURIComponent(content);
-			} catch {
-				return content;
-			}
-		}
-		return content;
-	}
-
-	/** Detect if content looks like NIP-44 format */
-	function isNip44Format(content: string): boolean {
-		// NIP-44 is pure base64 without ?iv= separator
-		// It's typically longer than 50 chars and starts with version byte
-		if (!content || content.includes('?iv=')) return false;
-		// Check if it's valid base64
-		const base64Regex = /^[A-Za-z0-9+/]+=*$/;
-		if (!base64Regex.test(content)) return false;
-		// NIP-44 messages are typically at least 100 bytes (version + nonce + ciphertext + mac)
-		return content.length >= 50;
-	}
-
 	/** Decrypt message content (NIP-04 for now, NIP-44 preferred) */
 	async function decryptMessage(event: NDKEvent, otherPubkey: string): Promise<string> {
 		let result: string | undefined;
@@ -125,38 +126,38 @@ function createMessagesStore() {
 		const isNip44 = isNip44Format(content);
 
 		// If content looks like NIP-44, try NIP-44 FIRST
-		if (isNip44 && window.nostr?.nip44) {
+		if (isNip44 && globalThis.window?.nostr?.nip44) {
 			try {
-				result = await window.nostr.nip44.decrypt(otherPubkey, content);
+				result = await globalThis.window?.nostr.nip44.decrypt(otherPubkey, content);
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
 
 		// If content looks like NIP-04, try NIP-04
-		if ((!result || result.trim() === '') && isNip04 && window.nostr?.nip04) {
+		if ((!result || result.trim() === '') && isNip04 && globalThis.window?.nostr?.nip04) {
 			try {
 				const normalizedContent = normalizeNip04Content(content);
-				result = await window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
+				result = await globalThis.window?.nostr.nip04.decrypt(otherPubkey, normalizedContent);
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
 
 		// Try NIP-44 as fallback if not already tried
-		if ((!result || result.trim() === '') && !isNip44 && window.nostr?.nip44) {
+		if ((!result || result.trim() === '') && !isNip44 && globalThis.window?.nostr?.nip44) {
 			try {
-				result = await window.nostr.nip44.decrypt(otherPubkey, content);
+				result = await globalThis.window?.nostr.nip44.decrypt(otherPubkey, content);
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
 		}
 
 		// Try NIP-04 as fallback if not already tried
-		if ((!result || result.trim() === '') && !isNip04 && window.nostr?.nip04) {
+		if ((!result || result.trim() === '') && !isNip04 && globalThis.window?.nostr?.nip04) {
 			try {
 				const normalizedContent = normalizeNip04Content(content);
-				result = await window.nostr.nip04.decrypt(otherPubkey, normalizedContent);
+				result = await globalThis.window?.nostr.nip04.decrypt(otherPubkey, normalizedContent);
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 			}
@@ -167,7 +168,7 @@ function createMessagesStore() {
 			const signer = ndkService.signer;
 			if (signer && 'decrypt' in signer && ndkService.ndk) {
 				try {
-					const user = ndkService.ndk.getUser({ pubkey: otherPubkey });
+					const user = new NDKUser({ pubkey: otherPubkey });
 					result = await (signer as any).decrypt(user, event.content);
 				} catch (e) {
 					lastError = e instanceof Error ? e : new Error(String(e));
@@ -192,14 +193,14 @@ function createMessagesStore() {
 	async function encryptMessageNip04(content: string, recipientPubkey: string): Promise<string> {
 		try {
 			// NIP-04 encryption only (for kind:4 compatibility)
-			if (window.nostr?.nip04) {
-				return await window.nostr.nip04.encrypt(recipientPubkey, content);
+			if (globalThis.window?.nostr?.nip04) {
+				return await globalThis.window?.nostr.nip04.encrypt(recipientPubkey, content);
 			}
 
 			// Use NDK encryption as fallback
 			const signer = ndkService.signer;
 			if (signer && 'encrypt' in signer && ndkService.ndk) {
-				const user = ndkService.ndk.getUser({ pubkey: recipientPubkey });
+				const user = new NDKUser({ pubkey: recipientPubkey });
 				return await (signer as any).encrypt(user, content);
 			}
 
@@ -266,14 +267,14 @@ function createMessagesStore() {
 		};
 
 		dmSubscriptionId = ndkService.subscribe(nip04Filter, { closeOnEose: false }, {
-			onEvent: async (event: NDKEvent) => {
+			onEvent: (event: NDKEvent) => {
 				if (seenEventIds.has(event.id)) return;
 				seenEventIds.add(event.id);
-				
-				const isNewMessage = initialLoadComplete && 
+
+				const isNewMessage = initialLoadComplete &&
 					(event.created_at || 0) >= subscriptionStartTime - 5;
-				
-				await handleIncomingDM(event, true, isNewMessage, 'nip04');
+
+				void handleIncomingDM(event, true, isNewMessage, 'nip04');
 			},
 			onEose: () => {
 				initialLoadComplete = true;
@@ -288,14 +289,14 @@ function createMessagesStore() {
 		};
 
 		giftWrapSubscriptionId = ndkService.subscribe(nip17Filter, { closeOnEose: false }, {
-			onEvent: async (event: NDKEvent) => {
+			onEvent: (event: NDKEvent) => {
 				if (seenEventIds.has(event.id)) return;
 				seenEventIds.add(event.id);
-				
-				const isNewMessage = initialLoadComplete && 
+
+				const isNewMessage = initialLoadComplete &&
 					(event.created_at || 0) >= subscriptionStartTime - 5;
-				
-				await handleIncomingGiftWrap(event, true, isNewMessage);
+
+				void handleIncomingGiftWrap(event, true, isNewMessage);
 			}
 		});
 	}

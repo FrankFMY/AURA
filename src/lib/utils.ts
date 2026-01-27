@@ -102,8 +102,9 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 		textarea.style.opacity = '0';
 		document.body.appendChild(textarea);
 		textarea.select();
-		const success = document.execCommand('copy');
-		document.body.removeChild(textarea);
+		// execCommand is deprecated but still needed for older browsers
+		const success = document.execCommand('copy'); // NOSONAR - legacy browser fallback
+		textarea.remove();
 		return success;
 	}
 }

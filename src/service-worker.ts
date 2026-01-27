@@ -31,28 +31,80 @@ const ASSETS = [
 	...files // everything in `static`
 ];
 
+/** Add all static assets to cache */
+async function addFilesToCache(): Promise<void> {
+	const cache = await caches.open(CACHE);
+	await cache.addAll(ASSETS);
+}
+
+/** Delete old caches */
+async function deleteOldCaches(): Promise<void> {
+	for (const key of await caches.keys()) {
+		if (key !== CACHE) {
+			await caches.delete(key);
+		}
+	}
+}
+
 // Install: cache all static assets
 self.addEventListener('install', (event) => {
-	async function addFilesToCache() {
-		const cache = await caches.open(CACHE);
-		await cache.addAll(ASSETS);
-	}
-
 	event.waitUntil(addFilesToCache());
 });
 
 // Activate: clean up old caches
 self.addEventListener('activate', (event) => {
-	async function deleteOldCaches() {
-		for (const key of await caches.keys()) {
-			if (key !== CACHE) {
-				await caches.delete(key);
+	event.waitUntil(deleteOldCaches());
+});
+
+/** Handle fetch request with caching strategy */
+async function handleFetchRequest(request: Request, url: URL): Promise<Response | undefined> {
+	const cache = await caches.open(CACHE);
+
+	// Try cache first for static assets
+	if (ASSETS.includes(url.pathname)) {
+		const cachedResponse = await cache.match(url.pathname);
+		if (cachedResponse) {
+			return cachedResponse;
+		}
+	}
+
+	// Network-first for HTML pages
+	if (request.mode === 'navigate') {
+		try {
+			const response = await fetch(request);
+			// Cache successful responses
+			if (response.status === 200) {
+				cache.put(request, response.clone());
+			}
+			return response;
+		} catch {
+			// Offline: try to return cached page or fallback
+			const cachedResponse = await cache.match(request);
+			if (cachedResponse) {
+				return cachedResponse;
+			}
+			// Return the fallback page for SPA navigation
+			const fallback = await cache.match('/200.html');
+			if (fallback) {
+				return fallback;
 			}
 		}
 	}
 
-	event.waitUntil(deleteOldCaches());
-});
+	// Stale-while-revalidate for other requests
+	const cachedResponse = await cache.match(request);
+
+	const fetchPromise = fetch(request).then((response) => {
+		// Only cache valid responses
+		if (response.status === 200 && response.type === 'basic') {
+			cache.put(request, response.clone());
+		}
+		return response;
+	});
+
+	// Return cached immediately, update cache in background
+	return cachedResponse ?? fetchPromise;
+}
 
 // Fetch: serve from cache, fall back to network
 self.addEventListener('fetch', (event) => {
@@ -71,56 +123,7 @@ self.addEventListener('fetch', (event) => {
 		}
 	}
 
-	async function respond() {
-		const cache = await caches.open(CACHE);
-
-		// Try cache first for static assets
-		if (ASSETS.includes(url.pathname)) {
-			const cachedResponse = await cache.match(url.pathname);
-			if (cachedResponse) {
-				return cachedResponse;
-			}
-		}
-
-		// Network-first for HTML pages
-		if (event.request.mode === 'navigate') {
-			try {
-				const response = await fetch(event.request);
-				// Cache successful responses
-				if (response.status === 200) {
-					cache.put(event.request, response.clone());
-				}
-				return response;
-			} catch {
-				// Offline: try to return cached page or fallback
-				const cachedResponse = await cache.match(event.request);
-				if (cachedResponse) {
-					return cachedResponse;
-				}
-				// Return the fallback page for SPA navigation
-				const fallback = await cache.match('/200.html');
-				if (fallback) {
-					return fallback;
-				}
-			}
-		}
-
-		// Stale-while-revalidate for other requests
-		const cachedResponse = await cache.match(event.request);
-
-		const fetchPromise = fetch(event.request).then((response) => {
-			// Only cache valid responses
-			if (response.status === 200 && response.type === 'basic') {
-				cache.put(event.request, response.clone());
-			}
-			return response;
-		});
-
-		// Return cached immediately, update cache in background
-		return cachedResponse || fetchPromise;
-	}
-
-	event.respondWith(respond());
+	event.respondWith(handleFetchRequest(event.request, url) as Promise<Response>);
 });
 
 // Handle push notifications

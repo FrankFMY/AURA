@@ -75,13 +75,13 @@ export const BACKUP_RELAYS = [
  */
 export class RelayManager {
 	private _ndk: NDK | null = null;
-	private _config: RelayManagerConfig;
-	private _health: Map<string, RelayHealth> = new Map();
-	private _retryCount: Map<string, number> = new Map();
+	private readonly _config: RelayManagerConfig;
+	private readonly _health: Map<string, RelayHealth> = new Map();
+	private readonly _retryCount: Map<string, number> = new Map();
 	private _healthCheckTimer: ReturnType<typeof setInterval> | null = null;
-	private _listeners: Set<(event: RelayEvent) => void> = new Set();
+	private readonly _listeners: Set<(event: RelayEvent) => void> = new Set();
 	/** Blacklist of relays that have failed - url -> expiry timestamp */
-	private _blacklist: Map<string, number> = new Map();
+	private readonly _blacklist: Map<string, number> = new Map();
 
 	constructor(config: Partial<RelayManagerConfig> = {}) {
 		this._config = { ...DEFAULT_CONFIG, ...config };

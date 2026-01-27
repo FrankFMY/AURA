@@ -80,7 +80,7 @@ export function escapeHtml(text: string): string {
 		'`': '&#x60;'
 	};
 
-	return text.replace(/[&<>"'`]/g, (char) => htmlEntities[char]);
+	return text.replaceAll(/[&<>"'`]/g, (char) => htmlEntities[char]);
 }
 
 /**
@@ -113,12 +113,12 @@ export function parseNoteContent(content: string): {
 
 	// Extract and replace URLs
 	const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
-	escaped = escaped.replace(urlRegex, (url) => {
+	escaped = escaped.replaceAll(urlRegex, (url) => {
 		const decodedUrl = url
-			.replace(/&amp;/g, '&')
-			.replace(/&lt;/g, '<')
-			.replace(/&gt;/g, '>')
-			.replace(/&quot;/g, '"');
+			.replaceAll('&amp;', '&')
+			.replaceAll('&lt;', '<')
+			.replaceAll('&gt;', '>')
+			.replaceAll('&quot;', '"');
 
 		urls.push(decodedUrl);
 
@@ -136,40 +136,40 @@ export function parseNoteContent(content: string): {
 	});
 
 	// Extract and replace hashtags
-	escaped = escaped.replace(/#(\w+)/g, (match, tag) => {
+	escaped = escaped.replaceAll(/#(\w+)/g, (match, tag) => {
 		hashtags.push(tag);
 		return `<a href="/search?q=%23${encodeURIComponent(tag)}" class="text-primary hover:underline">#${escapeHtml(tag)}</a>`;
 	});
 
 	// Extract and replace Nostr mentions (npub)
-	escaped = escaped.replace(/nostr:(npub1[a-z0-9]{58})/gi, (match, npub) => {
+	escaped = escaped.replaceAll(/nostr:(npub1[a-z0-9]{58})/gi, (match, npub) => {
 		mentions.push(npub);
 		const shortNpub = npub.slice(0, 12) + '...' + npub.slice(-4);
 		return `<a href="/profile/${escapeHtml(npub)}" class="text-accent hover:underline">@${shortNpub}</a>`;
 	});
 
 	// Extract and replace Nostr note references (note1)
-	escaped = escaped.replace(/nostr:(note1[a-z0-9]{58})/gi, (match, noteId) => {
+	escaped = escaped.replaceAll(/nostr:(note1[a-z0-9]{58})/gi, (match, noteId) => {
 		const shortNote = noteId.slice(0, 12) + '...' + noteId.slice(-4);
 		return `<a href="/note/${escapeHtml(noteId)}" class="text-accent hover:underline">📝${shortNote}</a>`;
 	});
 
 	// Convert newlines to <br> tags
-	escaped = escaped.replace(/\n/g, '<br>');
+	escaped = escaped.replaceAll('\n', '<br>');
 
 	// Remove multiple consecutive <br> tags
-	escaped = escaped.replace(/(<br\s*\/?>){3,}/gi, '<br><br>');
+	escaped = escaped.replaceAll(/(<br\s*\/?>){3,}/gi, '<br><br>');
 
 	// Decode HTML entities in text that shouldn't be encoded for display
 	// This fixes issues where entities like &#x2F; (slash) and &#x3D; (equals) are visible
 	const decodeEntities = (str: string) => {
 		return str
-			.replace(/&#x2F;/g, '/')
-			.replace(/&#x3D;/g, '=')
-			.replace(/&#39;/g, "'")
-			.replace(/&#x27;/g, "'")
-			.replace(/&apos;/g, "'")
-			.replace(/&quot;/g, '"');
+			.replaceAll('&#x2F;', '/')
+			.replaceAll('&#x3D;', '=')
+			.replaceAll('&#39;', "'")
+			.replaceAll('&#x27;', "'")
+			.replaceAll('&apos;', "'")
+			.replaceAll('&quot;', '"');
 	};
 
 	// Final sanitization pass

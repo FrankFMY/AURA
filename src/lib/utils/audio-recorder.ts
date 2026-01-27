@@ -43,7 +43,7 @@ export class AudioRecorder {
 	private maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
 	private visualizationInterval: ReturnType<typeof setInterval> | null = null;
 
-	private options: Required<AudioRecorderOptions>;
+	private readonly options: Required<AudioRecorderOptions>;
 	private state: RecorderState = 'inactive';
 	private waveformData: number[] = [];
 
@@ -114,12 +114,9 @@ export class AudioRecorder {
 	 */
 	static isSupported(): boolean {
 		return !!(
-			typeof navigator !== 'undefined' &&
-			navigator.mediaDevices &&
-			typeof navigator.mediaDevices.getUserMedia === 'function' &&
-			typeof window !== 'undefined' &&
-			window.MediaRecorder &&
-			window.AudioContext
+			globalThis.navigator?.mediaDevices?.getUserMedia !== undefined &&
+			globalThis.MediaRecorder !== undefined &&
+			globalThis.AudioContext !== undefined
 		);
 	}
 
@@ -152,8 +149,8 @@ export class AudioRecorder {
 			// Stop all tracks to release the mic
 			stream.getTracks().forEach((track) => track.stop());
 			return true;
-		} catch (e) {
-			console.error('[AudioRecorder] Permission denied:', e);
+		} catch (err) {
+			console.error('[AudioRecorder] Permission denied:', err);
 			return false;
 		}
 	}
@@ -315,8 +312,8 @@ export class AudioRecorder {
 		if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
 			try {
 				this.mediaRecorder.stop();
-			} catch (e) {
-				// Ignore
+			} catch {
+				// Ignore - MediaRecorder may already be stopped
 			}
 		}
 		this.mediaRecorder = null;
@@ -329,11 +326,9 @@ export class AudioRecorder {
 
 		// Close audio context
 		if (this.audioContext) {
-			try {
-				this.audioContext.close();
-			} catch (e) {
-				// Ignore
-			}
+			this.audioContext.close().catch(() => {
+				// Ignore - AudioContext may already be closed
+			});
 			this.audioContext = null;
 		}
 
