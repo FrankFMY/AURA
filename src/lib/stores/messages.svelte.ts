@@ -12,6 +12,49 @@ import { pushNotifications } from '$services/push-notifications';
 /** Encryption protocol used for a message */
 export type EncryptionProtocol = 'nip04' | 'nip17' | 'unknown';
 
+/** Debug: test encryption/decryption roundtrip with a pubkey */
+export async function testEncryptionWithPubkey(theirPubkey: string): Promise<{
+	success: boolean;
+	error?: string;
+	details?: string;
+}> {
+	const testMessage = 'AURA_TEST_' + Date.now();
+
+	try {
+		if (!window.nostr?.nip04) {
+			return { success: false, error: 'NIP-04 not available' };
+		}
+
+		// Encrypt
+		const encrypted = await window.nostr.nip04.encrypt(theirPubkey, testMessage);
+		console.debug('[Test] Encrypted:', encrypted.slice(0, 50));
+
+		// Decrypt
+		const decrypted = await window.nostr.nip04.decrypt(theirPubkey, encrypted);
+		console.debug('[Test] Decrypted:', decrypted);
+
+		if (decrypted === testMessage) {
+			return {
+				success: true,
+				details: `Roundtrip OK with pubkey ${theirPubkey.slice(0, 16)}...`
+			};
+		} else {
+			return {
+				success: false,
+				error: 'Decrypted message does not match',
+				details: `Expected: ${testMessage}, Got: ${decrypted}`
+			};
+		}
+	} catch (e) {
+		const errorMsg = e instanceof Error ? e.message : String(e);
+		return {
+			success: false,
+			error: errorMsg,
+			details: `Failed with pubkey ${theirPubkey.slice(0, 16)}...`
+		};
+	}
+}
+
 /** Message with metadata */
 export interface Message {
 	id: string;
@@ -673,6 +716,13 @@ function createMessagesStore() {
 		}
 
 		activeConversation = pubkey;
+
+		// Debug: Test encryption roundtrip with this pubkey
+		if (window.nostr?.nip04) {
+			testEncryptionWithPubkey(pubkey).then(result => {
+				console.log('[Messages] Encryption test with', pubkey.slice(0, 16), ':', result);
+			});
+		}
 
 		// Clear unread count in memory and DB
 		const convIndex = conversations.findIndex((c) => c.pubkey === pubkey);
