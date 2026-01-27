@@ -16,8 +16,10 @@ export default defineConfig({
 			'@noble/curves',
 			'@noble/hashes',
 			'@noble/ciphers',
-			'@cashu/cashu-ts'
+			'@cashu/cashu-ts',
+			'simple-peer'
 		],
+		exclude: ['wrtc'],
 		esbuildOptions: {
 			target: 'esnext'
 		}

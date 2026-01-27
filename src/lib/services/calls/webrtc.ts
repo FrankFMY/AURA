@@ -6,7 +6,26 @@
  */
 
 import { browser } from '$app/environment';
-import SimplePeer from 'simple-peer';
+import type SimplePeerModule from 'simple-peer';
+
+// Type aliases for SimplePeer
+type SimplePeerInstance = SimplePeerModule.Instance;
+type SimplePeerSignalData = SimplePeerModule.SignalData;
+type SimplePeerConstructor = typeof SimplePeerModule;
+
+// Dynamic import to avoid SSR issues with SimplePeer
+let SimplePeer: SimplePeerConstructor | null = null;
+
+async function getSimplePeer(): Promise<SimplePeerConstructor> {
+	if (!browser) {
+		throw new Error('SimplePeer is only available in browser');
+	}
+	if (!SimplePeer) {
+		const module = await import('simple-peer');
+		SimplePeer = module.default;
+	}
+	return SimplePeer;
+}
 
 // STUN/TURN servers for NAT traversal
 const ICE_SERVERS: RTCIceServer[] = [
@@ -45,7 +64,7 @@ export interface WebRTCSignal {
 	type: 'webrtc_signal';
 	signalType: SignalType;
 	roomId: string;
-	data: SimplePeer.SignalData;
+	data: SimplePeerSignalData;
 }
 
 /** Call events */
@@ -72,7 +91,7 @@ export function isWebRTCSignal(content: string): WebRTCSignal | null {
 
 /** WebRTC Peer Connection Manager */
 class WebRTCService {
-	private peer: SimplePeer.Instance | null = null;
+	private peer: SimplePeerInstance | null = null;
 	private localStream: MediaStream | null = null;
 	private remoteStream: MediaStream | null = null;
 	private callbacks: WebRTCCallbacks | null = null;
@@ -121,7 +140,7 @@ class WebRTCService {
 		await this.getLocalStream(isVideo);
 
 		// Create peer connection as initiator
-		this.createPeer(true);
+		await this.createPeer(true);
 	}
 
 	/** Answer an incoming call */
@@ -142,7 +161,7 @@ class WebRTCService {
 		await this.getLocalStream(isVideo);
 
 		// Create peer connection as answerer (not initiator)
-		this.createPeer(false);
+		await this.createPeer(false);
 	}
 
 	/** Handle incoming signal from remote peer */
@@ -189,10 +208,12 @@ class WebRTCService {
 	}
 
 	/** Create SimplePeer instance */
-	private createPeer(initiator: boolean): void {
+	private async createPeer(initiator: boolean): Promise<void> {
 		console.log('[WebRTC] Creating peer, initiator:', initiator);
 
-		this.peer = new SimplePeer({
+		const Peer = await getSimplePeer();
+
+		this.peer = new Peer({
 			initiator,
 			stream: this.localStream || undefined,
 			trickle: true,
@@ -202,7 +223,7 @@ class WebRTCService {
 		});
 
 		// Handle outgoing signals (send to remote peer via Nostr)
-		this.peer.on('signal', (data) => {
+		this.peer.on('signal', (data: SimplePeerSignalData) => {
 			console.log('[WebRTC] Got signal to send:', data.type || 'ice-candidate');
 
 			let signalType: SignalType = 'ice-candidate';
@@ -223,8 +244,8 @@ class WebRTCService {
 		});
 
 		// Handle incoming remote stream
-		this.peer.on('stream', (stream) => {
-			console.log('[WebRTC] Got remote stream:', stream.getTracks().map(t => t.kind));
+		this.peer.on('stream', (stream: MediaStream) => {
+			console.log('[WebRTC] Got remote stream:', stream.getTracks().map((t: MediaStreamTrack) => t.kind));
 			this.remoteStream = stream;
 			this.callbacks?.onStream(stream);
 		});
@@ -242,7 +263,7 @@ class WebRTCService {
 		});
 
 		// Handle errors
-		this.peer.on('error', (error) => {
+		this.peer.on('error', (error: Error) => {
 			console.error('[WebRTC] Error:', error);
 			this.callbacks?.onError(error);
 		});
