@@ -1,5 +1,12 @@
 {
   "names": {
     "frankfmy": "8e4e46d33456d82f519454c9dcb972f9c04d43d4739e09e0b1d4937460c6530f"
+  },
+  "relays": {
+    "8e4e46d33456d82f519454c9dcb972f9c04d43d4739e09e0b1d4937460c6530f": [
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+      "wss://relay.nostr.band"
+    ]
   }
 }

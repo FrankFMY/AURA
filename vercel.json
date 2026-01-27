@@ -6,17 +6,13 @@
   "buildCommand": "bun run build",
   "headers": [
     {
-      "source": "/.well-known/nostr.json",
+      "source": "/.well-known/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" },
         { "key": "Content-Type", "value": "application/json" }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
     }
   ]
 }
