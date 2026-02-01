@@ -19,7 +19,7 @@
 	import VoiceMessage from '$lib/components/messages/VoiceMessage.svelte';
 	import { formatRelativeTime, truncatePubkey } from '$lib/utils';
 	import { notificationsStore } from '$stores/notifications.svelte';
-	import { isCallInvite, isCallResponse } from '$stores/calls.svelte';
+	import { isCallInvite, isCallResponse, isWebRTCSignal } from '$stores/calls.svelte';
 	import { CallButton } from '$components/calls';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import Phone from 'lucide-svelte/icons/phone';
@@ -126,6 +126,14 @@
 		if (!content) return false;
 		const trimmed = content.trim();
 		return isCallInvite(trimmed) !== null || isCallResponse(trimmed) !== null;
+	}
+
+	/**
+	 * Check if message is a WebRTC signaling message (should be hidden)
+	 */
+	function isWebRTCSignalMessage(content: string | undefined | null): boolean {
+		if (!content) return false;
+		return isWebRTCSignal(content.trim()) !== null;
 	}
 
 	/**
@@ -525,6 +533,10 @@
 				class="flex-1 space-y-4 overflow-y-auto p-4"
 			>
 				{#each activeConv.messages as message (message.id)}
+					<!-- Skip WebRTC signaling messages (offer/answer/ice-candidate) -->
+					{#if message.decrypted && isWebRTCSignalMessage(message.content)}
+						<!-- Hidden: WebRTC signal -->
+					{:else}
 					<div
 						class="flex {message.isOutgoing ? 'justify-end' : (
 							'justify-start'
@@ -683,6 +695,7 @@
 							</div>
 						{/if}
 					</div>
+					{/if}
 				{/each}
 			</div>
 
