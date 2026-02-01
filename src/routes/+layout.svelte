@@ -137,6 +137,7 @@
 						)
 					]).catch((e) => {
 						console.warn('Wallet init failed (non-critical):', e);
+						walletStore.clearError(); // Don't show error on Wallet page for auto-init failures
 					})
 				);
 
