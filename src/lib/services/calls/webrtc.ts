@@ -9,9 +9,11 @@ import { browser } from '$app/environment';
 
 // STUN/TURN servers for NAT traversal
 const ICE_SERVERS: RTCIceServer[] = [
+	// Google STUN servers
 	{ urls: 'stun:stun.l.google.com:19302' },
 	{ urls: 'stun:stun1.l.google.com:19302' },
 	{ urls: 'stun:stun2.l.google.com:19302' },
+	// Metered TURN servers
 	{
 		urls: 'turn:a.relay.metered.ca:80',
 		username: 'e8dd65c92f6a932f5c403127',
@@ -26,6 +28,22 @@ const ICE_SERVERS: RTCIceServer[] = [
 		urls: 'turn:a.relay.metered.ca:443?transport=tcp',
 		username: 'e8dd65c92f6a932f5c403127',
 		credential: 'uWdxLfQL+Uu8Lp/T'
+	},
+	// OpenRelay TURN servers (free, public)
+	{
+		urls: 'turn:openrelay.metered.ca:80',
+		username: 'openrelayproject',
+		credential: 'openrelayproject'
+	},
+	{
+		urls: 'turn:openrelay.metered.ca:443',
+		username: 'openrelayproject',
+		credential: 'openrelayproject'
+	},
+	{
+		urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+		username: 'openrelayproject',
+		credential: 'openrelayproject'
 	}
 ];
 
@@ -228,12 +246,19 @@ class WebRTCService {
 		// Handle ICE candidates
 		this.pc.onicecandidate = (event) => {
 			if (event.candidate) {
-				console.log('[WebRTC] Got ICE candidate');
+				const candidateType = event.candidate.type || 'unknown';
+				const protocol = event.candidate.protocol || 'unknown';
+				console.log('[WebRTC] Got ICE candidate:', candidateType, protocol, event.candidate.address || '');
 				this.sendSignal('ice-candidate', {
 					type: 'ice-candidate',
 					candidate: event.candidate.toJSON()
 				});
 			}
+		};
+
+		// Log ICE gathering state
+		this.pc.onicegatheringstatechange = () => {
+			console.log('[WebRTC] ICE gathering state:', this.pc?.iceGatheringState);
 		};
 
 		// Handle remote stream
