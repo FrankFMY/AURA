@@ -19,6 +19,7 @@
 
 	let localVideoEl = $state<HTMLVideoElement | null>(null);
 	let remoteVideoEl = $state<HTMLVideoElement | null>(null);
+	let remoteAudioEl = $state<HTMLAudioElement | null>(null);
 	let callDuration = $state('0:00');
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -60,6 +61,18 @@
 		}
 	});
 
+	// Attach remote stream to audio element (for audio calls)
+	$effect(() => {
+		if (remoteAudioEl && remoteStream) {
+			console.log('[ActiveCall] Attaching remote stream to audio element');
+			remoteAudioEl.srcObject = remoteStream;
+			// Ensure playback starts
+			remoteAudioEl.play().catch(e => {
+				console.error('[ActiveCall] Failed to play audio:', e);
+			});
+		}
+	});
+
 	function startDurationTimer() {
 		const startTime = call.connectedAt || Date.now();
 		durationInterval = setInterval(() => {
@@ -84,6 +97,14 @@
 </script>
 
 <div class="fixed inset-0 z-100 flex flex-col bg-black">
+	<!-- Hidden audio element for remote stream playback -->
+	<audio
+		bind:this={remoteAudioEl}
+		autoplay
+		playsinline
+		class="hidden"
+	></audio>
+
 	<!-- Remote video (full screen) -->
 	{#if call.callType === 'video'}
 		<div class="absolute inset-0">
