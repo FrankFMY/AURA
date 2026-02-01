@@ -10,6 +10,13 @@
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { onMount, onDestroy } from 'svelte';
 
+	// Dev-only logging
+	const debug = (...args: unknown[]) => {
+		if (import.meta.env.DEV) {
+			console.log('[ActiveCall]', ...args);
+		}
+	};
+
 	interface Props {
 		call: ActiveCall;
 		onEnd: () => void;
@@ -64,7 +71,7 @@
 	// Attach remote stream to audio element (for audio calls)
 	$effect(() => {
 		if (remoteAudioEl && remoteStream) {
-			console.log('[ActiveCall] Attaching remote stream to audio element');
+			debug('Attaching remote stream to audio element');
 			remoteAudioEl.srcObject = remoteStream;
 			// Ensure playback starts
 			remoteAudioEl.play().catch(e => {

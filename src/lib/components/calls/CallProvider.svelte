@@ -6,6 +6,13 @@
 	import IncomingCall from './IncomingCall.svelte';
 	import ActiveCall from './ActiveCall.svelte';
 
+	// Dev-only logging
+	const debug = (...args: unknown[]) => {
+		if (import.meta.env.DEV) {
+			console.log('[CallProvider]', ...args);
+		}
+	};
+
 	// Subscribe to incoming messages for call invites and WebRTC signals
 	// Load from localStorage to persist across page refreshes
 	let processedMessageIds = new Set<string>(loadProcessedIds());
@@ -63,7 +70,7 @@
 				// Check if it's a WebRTC signal (highest priority)
 				const signal = isWebRTCSignal(message.content);
 				if (signal) {
-					console.log('[CallProvider] Received WebRTC signal:', signal.signalType, 'room:', signal.roomId);
+					debug('Received WebRTC signal:', signal.signalType, 'room:', signal.roomId);
 					processedMessageIds.add(message.id);
 					callsStore.handleWebRTCSignal(signal);
 					continue;

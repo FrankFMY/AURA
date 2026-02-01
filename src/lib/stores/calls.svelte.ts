@@ -11,6 +11,13 @@ import { messagesStore } from '$stores/messages.svelte';
 import { dbHelpers, type UserProfile } from '$db';
 import { webrtcService, type WebRTCSignal } from '$services/calls/webrtc';
 
+// Dev-only logging
+const debug = (...args: unknown[]) => {
+	if (import.meta.env.DEV) {
+		debug('', ...args);
+	}
+};
+
 /** Call type */
 export type CallType = 'audio' | 'video';
 
@@ -219,7 +226,7 @@ function createCallsStore() {
 			const roomId = generateRoomId();
 			const peerProfile = await dbHelpers.getProfile(peerPubkey);
 
-			console.log('[Calls] Starting call to', peerPubkey, 'room:', roomId);
+			debug(' Starting call to', peerPubkey, 'room:', roomId);
 
 			// Set active call
 			activeCall = {
@@ -235,21 +242,21 @@ function createCallsStore() {
 			// Initialize WebRTC as initiator
 			await webrtcService.initCall(roomId, callType === 'video', {
 				onSignal: (signal) => {
-					console.log('[Calls] Sending signal:', signal.signalType);
+					debug(' Sending signal:', signal.signalType);
 					sendSignal(peerPubkey, signal);
 				},
 				onStream: (stream) => {
-					console.log('[Calls] Got remote stream');
+					debug(' Got remote stream');
 					remoteStream = stream;
 				},
 				onConnect: () => {
-					console.log('[Calls] WebRTC connected');
+					debug(' WebRTC connected');
 					if (activeCall) {
 						activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
 					}
 				},
 				onClose: () => {
-					console.log('[Calls] WebRTC connection closed');
+					debug(' WebRTC connection closed');
 					endCall('ended');
 				},
 				onError: (error) => {
@@ -277,7 +284,7 @@ function createCallsStore() {
 				}
 			}, CALL_TIMEOUT);
 
-			console.log('[Calls] Call started:', roomId);
+			debug(' Call started:', roomId);
 			return roomId;
 		} catch (e) {
 			console.error('[Calls] Failed to start call:', e);
@@ -297,14 +304,14 @@ function createCallsStore() {
 		if (messageTimestamp) {
 			const ageMs = Date.now() - messageTimestamp * 1000;
 			if (ageMs > 120000) {
-				console.log('[Calls] Ignoring old call invite, age:', Math.round(ageMs / 1000), 'sec');
+				debug(' Ignoring old call invite, age:', Math.round(ageMs / 1000), 'sec');
 				return;
 			}
 		}
 
 		// Ignore if already in a call
 		if (activeCall) {
-			console.log('[Calls] Auto-declining: already in call', activeCall.roomId);
+			debug(' Auto-declining: already in call', activeCall.roomId);
 			await sendCallResponse(callerPubkey, invite.roomId, 'decline');
 			return;
 		}
@@ -322,7 +329,7 @@ function createCallsStore() {
 		// Check for orphan signals that arrived before this call_invite (race condition fix)
 		const orphan = orphanSignals.get(invite.roomId);
 		if (orphan && orphan.signals.length > 0) {
-			console.log('[Calls] Found', orphan.signals.length, 'orphan signals for room:', invite.roomId);
+			debug(' Found', orphan.signals.length, 'orphan signals for room:', invite.roomId);
 			// Move orphan signals to pending signals
 			const existing = pendingSignals.get(invite.roomId) || [];
 			pendingSignals.set(invite.roomId, [...orphan.signals, ...existing]);
@@ -345,7 +352,7 @@ function createCallsStore() {
 			}
 		}, CALL_TIMEOUT);
 
-		console.log('[Calls] Incoming call from:', callerPubkey);
+		debug(' Incoming call from:', callerPubkey);
 	}
 
 	/** Accept incoming call */
@@ -384,21 +391,21 @@ function createCallsStore() {
 			// Initialize WebRTC as answerer
 			await webrtcService.answerCall(roomId, callType === 'video', {
 				onSignal: (signal) => {
-					console.log('[Calls] Sending signal:', signal.signalType);
+					debug(' Sending signal:', signal.signalType);
 					sendSignal(callerPubkey, signal);
 				},
 				onStream: (stream) => {
-					console.log('[Calls] Got remote stream');
+					debug(' Got remote stream');
 					remoteStream = stream;
 				},
 				onConnect: () => {
-					console.log('[Calls] WebRTC connected');
+					debug(' WebRTC connected');
 					if (activeCall) {
 						activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
 					}
 				},
 				onClose: () => {
-					console.log('[Calls] WebRTC connection closed');
+					debug(' WebRTC connection closed');
 					endCall('ended');
 				},
 				onError: (error) => {
@@ -417,7 +424,7 @@ function createCallsStore() {
 			// Send accept response
 			await sendCallResponse(callerPubkey, roomId, 'accept');
 
-			console.log('[Calls] Call accepted:', roomId);
+			debug(' Call accepted:', roomId);
 			return roomId;
 		} catch (e) {
 			console.error('[Calls] Failed to accept call:', e);
@@ -458,7 +465,7 @@ function createCallsStore() {
 		});
 
 		incomingCall = null;
-		console.log('[Calls] Call declined:', roomId);
+		debug(' Call declined:', roomId);
 	}
 
 	/** Dismiss incoming call without response */
@@ -489,7 +496,7 @@ function createCallsStore() {
 
 		if (response.action === 'accept') {
 			activeCall = { ...activeCall, status: 'connecting' };
-			console.log('[Calls] Call accepted by peer');
+			debug(' Call accepted by peer');
 		} else if (response.action === 'decline') {
 			await endCall('declined');
 		} else if (response.action === 'end') {
@@ -501,7 +508,7 @@ function createCallsStore() {
 	async function handleWebRTCSignal(signal: WebRTCSignal): Promise<void> {
 		// If we have an active call for this room, forward signal directly
 		if (activeCall && activeCall.roomId === signal.roomId) {
-			console.log('[Calls] Forwarding signal to WebRTC:', signal.signalType);
+			debug(' Forwarding signal to WebRTC:', signal.signalType);
 			await webrtcService.handleSignal(signal);
 			return;
 		}
@@ -509,7 +516,7 @@ function createCallsStore() {
 		// If we have an incoming call for this room, buffer the signal
 		// (signals may arrive before user accepts the call)
 		if (incomingCall && incomingCall.roomId === signal.roomId) {
-			console.log('[Calls] Buffering signal for incoming call:', signal.signalType);
+			debug(' Buffering signal for incoming call:', signal.signalType);
 			const buffered = pendingSignals.get(signal.roomId) || [];
 			buffered.push(signal);
 			pendingSignals.set(signal.roomId, buffered);
@@ -518,7 +525,7 @@ function createCallsStore() {
 
 		// Buffer signals for unknown rooms (they may arrive before call_invite due to race condition)
 		// This fixes the issue where offer arrives before call_invite
-		console.log('[Calls] Buffering orphan signal for room:', signal.roomId, 'type:', signal.signalType);
+		debug(' Buffering orphan signal for room:', signal.roomId, 'type:', signal.signalType);
 		const orphan = orphanSignals.get(signal.roomId) || { signals: [], timestamp: Date.now() };
 		orphan.signals.push(signal);
 		orphanSignals.set(signal.roomId, orphan);
@@ -527,7 +534,7 @@ function createCallsStore() {
 		const now = Date.now();
 		for (const [roomId, data] of orphanSignals.entries()) {
 			if (now - data.timestamp > 30000) {
-				console.log('[Calls] Cleaning up old orphan signals for room:', roomId);
+				debug(' Cleaning up old orphan signals for room:', roomId);
 				orphanSignals.delete(roomId);
 			}
 		}
@@ -538,7 +545,7 @@ function createCallsStore() {
 		const signals = pendingSignals.get(roomId);
 		if (!signals || signals.length === 0) return;
 
-		console.log('[Calls] Processing', signals.length, 'buffered signals for room:', roomId);
+		debug(' Processing', signals.length, 'buffered signals for room:', roomId);
 
 		for (const signal of signals) {
 			await webrtcService.handleSignal(signal);
@@ -556,7 +563,7 @@ function createCallsStore() {
 	function markConnected(): void {
 		if (activeCall?.status === 'connecting') {
 			activeCall = { ...activeCall, status: 'connected', connectedAt: Date.now() };
-			console.log('[Calls] Call connected');
+			debug(' Call connected');
 		}
 	}
 
@@ -604,7 +611,7 @@ function createCallsStore() {
 		isMuted = false;
 		isVideoEnabled = true;
 
-		console.log('[Calls] Call ended:', status);
+		debug(' Call ended:', status);
 	}
 
 	/** Add call to history */
@@ -632,7 +639,7 @@ function createCallsStore() {
 
 	/** Force reset all call state (for debugging stuck calls) */
 	function forceReset(): void {
-		console.log('[Calls] Force resetting call state');
+		debug(' Force resetting call state');
 		if (callTimeoutId) {
 			clearTimeout(callTimeoutId);
 			callTimeoutId = null;

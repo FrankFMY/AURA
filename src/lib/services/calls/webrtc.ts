@@ -7,6 +7,13 @@
 
 import { browser } from '$app/environment';
 
+// Dev-only logging
+const debug = (...args: unknown[]) => {
+	if (import.meta.env.DEV) {
+		debug('', ...args);
+	}
+};
+
 // STUN/TURN servers for NAT traversal
 const ICE_SERVERS: RTCIceServer[] = [
 	// Google STUN servers
@@ -128,7 +135,7 @@ class WebRTCService {
 	): Promise<void> {
 		if (!browser) throw new Error('WebRTC is only available in browser');
 
-		console.log('[WebRTC] Initializing call as initiator, room:', roomId);
+		debug(' Initializing call as initiator, room:', roomId);
 
 		this.roomId = roomId;
 		this.isInitiator = true;
@@ -147,7 +154,7 @@ class WebRTCService {
 	): Promise<void> {
 		if (!browser) throw new Error('WebRTC is only available in browser');
 
-		console.log('[WebRTC] Answering call, room:', roomId);
+		debug(' Answering call, room:', roomId);
 
 		this.roomId = roomId;
 		this.isInitiator = false;
@@ -169,7 +176,7 @@ class WebRTCService {
 			return;
 		}
 
-		console.log('[WebRTC] Handling signal:', signal.signalType);
+		debug(' Handling signal:', signal.signalType);
 
 		try {
 			if (signal.signalType === 'offer' && signal.data.type === 'offer') {
@@ -180,12 +187,12 @@ class WebRTCService {
 				await this.processQueuedCandidates();
 				await this.createAnswer();
 			} else if (signal.signalType === 'answer' && signal.data.type === 'answer') {
-				console.log('[WebRTC] Processing answer, setting remote description');
+				debug(' Processing answer, setting remote description');
 				await this.pc.setRemoteDescription({
 					type: 'answer',
 					sdp: signal.data.sdp
 				});
-				console.log('[WebRTC] Remote description set successfully');
+				debug(' Remote description set successfully');
 				await this.processQueuedCandidates();
 			} else if (signal.signalType === 'ice-candidate' && signal.data.type === 'ice-candidate') {
 				if (signal.data.candidate) {
@@ -204,7 +211,7 @@ class WebRTCService {
 	/** Get local media stream */
 	private async getLocalStream(isVideo: boolean): Promise<void> {
 		try {
-			console.log('[WebRTC] Getting local stream, video:', isVideo);
+			debug(' Getting local stream, video:', isVideo);
 
 			this.localStream = await navigator.mediaDevices.getUserMedia({
 				audio: {
@@ -221,7 +228,7 @@ class WebRTCService {
 					: false
 			});
 
-			console.log('[WebRTC] Got local stream:', this.localStream.getTracks().map(t => t.kind));
+			debug(' Got local stream:', this.localStream.getTracks().map(t => t.kind));
 		} catch (error) {
 			console.error('[WebRTC] Failed to get local stream:', error);
 			throw new Error('Failed to access camera/microphone. Please check permissions.');
@@ -230,7 +237,7 @@ class WebRTCService {
 
 	/** Create RTCPeerConnection */
 	private createPeerConnection(): void {
-		console.log('[WebRTC] Creating peer connection');
+		debug(' Creating peer connection');
 
 		this.pc = new RTCPeerConnection({
 			iceServers: ICE_SERVERS
@@ -248,7 +255,7 @@ class WebRTCService {
 			if (event.candidate) {
 				const candidateType = event.candidate.type || 'unknown';
 				const protocol = event.candidate.protocol || 'unknown';
-				console.log('[WebRTC] Got ICE candidate:', candidateType, protocol, event.candidate.address || '');
+				debug(' Got ICE candidate:', candidateType, protocol, event.candidate.address || '');
 				this.sendSignal('ice-candidate', {
 					type: 'ice-candidate',
 					candidate: event.candidate.toJSON()
@@ -258,12 +265,12 @@ class WebRTCService {
 
 		// Log ICE gathering state
 		this.pc.onicegatheringstatechange = () => {
-			console.log('[WebRTC] ICE gathering state:', this.pc?.iceGatheringState);
+			debug(' ICE gathering state:', this.pc?.iceGatheringState);
 		};
 
 		// Handle remote stream
 		this.pc.ontrack = (event) => {
-			console.log('[WebRTC] Got remote track:', event.track.kind);
+			debug(' Got remote track:', event.track.kind);
 			if (!this.remoteStream) {
 				this.remoteStream = new MediaStream();
 			}
@@ -273,7 +280,7 @@ class WebRTCService {
 
 		// Handle connection state changes
 		this.pc.onconnectionstatechange = () => {
-			console.log('[WebRTC] Connection state:', this.pc?.connectionState);
+			debug(' Connection state:', this.pc?.connectionState);
 			if (this.pc?.connectionState === 'connected') {
 				this.callbacks?.onConnect();
 			} else if (this.pc?.connectionState === 'failed' || this.pc?.connectionState === 'closed') {
@@ -283,7 +290,7 @@ class WebRTCService {
 
 		// Handle ICE connection state for errors
 		this.pc.oniceconnectionstatechange = () => {
-			console.log('[WebRTC] ICE state:', this.pc?.iceConnectionState);
+			debug(' ICE state:', this.pc?.iceConnectionState);
 			if (this.pc?.iceConnectionState === 'failed') {
 				this.callbacks?.onError(new Error('ICE connection failed'));
 			}
@@ -298,7 +305,7 @@ class WebRTCService {
 			const offer = await this.pc.createOffer();
 			await this.pc.setLocalDescription(offer);
 
-			console.log('[WebRTC] Created offer');
+			debug(' Created offer');
 			this.sendSignal('offer', {
 				type: 'offer',
 				sdp: offer.sdp!
@@ -317,7 +324,7 @@ class WebRTCService {
 			const answer = await this.pc.createAnswer();
 			await this.pc.setLocalDescription(answer);
 
-			console.log('[WebRTC] Created answer');
+			debug(' Created answer');
 			this.sendSignal('answer', {
 				type: 'answer',
 				sdp: answer.sdp!
@@ -356,7 +363,7 @@ class WebRTCService {
 		const audioTrack = this.localStream.getAudioTracks()[0];
 		if (audioTrack) {
 			audioTrack.enabled = !audioTrack.enabled;
-			console.log('[WebRTC] Audio:', audioTrack.enabled ? 'unmuted' : 'muted');
+			debug(' Audio:', audioTrack.enabled ? 'unmuted' : 'muted');
 			return !audioTrack.enabled;
 		}
 		return false;
@@ -369,7 +376,7 @@ class WebRTCService {
 		const videoTrack = this.localStream.getVideoTracks()[0];
 		if (videoTrack) {
 			videoTrack.enabled = !videoTrack.enabled;
-			console.log('[WebRTC] Video:', videoTrack.enabled ? 'on' : 'off');
+			debug(' Video:', videoTrack.enabled ? 'on' : 'off');
 			return videoTrack.enabled;
 		}
 		return false;
@@ -411,13 +418,13 @@ class WebRTCService {
 
 	/** End the call and clean up */
 	endCall(): void {
-		console.log('[WebRTC] Ending call');
+		debug(' Ending call');
 
 		// Stop all local tracks
 		if (this.localStream) {
 			this.localStream.getTracks().forEach(track => {
 				track.stop();
-				console.log('[WebRTC] Stopped track:', track.kind);
+				debug(' Stopped track:', track.kind);
 			});
 			this.localStream = null;
 		}
@@ -464,7 +471,7 @@ class WebRTCService {
 				videoTrack.stop();
 				this.localStream.addTrack(newVideoTrack);
 
-				console.log('[WebRTC] Switched to', newFacing, 'camera');
+				debug(' Switched to', newFacing, 'camera');
 			}
 		} catch (error) {
 			console.error('[WebRTC] Failed to switch camera:', error);
