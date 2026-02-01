@@ -16,6 +16,41 @@ const NIP04_URLENCODED_REGEX = new RegExp(`^${B64}+=*%3Fiv%3D${B64}+=*$`, 'i');
 /** Base64 validation regex */
 const BASE64_REGEX = new RegExp(`^${B64}+=*$`);
 
+/**
+ * Format message content for preview in conversation list.
+ * Converts call-related JSON messages to human-readable text.
+ */
+function formatMessagePreview(content: string | null | undefined): string {
+	if (!content) return '';
+	const trimmed = content.trim();
+
+	// Try to parse as JSON for call-related messages
+	try {
+		const data = JSON.parse(trimmed);
+
+		// WebRTC signaling messages - skip entirely
+		if (data.type === 'webrtc_signal') {
+			return '';
+		}
+
+		// Call invite
+		if (data.type === 'call_invite') {
+			return data.callType === 'video' ? '📹 Video call' : '📞 Voice call';
+		}
+
+		// Call response
+		if (data.type === 'call_response') {
+			if (data.action === 'accept') return '✓ Call accepted';
+			if (data.action === 'decline') return '✗ Call declined';
+			if (data.action === 'end') return 'Call ended';
+		}
+	} catch {
+		// Not JSON, use as-is
+	}
+
+	return trimmed.slice(0, 50);
+}
+
 /** Detect if content is NIP-04 format (ciphertext?iv=...) */
 function isNip04Format(content: string): boolean {
 	// NIP-04 format: base64?iv=base64
@@ -538,9 +573,11 @@ function createMessagesStore() {
 			notifyNewMessage(conv, message, otherPubkey);
 		}
 
-		const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0);
+		const formattedPreview = formatMessagePreview(message.content);
+		// Don't update preview for WebRTC signals (empty preview)
+		const shouldUpdatePreview = message.created_at >= (conv.last_message_at || 0) && formattedPreview !== '';
 		const newLastMessageAt = shouldUpdatePreview ? message.created_at : conv.last_message_at;
-		const newLastMessagePreview = shouldUpdatePreview ? (message.content || '').slice(0, 50) : conv.last_message_preview;
+		const newLastMessagePreview = shouldUpdatePreview ? formattedPreview : conv.last_message_preview;
 
 		conversations = [
 			{
@@ -579,7 +616,7 @@ function createMessagesStore() {
 			profile,
 			messages: [message],
 			last_message_at: message.created_at,
-			last_message_preview: (message.content || '').slice(0, 50),
+			last_message_preview: formatMessagePreview(message.content),
 			unread_count: newUnreadCount
 		};
 
@@ -589,7 +626,7 @@ function createMessagesStore() {
 			await dbHelpers.saveConversation({
 				pubkey: otherPubkey,
 				last_message_at: message.created_at,
-				last_message_preview: (message.content || '').slice(0, 50),
+				last_message_preview: formatMessagePreview(message.content),
 				unread_count: newConv.unread_count
 			});
 		}
@@ -751,7 +788,7 @@ function createMessagesStore() {
 					...conversations[convIndex],
 					messages: [...conversations[convIndex].messages, message],
 					last_message_at: message.created_at,
-					last_message_preview: (content || '').slice(0, 50)
+					last_message_preview: formatMessagePreview(content)
 				};
 
 				conversations = conversations.map((c) =>
@@ -762,7 +799,7 @@ function createMessagesStore() {
 				dbHelpers.saveConversation({
 					pubkey: recipientPubkey,
 					last_message_at: message.created_at,
-					last_message_preview: (content || '').slice(0, 50),
+					last_message_preview: formatMessagePreview(content),
 					unread_count: updatedConv.unread_count
 				});
 			}
