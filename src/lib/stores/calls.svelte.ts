@@ -164,6 +164,10 @@ function createCallsStore() {
 	// Buffer for signals that arrive before call is accepted
 	let pendingSignals: Map<string, WebRTCSignal[]> = new Map();
 
+	// Buffer for signals that arrive before call_invite (race condition fix)
+	// These are signals for rooms we don't know about yet
+	let orphanSignals: Map<string, { signals: WebRTCSignal[]; timestamp: number }> = new Map();
+
 	// Load call history from localStorage
 	function loadCallHistory(): void {
 		if (!browser) return;
@@ -314,6 +318,16 @@ function createCallsStore() {
 			callType: invite.callType,
 			receivedAt: Date.now()
 		};
+
+		// Check for orphan signals that arrived before this call_invite (race condition fix)
+		const orphan = orphanSignals.get(invite.roomId);
+		if (orphan && orphan.signals.length > 0) {
+			console.log('[Calls] Found', orphan.signals.length, 'orphan signals for room:', invite.roomId);
+			// Move orphan signals to pending signals
+			const existing = pendingSignals.get(invite.roomId) || [];
+			pendingSignals.set(invite.roomId, [...orphan.signals, ...existing]);
+			orphanSignals.delete(invite.roomId);
+		}
 
 		// Auto-dismiss after timeout
 		callTimeoutId = setTimeout(() => {
@@ -502,7 +516,21 @@ function createCallsStore() {
 			return;
 		}
 
-		console.log('[Calls] Ignoring signal for unknown room:', signal.roomId);
+		// Buffer signals for unknown rooms (they may arrive before call_invite due to race condition)
+		// This fixes the issue where offer arrives before call_invite
+		console.log('[Calls] Buffering orphan signal for room:', signal.roomId, 'type:', signal.signalType);
+		const orphan = orphanSignals.get(signal.roomId) || { signals: [], timestamp: Date.now() };
+		orphan.signals.push(signal);
+		orphanSignals.set(signal.roomId, orphan);
+
+		// Cleanup old orphan signals (older than 30 seconds)
+		const now = Date.now();
+		for (const [roomId, data] of orphanSignals.entries()) {
+			if (now - data.timestamp > 30000) {
+				console.log('[Calls] Cleaning up old orphan signals for room:', roomId);
+				orphanSignals.delete(roomId);
+			}
+		}
 	}
 
 	/** Process buffered signals for a room */
@@ -617,6 +645,7 @@ function createCallsStore() {
 		isMuted = false;
 		isVideoEnabled = true;
 		pendingSignals.clear();
+		orphanSignals.clear();
 	}
 
 	// Initialize

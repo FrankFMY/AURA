@@ -63,6 +63,7 @@
 				// Check if it's a WebRTC signal (highest priority)
 				const signal = isWebRTCSignal(message.content);
 				if (signal) {
+					console.log('[CallProvider] Received WebRTC signal:', signal.signalType, 'room:', signal.roomId);
 					processedMessageIds.add(message.id);
 					callsStore.handleWebRTCSignal(signal);
 					continue;

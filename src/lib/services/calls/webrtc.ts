@@ -162,10 +162,12 @@ class WebRTCService {
 				await this.processQueuedCandidates();
 				await this.createAnswer();
 			} else if (signal.signalType === 'answer' && signal.data.type === 'answer') {
+				console.log('[WebRTC] Processing answer, setting remote description');
 				await this.pc.setRemoteDescription({
 					type: 'answer',
 					sdp: signal.data.sdp
 				});
+				console.log('[WebRTC] Remote description set successfully');
 				await this.processQueuedCandidates();
 			} else if (signal.signalType === 'ice-candidate' && signal.data.type === 'ice-candidate') {
 				if (signal.data.candidate) {
