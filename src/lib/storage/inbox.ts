@@ -1,6 +1,6 @@
 import { getPublicKey, type Event } from 'nostr-tools';
 import { normalizeDmRelayUrls } from '../nostr/dm-relays';
-import { unwrapDirectMessage } from '../nostr/gift-wrap';
+import { unwrapDirectMessage, type Rumor } from '../nostr/gift-wrap';
 import {
 	type AccountDatabase,
 	type InboxReceiptRecord,
@@ -51,6 +51,17 @@ export async function markRelayInitialSyncComplete(
 	});
 }
 
+export function conversationPubkeyForRumor(rumor: Rumor, accountPubkey: string): string {
+	const recipientTag = rumor.tags.find(
+		(tag) => Array.isArray(tag) && tag[0] === 'p' && typeof tag[1] === 'string'
+	);
+	if (!recipientTag) throw new Error('rumor recipient tag is missing');
+	const recipientPubkey = recipientTag[1];
+	if (accountPubkey === rumor.pubkey) return recipientPubkey;
+	if (accountPubkey === recipientPubkey) return rumor.pubkey;
+	throw new Error('active account is not a rumor participant');
+}
+
 export async function commitIncomingWrap(
 	database: AccountDatabase,
 	input: CommitIncomingWrapInput
@@ -75,11 +86,8 @@ export async function commitIncomingWrap(
 		accountSecretKey: input.accountSecretKey,
 		now: input.now
 	});
-	const recipientPubkey = rumor.tags[0][1];
-	const incoming = recipientPubkey === accountPubkey;
-	const outgoing = rumor.pubkey === accountPubkey;
-	if (!incoming && !outgoing) throw new Error('active account is not a rumor participant');
-	const conversationPubkey = incoming ? rumor.pubkey : recipientPubkey;
+	const incoming = rumor.pubkey !== accountPubkey;
+	const conversationPubkey = conversationPubkeyForRumor(rumor, accountPubkey);
 	const state = incoming ? 'received' : 'restored';
 	const audience = incoming ? 'recipient' : 'sender';
 	const message: MessageRecord = {

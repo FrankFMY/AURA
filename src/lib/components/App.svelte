@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import {
 		ArrowRight,
 		Check,
@@ -90,7 +90,9 @@
 	let invite = $state.raw<InvitePayload>();
 	let inviteError = $state('');
 	let inviteUrl = $state('');
-	let copied = $state(false);
+	let copied = $state<'invite' | 'pubkey'>();
+	let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
+	let displayNameInput = $state.raw<HTMLInputElement>();
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let reconciling = false;
 
@@ -173,8 +175,10 @@
 
 	function parseInvite() {
 		if (location.pathname !== '/i' && location.pathname !== '/i/') return;
+		const invitationUrl = location.href;
+		history.replaceState(history.state, '', `${location.pathname}${location.search}`);
 		try {
-			invite = parseAndVerifyInviteUrl(location.href, {
+			invite = parseAndVerifyInviteUrl(invitationUrl, {
 				expectedOrigin: location.origin,
 				now: Math.floor(Date.now() / 1000)
 			}).payload;
@@ -186,6 +190,13 @@
 	function clearFeedback() {
 		error = '';
 		notice = '';
+	}
+
+	async function openOnboarding(nextPhase: 'create' | 'restore') {
+		phase = nextPhase;
+		error = '';
+		await tick();
+		displayNameInput?.focus();
 	}
 
 	async function createAccount() {
@@ -390,6 +401,15 @@
 		}
 	}
 
+	function showCopied(kind: 'invite' | 'pubkey'): void {
+		if (copyResetTimer) clearTimeout(copyResetTimer);
+		copied = kind;
+		copyResetTimer = setTimeout(() => {
+			copied = undefined;
+			copyResetTimer = undefined;
+		}, 1_800);
+	}
+
 	async function buildInvite() {
 		if (!session || !account) return;
 		const currentSession = session;
@@ -415,8 +435,7 @@
 			);
 			inviteUrl = `${location.origin}/i/#${token}`;
 			await navigator.clipboard.writeText(inviteUrl);
-			copied = true;
-			setTimeout(() => (copied = false), 1_800);
+			showCopied('invite');
 		} catch (cause) {
 			error = friendlyError(cause, 'The invitation could not be copied.');
 		}
@@ -425,8 +444,31 @@
 	async function copyPubkey() {
 		if (!account) return;
 		await navigator.clipboard.writeText(nip19.npubEncode(account.pubkey));
-		copied = true;
-		setTimeout(() => (copied = false), 1_800);
+		showCopied('pubkey');
+	}
+
+	function clearSensitiveUiState(): void {
+		if (copyResetTimer) clearTimeout(copyResetTimer);
+		copyResetTimer = undefined;
+		pending = undefined;
+		displayName = '';
+		recoveryInput = '';
+		recoveryWords = '';
+		recoveryAnswers = ['', '', ''];
+		busy = false;
+		error = '';
+		notice = '';
+		contactInput = '';
+		activeConversation = '';
+		messages = [];
+		chats = [];
+		composer = '';
+		invite = undefined;
+		inviteError = '';
+		inviteUrl = '';
+		copied = undefined;
+		view = 'chats';
+		reconciling = false;
 	}
 
 	function lock() {
@@ -438,7 +480,7 @@
 		session?.lock();
 		session = undefined;
 		runtime = undefined;
-		messages = [];
+		clearSensitiveUiState();
 		phase = 'unlock';
 		connection = 'offline';
 	}
@@ -496,10 +538,12 @@
 			{#if phase === 'invite' && invite}
 				<div class="invite-avatar">{inviteName(invite).slice(0, 1).toUpperCase()}</div>
 				<p class="eyebrow">Private invitation</p>
-				<h2>{inviteName(invite)} wants to talk</h2>
+				<h2>Self-declared invitation from {inviteName(invite)}</h2>
 				<p class="muted">
-					The invitation is signed by <span class="mono">{shortKey(invite.issuer_pubkey)}</span>.
+					The signature proves control of the Nostr identity below, not the displayed name. Verify
+					it through another channel if identity matters.
 				</p>
+				<p class="mono invite-identity">{nip19.npubEncode(invite.issuer_pubkey)}</p>
 			{:else if phase === 'invite-error'}
 				<div class="status-icon danger"><WifiOff size={22} /></div>
 				<h2>This invitation cannot be opened</h2>
@@ -513,22 +557,10 @@
 				</p>
 			{/if}
 			<div class="stack-actions">
-				<button
-					class="button primary"
-					onclick={() => {
-						phase = 'create';
-						error = '';
-					}}
-				>
+				<button class="button primary" onclick={() => void openOnboarding('create')}>
 					Create secure profile <ArrowRight size={18} />
 				</button>
-				<button
-					class="button secondary"
-					onclick={() => {
-						phase = 'restore';
-						error = '';
-					}}
-				>
+				<button class="button secondary" onclick={() => void openOnboarding('restore')}>
 					I have a Recovery Code
 				</button>
 			</div>
@@ -540,8 +572,15 @@
 	</main>
 {:else if phase === 'create' || phase === 'restore'}
 	<main class="form-stage">
-		<section class="form-card">
+		<form
+			class="form-card"
+			onsubmit={(event) => {
+				event.preventDefault();
+				void (phase === 'create' ? createAccount() : restoreAccount());
+			}}
+		>
 			<button
+				type="button"
 				class="back-button"
 				aria-label="Go back"
 				onclick={() => {
@@ -560,7 +599,11 @@
 			<label>
 				<span>Display name</span>
 				<input
+					bind:this={displayNameInput}
 					bind:value={displayName}
+					required
+					aria-invalid={Boolean(error)}
+					aria-describedby={error ? 'onboarding-error' : undefined}
 					maxlength="80"
 					autocomplete="name"
 					placeholder="Your name"
@@ -571,6 +614,9 @@
 					<span>24-word Recovery Code</span>
 					<textarea
 						bind:value={recoveryInput}
+						required
+						aria-invalid={Boolean(error)}
+						aria-describedby={error ? 'onboarding-error' : undefined}
 						rows="5"
 						autocomplete="off"
 						autocapitalize="none"
@@ -578,12 +624,8 @@
 						placeholder="word 1  word 2  …  word 24"></textarea>
 				</label>
 			{/if}
-			{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
-			<button
-				class="button primary full"
-				disabled={busy}
-				onclick={phase === 'create' ? createAccount : restoreAccount}
-			>
+			{#if error}<div id="onboarding-error" class="inline-error" role="alert">{error}</div>{/if}
+			<button type="submit" class="button primary full" disabled={busy}>
 				{busy
 					? 'Waiting for your device…'
 					: phase === 'create'
@@ -594,7 +636,7 @@
 			<p class="fine-print">
 				<LockKeyhole size={14} /> Your device will ask for Face ID, fingerprint, or screen lock.
 			</p>
-		</section>
+		</form>
 	</main>
 {:else if phase === 'recovery' && pending}
 	<main class="recovery-stage">
@@ -662,18 +704,23 @@
 			<nav aria-label="Primary navigation">
 				<button
 					class:active={view === 'chats'}
+					aria-current={view === 'chats' ? 'page' : undefined}
 					onclick={() => {
 						view = 'chats';
 						error = '';
 					}}
 					aria-label="Chats"><MessageCircle size={21} /></button
 				>
-				<button class:active={view === 'new-chat'} onclick={openNewChat} aria-label="New chat"
-					><SquarePen size={21} /></button
+				<button
+					class:active={view === 'new-chat'}
+					aria-current={view === 'new-chat' ? 'page' : undefined}
+					onclick={openNewChat}
+					aria-label="New chat"><SquarePen size={21} /></button
 				>
 			</nav>
 			<button
 				class:active={view === 'profile'}
+				aria-current={view === 'profile' ? 'page' : undefined}
 				onclick={() => {
 					view = 'profile';
 					error = '';
@@ -866,10 +913,11 @@
 					</div>
 					<div class="profile-actions">
 						<button class="button primary" onclick={buildInvite}
-							>{copied ? 'Copied invitation' : 'Copy private invitation'} <Copy size={17} /></button
+							>{copied === 'invite' ? 'Copied invitation' : 'Copy private invitation'}
+							<Copy size={17} /></button
 						>
 						<button class="button secondary" onclick={copyPubkey}
-							>{copied ? 'Copied' : 'Copy npub'} <Copy size={17} /></button
+							>{copied === 'pubkey' ? 'Copied identity' : 'Copy npub'} <Copy size={17} /></button
 						>
 						<button class="button secondary" onclick={lock}
 							>Lock profile <LogOut size={17} /></button

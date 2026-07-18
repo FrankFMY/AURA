@@ -31,15 +31,15 @@ function relayList(secretKey: Uint8Array, relays: string[]) {
 }
 
 function fakePool(events: Event[] = []) {
-	let subscription:
-		| {
-				filter: Filter;
-				onevent: (event: Event) => void;
-				oneose: () => void;
-				onclose: (reasons: string[]) => void;
-				relays: string[];
-		  }
-		| undefined;
+	const subscriptions: Array<{
+		filter: Filter;
+		onevent: (event: Event) => void;
+		oneose: () => void;
+		onclose: (reasons: string[]) => void;
+		relays: string[];
+		closeReasons: string[];
+	}> = [];
+	let subscription: (typeof subscriptions)[number] | undefined;
 	const published: { relay: string; event: Event }[] = [];
 	const pool: RelayPool = {
 		querySync: async () => events,
@@ -48,19 +48,23 @@ function fakePool(events: Event[] = []) {
 			return [Promise.resolve('saved')];
 		},
 		subscribeMany: (relays, filter, params) => {
-			subscription = {
+			const current = {
 				relays,
 				filter,
 				onevent: params.onevent ?? (() => undefined),
 				oneose: params.oneose ?? (() => undefined),
-				onclose: params.onclose ?? (() => undefined)
+				onclose: params.onclose ?? (() => undefined),
+				closeReasons: [] as string[]
 			};
-			return { close: () => undefined };
+			subscription = current;
+			subscriptions.push(current);
+			return { close: (reason?: string) => current.closeReasons.push(reason ?? '') };
 		}
 	};
 	return {
 		pool,
 		published,
+		subscriptions,
 		get subscription() {
 			return subscription;
 		}
@@ -226,25 +230,70 @@ describe('messenger runtime', () => {
 			lookupRelays: ['wss://lookup.one/'],
 			accountDmRelays: ['wss://sender.one/'],
 			recoveryConfirmed: true,
+			maxPendingIncoming: 1,
 			onReceiveError,
 			onTransportError
 		});
 		await messenger.start();
-		network.subscription?.onevent(
-			finalizeEvent(
-				{
-					kind: 1059,
-					tags: [['p', pubkey]],
-					content: 'not encrypted',
-					created_at: NOW_SECONDS
-				},
-				generateSecretKey()
-			)
+		const malformed = finalizeEvent(
+			{
+				kind: 1059,
+				tags: [['p', pubkey]],
+				content: 'not encrypted',
+				created_at: NOW_SECONDS
+			},
+			generateSecretKey()
 		);
+		const firstSubscription = network.subscription!;
+		firstSubscription.onevent(malformed);
+		firstSubscription.onevent(malformed);
+		await vi.waitFor(() => expect(network.subscriptions).toHaveLength(2));
+		expect(firstSubscription.closeReasons).toContain('incoming receive queue saturated; replaying');
 		await vi.waitFor(() => expect(onReceiveError).toHaveBeenCalledOnce());
 		expect(onTransportError).not.toHaveBeenCalled();
 		network.subscription?.onclose(['offline']);
 		expect(onTransportError).toHaveBeenCalledOnce();
+		messenger.stop();
+	});
+
+	it('invalidates a pending saturation replay across stop and restart', async () => {
+		const secretKey = generateSecretKey();
+		const pubkey = getPublicKey(secretKey);
+		const database = new AccountDatabase(pubkey, `restart-${crypto.randomUUID()}`);
+		databases.push(database);
+		const network = fakePool();
+		const messenger = new MessengerRuntime({
+			session: new UnlockedSession(secretKey),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			maxPendingIncoming: 1
+		});
+		await messenger.start();
+		const malformed = finalizeEvent(
+			{
+				kind: 1059,
+				tags: [['p', pubkey]],
+				content: 'not encrypted',
+				created_at: NOW_SECONDS
+			},
+			generateSecretKey()
+		);
+		const firstSubscription = network.subscription!;
+		firstSubscription.onevent(malformed);
+		firstSubscription.onevent(malformed);
+		messenger.stop();
+		await messenger.start();
+		const restartedSubscription = network.subscription!;
+		restartedSubscription.onevent(malformed);
+		restartedSubscription.onevent(malformed);
+		await vi.waitFor(() => expect(network.subscriptions).toHaveLength(3));
+
+		expect(restartedSubscription.closeReasons).toContain(
+			'incoming receive queue saturated; replaying'
+		);
 		messenger.stop();
 	});
 

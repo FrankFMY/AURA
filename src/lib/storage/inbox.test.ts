@@ -1,13 +1,14 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { createWrappedDirectMessage } from '../nostr/gift-wrap';
+import { createWrappedDirectMessage, type Rumor } from '../nostr/gift-wrap';
 import { AccountDatabase } from './account-database';
 import {
-	RECEIVE_CURSOR_OVERLAP_SECONDS,
 	commitIncomingWrap,
+	conversationPubkeyForRumor,
 	getRelaySubscriptionSince,
-	markRelayInitialSyncComplete
+	markRelayInitialSyncComplete,
+	RECEIVE_CURSOR_OVERLAP_SECONDS
 } from './inbox';
 
 const NOW_SECONDS = 1_750_000_000;
@@ -71,6 +72,26 @@ describe('incoming Gift Wrap persistence', () => {
 		expect(await database.messages.count()).toBe(1);
 		expect(await database.wireCopies.count()).toBe(1);
 		expect(await database.inboxReceipts.count()).toBe(2);
+	});
+
+	it('finds the recipient tag without changing canonical rumor tag order', () => {
+		const senderPubkey = getPublicKey(generateSecretKey());
+		const recipientPubkey = getPublicKey(generateSecretKey());
+		const rumor = {
+			id: '11'.repeat(32),
+			pubkey: senderPubkey,
+			created_at: NOW_SECONDS,
+			kind: 14,
+			tags: [
+				['subject', 'A subject'],
+				['p', recipientPubkey]
+			],
+			content: 'Hello'
+		} as Rumor;
+
+		expect(conversationPubkeyForRumor(rumor, recipientPubkey)).toBe(senderPubkey);
+		expect(conversationPubkeyForRumor(rumor, senderPubkey)).toBe(recipientPubkey);
+		expect(rumor.tags[0]).toEqual(['subject', 'A subject']);
 	});
 
 	it('does not write anything for an invalid outer signature', async () => {

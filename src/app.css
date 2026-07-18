@@ -117,8 +117,8 @@ em {
 	justify-content: center;
 	gap: 0.4rem;
 	margin: 1rem 0 0;
-	color: #717a73;
-	font-size: 0.72rem;
+	color: #9ba59d;
+	font-size: 0.8125rem;
 	line-height: 1.55;
 	text-align: center;
 }
@@ -243,7 +243,7 @@ em {
 .entry-card .fine-print,
 .form-card .fine-print,
 .recovery-card .fine-print {
-	color: #757970;
+	color: #62675f;
 }
 .stack-actions {
 	display: grid;
@@ -388,7 +388,11 @@ textarea {
 }
 input::placeholder,
 textarea::placeholder {
-	color: #92978f;
+	color: #62675f;
+}
+.app-shell input::placeholder,
+.app-shell textarea::placeholder {
+	color: #9ba59d;
 }
 .form-card .button {
 	margin-top: 1.5rem;
@@ -444,6 +448,12 @@ textarea::placeholder {
 	color: #ebf8ee;
 	background: #233a2a;
 	font-size: 1.7rem;
+}
+.invite-identity {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+	font-size: 0.78rem;
+	line-height: 1.55;
 }
 .status-icon {
 	width: 3.2rem;
@@ -775,8 +785,8 @@ textarea::placeholder {
 	justify-content: flex-end;
 	gap: 0.5rem;
 	margin-top: 0.28rem;
-	color: #7e8981;
-	font-size: 0.58rem;
+	color: #a2aca4;
+	font-size: 0.75rem;
 }
 .composer-error {
 	margin: 0 1rem 0.5rem;
@@ -994,7 +1004,11 @@ textarea::placeholder {
 	}
 	.app-shell {
 		grid-template-columns: 1fr;
-		padding-bottom: 4.5rem;
+	}
+	.chat-list-pane,
+	.conversation-pane,
+	.single-pane {
+		padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
 	}
 	.rail {
 		z-index: 20;

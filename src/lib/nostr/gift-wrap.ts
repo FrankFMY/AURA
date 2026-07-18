@@ -11,6 +11,7 @@ import {
 } from 'nostr-tools';
 
 const HEX_32 = /^[0-9a-f]{64}$/u;
+const HEX_16 = /^[0-9a-f]{32}$/u;
 const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_WRAPPED_EVENT_BYTES = 128 * 1024;
@@ -42,6 +43,7 @@ export interface CreateWrappedDirectMessageOptions {
 	createdAt: number;
 	randomPastTimestamp?: () => number;
 	generateEphemeralKey?: () => Uint8Array;
+	generateRumorNonce?: () => string;
 }
 
 export interface UnwrapDirectMessageOptions {
@@ -89,6 +91,11 @@ function randomPastTimestamp(now: number): number {
 	const random = new Uint32Array(1);
 	crypto.getRandomValues(random);
 	return now - (random[0] % (TWO_DAYS_SECONDS + 1));
+}
+
+function randomRumorNonce(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function assertPastTimestamp(timestamp: number, now: number, label: string): void {
@@ -185,10 +192,15 @@ export function createWrappedDirectMessage(
 		throw new Error('sender and recipient must be different');
 	assertTimestamp(options.createdAt, 'message created_at');
 	assertMessageContent(options.content);
+	const rumorNonce = (options.generateRumorNonce ?? randomRumorNonce)();
+	if (!HEX_16.test(rumorNonce)) throw new Error('rumor nonce must contain 16 canonical bytes');
 
 	const rumorBase: UnsignedEvent = {
 		kind: 14,
-		tags: [['p', options.recipientPubkey]],
+		tags: [
+			['p', options.recipientPubkey],
+			['nonce', rumorNonce]
+		],
 		content: options.content,
 		created_at: options.createdAt,
 		pubkey: senderPubkey
@@ -267,11 +279,23 @@ function parseRumor(value: unknown, sealPubkey: string, accountPubkey: string): 
 	if (!Number.isSafeInteger(value.created_at) || (value.created_at as number) <= 0) {
 		throw new Error('rumor timestamp is invalid');
 	}
-	if (!Array.isArray(value.tags)) throw new Error('rumor tags are invalid');
+	if (!Array.isArray(value.tags) || value.tags.length < 1 || value.tags.length > 64) {
+		throw new Error('rumor tags are invalid');
+	}
+	for (const tag of value.tags) {
+		if (
+			!Array.isArray(tag) ||
+			tag.length < 2 ||
+			tag.length > 8 ||
+			tag.some((item) => typeof item !== 'string' || encoder.encode(item).length > 1024)
+		) {
+			throw new Error('rumor tag is invalid');
+		}
+	}
 	const pTags = value.tags.filter(
 		(tag): tag is string[] => Array.isArray(tag) && tag[0] === 'p' && typeof tag[1] === 'string'
 	);
-	if (pTags.length !== 1 || value.tags.length !== 1) {
+	if (pTags.length !== 1) {
 		throw new Error('rumor must contain exactly one recipient tag');
 	}
 	const recipientPubkey = pTags[0][1];

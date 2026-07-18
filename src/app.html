@@ -7,6 +7,25 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<noscript>
+			<main
+				style="
+					position: fixed;
+					z-index: 9999;
+					inset: 0;
+					display: grid;
+					place-content: center;
+					padding: 2rem;
+					background: #111412;
+					color: #edf1ed;
+					font: 16px/1.6 system-ui;
+					text-align: center;
+				"
+			>
+				<h1>AURA requires JavaScript</h1>
+				<p>Private identity custody and encrypted messaging require JavaScript and WebAuthn.</p>
+			</main>
+		</noscript>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

@@ -69,6 +69,27 @@ describe('NIP-17/NIP-59 direct messages', () => {
 		expect(result.recipient.wrap.created_at).toBeLessThanOrEqual(NOW);
 	});
 
+	it('creates distinct rumor IDs for repeated messages in the same second', () => {
+		const first = createWrappedDirectMessage({
+			content: 'Repeat this.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW,
+			generateRumorNonce: () => '11'.repeat(16)
+		});
+		const second = createWrappedDirectMessage({
+			content: 'Repeat this.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW,
+			generateRumorNonce: () => '22'.repeat(16)
+		});
+
+		expect(first.rumor.id).not.toBe(second.rumor.id);
+		expect(first.recipient.rumorId).toBe(first.sender.rumorId);
+		expect(second.recipient.rumorId).toBe(second.sender.rumorId);
+	});
+
 	it('unwraps both copies to the same canonical message', () => {
 		const result = createWrappedDirectMessage({
 			content: 'Same message, two devices.',

@@ -37,6 +37,7 @@ export interface MessengerRuntimeOptions {
 	recoveryConfirmed: boolean;
 	now?: () => RuntimeClock;
 	reconciliationIntervalMs?: number;
+	maxPendingIncoming?: number;
 	onReceiveError?: (error: Error) => void;
 	onTransportError?: (error: Error) => void;
 }
@@ -64,10 +65,15 @@ export class MessengerRuntime {
 	readonly #recoveryConfirmed: boolean;
 	readonly #now: () => RuntimeClock;
 	readonly #reconciliationIntervalMs: number;
+	readonly #maxPendingIncoming: number;
 	readonly #onReceiveError?: (error: Error) => void;
 	readonly #onTransportError?: (error: Error) => void;
 	#subscriptions: SubscriptionCloser[] = [];
 	#reconciliationTimer: ReturnType<typeof setInterval> | undefined;
+	#receiveQueue: Promise<void> = Promise.resolve();
+	#pendingIncoming = 0;
+	#restartingRelays = new Map<string, number>();
+	#generation = 0;
 	#started = false;
 
 	constructor(options: MessengerRuntimeOptions) {
@@ -89,43 +95,22 @@ export class MessengerRuntime {
 		) {
 			throw new Error('outbox reconciliation interval is invalid');
 		}
+		this.#maxPendingIncoming = options.maxPendingIncoming ?? 64;
+		if (!Number.isSafeInteger(this.#maxPendingIncoming) || this.#maxPendingIncoming < 1) {
+			throw new Error('incoming receive queue capacity is invalid');
+		}
 		this.#onReceiveError = options.onReceiveError;
 		this.#onTransportError = options.onTransportError;
 	}
 
 	async start(): Promise<SubscriptionCloser> {
 		if (this.#started) throw new Error('messenger runtime is already started');
+		this.#generation += 1;
 		this.#started = true;
 		const opened: SubscriptionCloser[] = [];
 		try {
 			for (const relayUrl of this.#accountDmRelays) {
-				const since = await getRelaySubscriptionSince(this.#database, relayUrl);
-				const subscription = subscribeGiftWraps(
-					this.#pool,
-					[relayUrl],
-					this.#session.pubkey,
-					since,
-					(event) => {
-						void this.#receive(event, relayUrl);
-					},
-					(reasons) => {
-						if (reasons.length > 0) {
-							this.#onTransportError?.(
-								new Error(`relay subscription closed: ${reasons.join('; ')}`)
-							);
-						}
-					},
-					() => {
-						void markRelayInitialSyncComplete(
-							this.#database,
-							relayUrl,
-							this.#now().milliseconds
-						).catch((error) => {
-							this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
-						});
-					}
-				);
-				opened.push(subscription);
+				opened.push(await this.#openRelay(relayUrl));
 			}
 			this.#subscriptions = opened;
 			this.#runReconciliation();
@@ -144,7 +129,37 @@ export class MessengerRuntime {
 		}
 	}
 
+	async #openRelay(relayUrl: string): Promise<SubscriptionCloser> {
+		const since = await getRelaySubscriptionSince(this.#database, relayUrl);
+		let subscription: SubscriptionCloser | undefined;
+		subscription = subscribeGiftWraps(
+			this.#pool,
+			[relayUrl],
+			this.#session.pubkey,
+			since,
+			(event) => {
+				this.#enqueueReceive(event, relayUrl, () => {
+					if (subscription) this.#requestRelayReplay(relayUrl, subscription);
+				});
+			},
+			(reasons) => {
+				if (reasons.length > 0 && !this.#restartingRelays.has(relayUrl)) {
+					this.#onTransportError?.(new Error(`relay subscription closed: ${reasons.join('; ')}`));
+				}
+			},
+			() => {
+				void markRelayInitialSyncComplete(this.#database, relayUrl, this.#now().milliseconds).catch(
+					(error) => {
+						this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
+					}
+				);
+			}
+		);
+		return subscription;
+	}
+
 	stop(reason = 'messenger runtime stopped'): void {
+		this.#generation += 1;
 		for (const subscription of this.#subscriptions) subscription.close(reason);
 		this.#subscriptions = [];
 		if (this.#reconciliationTimer) clearInterval(this.#reconciliationTimer);
@@ -164,6 +179,49 @@ export class MessengerRuntime {
 			createPoolPublisher(this.#pool),
 			this.#now().milliseconds
 		);
+	}
+
+	#enqueueReceive(event: Event, relayUrl: string, onSaturated: () => void): void {
+		if (this.#pendingIncoming >= this.#maxPendingIncoming) {
+			onSaturated();
+			return;
+		}
+		this.#pendingIncoming += 1;
+		this.#receiveQueue = this.#receiveQueue
+			.then(() => this.#receive(event, relayUrl))
+			.finally(() => {
+				this.#pendingIncoming -= 1;
+			});
+	}
+
+	#clearRelayRestart(relayUrl: string, generation: number): void {
+		if (this.#restartingRelays.get(relayUrl) === generation) {
+			this.#restartingRelays.delete(relayUrl);
+		}
+	}
+
+	#requestRelayReplay(relayUrl: string, subscription: SubscriptionCloser): void {
+		const generation = this.#generation;
+		if (!this.#started || this.#restartingRelays.get(relayUrl) === generation) return;
+		this.#restartingRelays.set(relayUrl, generation);
+		subscription.close('incoming receive queue saturated; replaying');
+		this.#subscriptions = this.#subscriptions.filter((current) => current !== subscription);
+		void this.#receiveQueue.then(async () => {
+			try {
+				if (!this.#started || generation !== this.#generation) return;
+				const replacement = await this.#openRelay(relayUrl);
+				if (!this.#started || generation !== this.#generation) {
+					replacement.close('messenger runtime stopped before relay replay');
+					return;
+				}
+				this.#clearRelayRestart(relayUrl, generation);
+				this.#subscriptions.push(replacement);
+			} catch (error) {
+				this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
+			} finally {
+				this.#clearRelayRestart(relayUrl, generation);
+			}
+		});
 	}
 
 	async #receive(event: Event, relayUrl: string): Promise<void> {
