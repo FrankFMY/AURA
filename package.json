@@ -1,0 +1,66 @@
+{
+	"name": "aura-messenger",
+	"private": true,
+	"overrides": {
+		"cookie": "0.7.2"
+	},
+	"version": "1.0.0",
+	"description": "A quiet, private Nostr messenger with user-owned identity.",
+	"license": "AGPL-3.0-only",
+	"author": "Artem Prianishnikov",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/FrankFMY/AURA.git"
+	},
+	"keywords": [
+		"nostr",
+		"messenger",
+		"privacy",
+		"nip-17",
+		"nip-59",
+		"svelte"
+	],
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "prettier --check .",
+		"format": "prettier --write .",
+		"test:unit": "vitest run",
+		"test:unit:watch": "vitest",
+		"test": "bun run test:unit && bun run test:e2e",
+		"test:e2e": "playwright test"
+	},
+	"devDependencies": {
+		"@axe-core/playwright": "^4.12.1",
+		"@playwright/test": "^1.61.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.70.0",
+		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+		"@testing-library/jest-dom": "^6.9.1",
+		"@testing-library/svelte": "^5.4.2",
+		"fake-indexeddb": "^6.2.5",
+		"jsdom": "^29.1.1",
+		"prettier": "^3.9.5",
+		"prettier-plugin-svelte": "^4.1.1",
+		"svelte": "^5.56.6",
+		"svelte-check": "^4.7.3",
+		"typescript": "^6.0.3",
+		"vite": "^8.1.5",
+		"vitest": "^4.1.10"
+	},
+	"dependencies": {
+		"@fontsource-variable/manrope": "^5.2.8",
+		"@fontsource-variable/newsreader": "^5.2.10",
+		"@noble/curves": "^2.2.0",
+		"@noble/hashes": "^2.2.0",
+		"@scure/bip39": "^2.2.0",
+		"dexie": "^4.4.4",
+		"lucide-svelte": "^1.0.1",
+		"nostr-tools": "^2.23.12"
+	}
+}

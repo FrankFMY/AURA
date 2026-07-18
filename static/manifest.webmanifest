@@ -1,0 +1,18 @@
+{
+	"name": "AURA — Private Conversations",
+	"short_name": "AURA",
+	"description": "A quiet, private messenger with user-owned identity.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#111412",
+	"theme_color": "#111412",
+	"icons": [
+		{
+			"src": "/aura-mark.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	]
+}
