@@ -74,6 +74,7 @@ export interface RelayCursorRecord {
 	relayUrl: string;
 	maxEventCreatedAt: number;
 	initialSyncComplete: boolean;
+	fullReplayRequired?: boolean;
 	updatedAt: number;
 }
 
@@ -119,6 +120,9 @@ function normalizeRelayUrls(relays: readonly string[]): string[] {
 	}
 	const normalized = new Set<string>();
 	for (const relay of relays) {
+		if (typeof relay !== 'string' || relay.length === 0 || relay.length > 256) {
+			throw new Error('outbox relay URL is invalid');
+		}
 		let url: URL;
 		try {
 			url = new URL(relay);

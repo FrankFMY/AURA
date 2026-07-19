@@ -43,7 +43,7 @@ async function installOfflineWebAuthn(page: Page): Promise<void> {
 			authenticatorAttachment: 'platform',
 			response: {},
 			getClientExtensionResults: () => ({
-				prf: { enabled: true, results: { first: prfOutput.buffer } }
+				prf: { enabled: true, results: { first: Uint8Array.from(prfOutput).buffer } }
 			}),
 			toJSON: () => ({})
 		};

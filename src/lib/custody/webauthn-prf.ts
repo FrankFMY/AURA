@@ -80,15 +80,18 @@ function validateRpId(value: string): string {
 	return value;
 }
 
-function extractPrfOutput(credential: PublicKeyCredential): Uint8Array {
-	const output = credential.getClientExtensionResults() as unknown as PrfExtensionOutput;
+function extractPrfOutput(output: PrfExtensionOutput): Uint8Array {
 	const first = output.prf?.results?.first;
 	if (!(first instanceof ArrayBuffer)) {
 		throw new Error('WebAuthn PRF is not available for this credential');
 	}
 	const bytes = new Uint8Array(first);
-	if (bytes.length !== 32) throw new Error('WebAuthn PRF output must contain exactly 32 bytes');
-	return Uint8Array.from(bytes);
+	try {
+		if (bytes.length !== 32) throw new Error('WebAuthn PRF output must contain exactly 32 bytes');
+		return Uint8Array.from(bytes);
+	} finally {
+		bytes.fill(0);
+	}
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -147,7 +150,7 @@ export async function createPrfCredential(
 	assertBytes(credentialId, 16, 1024, 'WebAuthn credential ID');
 	const extensionOutput = credential.getClientExtensionResults() as unknown as PrfExtensionOutput;
 	const prfOutput = extensionOutput.prf?.results?.first
-		? extractPrfOutput(credential)
+		? extractPrfOutput(extensionOutput)
 		: extensionOutput.prf?.enabled
 			? await getPrfOutput({
 					credentialId,
@@ -190,7 +193,8 @@ export async function getPrfOutput(options: GetPrfOutputOptions): Promise<Uint8A
 	if (!equalBytes(new Uint8Array(credential.rawId), options.credentialId)) {
 		throw new Error('WebAuthn returned an unexpected credential');
 	}
-	return extractPrfOutput(credential);
+	const extensionOutput = credential.getClientExtensionResults() as unknown as PrfExtensionOutput;
+	return extractPrfOutput(extensionOutput);
 }
 
 export async function hasPlatformWebAuthn(): Promise<boolean> {

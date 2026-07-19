@@ -70,6 +70,7 @@ async function registerNewAccount(
 	registry: AccountRegistry,
 	input: RegisterAccountInput,
 	recoveryConfirmed: boolean,
+	makeActive: boolean,
 	isCurrent: OperationGuard
 ): Promise<RegisteredAccount> {
 	assertOperationCurrent(isCurrent);
@@ -88,14 +89,17 @@ async function registerNewAccount(
 		updatedAt: input.createdAt
 	};
 	assertOperationCurrent(isCurrent);
-	await registry.transaction('rw', registry.accounts, async () => {
+	await registry.transaction('rw', registry.accounts, registry.settings, async () => {
 		assertOperationCurrent(isCurrent);
 		if (await registry.accounts.get(input.pubkey)) throw new Error('account is already registered');
 		assertOperationCurrent(isCurrent);
 		await registry.accounts.add(account);
 		assertOperationCurrent(isCurrent);
+		if (makeActive) {
+			await registry.settings.put({ key: ACTIVE_ACCOUNT_KEY, value: input.pubkey });
+			assertOperationCurrent(isCurrent);
+		}
 	});
-	assertOperationCurrent(isCurrent);
 	return account;
 }
 
@@ -104,7 +108,7 @@ export async function registerAccount(
 	input: RegisterAccountInput,
 	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<RegisteredAccount> {
-	return registerNewAccount(registry, input, false, isCurrent);
+	return registerNewAccount(registry, input, false, false, isCurrent);
 }
 
 export async function registerLinkedAccount(
@@ -112,7 +116,7 @@ export async function registerLinkedAccount(
 	input: RegisterAccountInput,
 	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<RegisteredAccount> {
-	return registerNewAccount(registry, input, true, isCurrent);
+	return registerNewAccount(registry, input, true, true, isCurrent);
 }
 
 export async function replaceRecoveredAccount(

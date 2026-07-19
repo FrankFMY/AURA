@@ -85,11 +85,7 @@
 		onkeydown={handleDialogKeydown}
 	>
 		{#if mode === 'scan'}
-			<DeviceLinkScanner
-				onDetected={onDetected}
-				onCancel={onCancel}
-				onError={onScannerError}
-			/>
+			<DeviceLinkScanner {onDetected} {onCancel} onError={onScannerError} />
 			{#if error}<div class="inline-error link-scanner-error" role="alert">{error}</div>{/if}
 		{:else if mode === 'approve'}
 			<header class="link-dialog-header">
@@ -108,7 +104,10 @@
 			</header>
 			<div class="link-profile-summary">
 				<div class="profile-orb small">{profileName.slice(0, 1).toUpperCase()}</div>
-				<div><strong>{profileName}</strong><p class="mono muted">{identityLabel}</p></div>
+				<div>
+					<strong>{profileName}</strong>
+					<p class="mono muted">{identityLabel}</p>
+				</div>
 			</div>
 			<div class="link-code-block">
 				<span>Confirm this code is shown on the new device</span>
@@ -116,15 +115,29 @@
 			</div>
 			<div class="link-warning">
 				<ShieldAlert size={20} />
-				<p>Approve only a device in front of you. It will receive the exact identity and access to relay history.</p>
+				<p>
+					Approve only a device in front of you. It will receive the exact identity and access to
+					relay history.
+				</p>
 			</div>
 			{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
 			<div class="link-dialog-actions">
-				<button class="button secondary" type="button" disabled={busy} onclick={() => void onScanAgain()}>
+				<button
+					class="button secondary"
+					type="button"
+					disabled={busy}
+					onclick={() => void onScanAgain()}
+				>
 					<ScanLine size={17} /> Scan again
 				</button>
-				<button class="button primary" type="button" disabled={busy} onclick={() => void onApprove()}>
-					<KeyRound size={17} /> {busy ? 'Confirm on this device…' : 'Approve with Passkey'}
+				<button
+					class="button primary"
+					type="button"
+					disabled={busy}
+					onclick={() => void onApprove()}
+				>
+					<KeyRound size={17} />
+					{busy ? 'Confirm on this device…' : 'Approve with Passkey'}
 				</button>
 			</div>
 		{:else}
@@ -132,8 +145,15 @@
 				<div class="status-icon"><Check size={24} /></div>
 				<p class="eyebrow">Encrypted transfer sent</p>
 				<h2 id="device-link-title">Finish on the new device</h2>
-				<p class="muted">AURA sent the one-time encrypted profile transfer. It expires with the request.</p>
-				<button class="button primary full" data-link-autofocus type="button" onclick={() => void onCancel()}>Done</button>
+				<p class="muted">
+					AURA sent the one-time encrypted profile transfer. It expires with the request.
+				</p>
+				<button
+					class="button primary full"
+					data-link-autofocus
+					type="button"
+					onclick={() => void onCancel()}>Done</button
+				>
 			</div>
 		{/if}
 	</div>

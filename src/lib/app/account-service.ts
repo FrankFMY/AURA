@@ -49,6 +49,8 @@ export interface RestorePersistentAccountOptions extends CommonAccountOptions {
 export interface ImportLinkedPersistentAccountOptions extends CommonAccountOptions {
 	/** Ownership is transferred; this buffer is zeroized on both success and failure. */
 	secretKey: Uint8Array;
+	/** Must synchronously authorize the durable handoff after Passkey protection and before commit. */
+	authorizePersistence: () => void;
 }
 
 export interface UnlockPersistentAccountOptions {
@@ -126,13 +128,25 @@ async function persistSecret(
 		};
 		const existing = mode === 'restore' ? await options.registry.accounts.get(pubkey) : undefined;
 		assertOperationCurrent(isCurrent);
-		const account =
-			mode === 'link'
-				? await registerLinkedAccount(options.registry, accountInput, isCurrent)
-				: existing
-					? await replaceRecoveredAccount(options.registry, accountInput, isCurrent)
-					: await registerAccount(options.registry, accountInput, isCurrent);
-		assertOperationCurrent(isCurrent);
+		if (mode === 'link') {
+			(options as ImportLinkedPersistentAccountOptions).authorizePersistence();
+			assertOperationCurrent(isCurrent);
+		}
+		let account;
+		if (mode === 'link') {
+			try {
+				account = await registerLinkedAccount(options.registry, accountInput, isCurrent);
+			} catch (cause) {
+				const committedAccount = await options.registry.accounts.get(pubkey);
+				if (!committedAccount) throw cause;
+				account = committedAccount;
+			}
+		} else {
+			account = existing
+				? await replaceRecoveredAccount(options.registry, accountInput, isCurrent)
+				: await registerAccount(options.registry, accountInput, isCurrent);
+		}
+		if (mode !== 'link') assertOperationCurrent(isCurrent);
 		const session = new UnlockedSession(secretKey);
 		return mode === 'link'
 			? { account, session }

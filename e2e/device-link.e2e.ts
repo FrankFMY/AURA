@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createInviteToken, generateInviteNonce } from '../src/lib/core/invite';
-import { generateSecretKey, getPublicKey, type Event, type Filter } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19, type Event, type Filter } from 'nostr-tools';
 import { createDmRelayList } from '../src/lib/nostr/dm-relays';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -92,6 +92,7 @@ class RelayHarness {
 
 async function installBrowserCustody(page: Page, seed: number): Promise<void> {
 	await page.addInitScript((credentialSeed) => {
+		delete (globalThis as typeof globalThis & { BarcodeDetector?: unknown }).BarcodeDetector;
 		const credentialId = new Uint8Array(32).fill(credentialSeed);
 		const prfOutput = new Uint8Array(32).fill(credentialSeed + 31);
 		const credential = {
@@ -101,7 +102,7 @@ async function installBrowserCustody(page: Page, seed: number): Promise<void> {
 			authenticatorAttachment: 'platform',
 			response: {},
 			getClientExtensionResults: () => ({
-				prf: { enabled: true, results: { first: prfOutput.buffer } }
+				prf: { enabled: true, results: { first: Uint8Array.from(prfOutput).buffer } }
 			}),
 			toJSON: () => ({})
 		};
@@ -154,7 +155,8 @@ async function activeRegistryPubkey(page: Page): Promise<string> {
 					const database = open.result;
 					const transaction = database.transaction('settings', 'readonly');
 					const request = transaction.objectStore('settings').get('active-account');
-					request.onerror = () => reject(request.error ?? new Error('active account lookup failed'));
+					request.onerror = () =>
+						reject(request.error ?? new Error('active account lookup failed'));
 					request.onsuccess = () => {
 						const value = (request.result as { value?: unknown } | undefined)?.value;
 						database.close();
@@ -233,6 +235,7 @@ test('links the exact identity into isolated storage and restores pre-link relay
 	expect(sourceIdentityLabel).toBeTruthy();
 	const sourcePubkey = await activeRegistryPubkey(source);
 	expect(sourcePubkey).toMatch(/^[0-9a-f]{64}$/u);
+	const sourceNpub = nip19.npubEncode(sourcePubkey);
 
 	await target.goto('/');
 	await target.getByRole('button', { name: /Link an existing profile/i }).click();
@@ -262,6 +265,7 @@ test('links the exact identity into isolated storage and restores pre-link relay
 	await source.getByRole('button', { name: /Link another device/i }).click();
 	await source.locator('input[type="file"]').setInputFiles(qrImagePath);
 	await expect(source.getByRole('heading', { name: /Link this profile/i })).toBeVisible();
+	await expect(source.locator('.link-profile-summary .mono')).toHaveText(sourceNpub);
 	await expect(source.locator('.link-code-block strong')).toHaveText(targetCode ?? '');
 	await source.getByRole('button', { name: /Approve with Passkey/i }).click();
 	await expect(source.getByRole('heading', { name: /Finish on the new device/i })).toBeVisible();
@@ -275,7 +279,17 @@ test('links the exact identity into isolated storage and restores pre-link relay
 		timeout: 15_000
 	});
 	await expect(target.getByText('Linked source', { exact: true })).toBeVisible();
-	await target.getByRole('button', { name: /Continue with Passkey/i }).click();
+	await expect(target.locator('.link-profile-summary.target .mono')).toHaveText(sourceNpub);
+	await expect(
+		target.getByText(/Confirm the full npub above belongs to your existing profile/i)
+	).toBeVisible();
+	const continueButton = target.getByRole('button', { name: /Continue with Passkey/i });
+	await expect(continueButton).toBeDisabled();
+	await target
+		.getByRole('checkbox', { name: /I verified this full npub on my existing device/i })
+		.check();
+	await expect(continueButton).toBeEnabled();
+	await continueButton.click();
 	await expect(target.getByRole('button', { name: 'Profile' })).toBeVisible({ timeout: 15_000 });
 	expect(
 		await target.evaluate(

@@ -4,7 +4,8 @@ import { getPublicKey } from 'nostr-tools';
 import * as recovery from '../custody/recovery';
 import type { CredentialProvider } from '../custody/webauthn-prf';
 import * as webauthnPrf from '../custody/webauthn-prf';
-import { AccountRegistry } from '../storage/account-registry';
+import { AccountRegistry, getActiveAccount } from '../storage/account-registry';
+import { createExpiringSecretLease } from './expiring-secret';
 import {
 	createPersistentAccount,
 	importLinkedPersistentAccount,
@@ -25,7 +26,7 @@ function credential(): PublicKeyCredential {
 		authenticatorAttachment: 'platform',
 		getClientExtensionResults: () =>
 			({
-				prf: { enabled: true, results: { first: output.buffer } }
+				prf: { enabled: true, results: { first: Uint8Array.from(output).buffer } }
 			}) as AuthenticationExtensionsClientOutputs,
 		toJSON: () => ({})
 	} as PublicKeyCredential;
@@ -48,6 +49,80 @@ afterEach(async () => {
 });
 
 describe('persistent account bootstrap', () => {
+	it('does not commit a linked account when a delayed timer lets WebAuthn cross expiry', async () => {
+		const accounts = registry();
+		const secret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		let clock = 0;
+		let resolveCredential!: (value: PublicKeyCredential) => void;
+		const credentialResult = new Promise<PublicKeyCredential>((resolve) => {
+			resolveCredential = resolve;
+		});
+		const lease = createExpiringSecretLease({
+			secret,
+			expiresAt: 1_000,
+			now: () => clock,
+			onExpire: () => undefined
+		});
+		const imported = importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'Expired during Passkey',
+			secretKey: secret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider: { create: async () => credentialResult, get: async () => null },
+			authorizePersistence: () => {
+				lease.take();
+			}
+		});
+		await vi.waitFor(() => expect(resolveCredential).toBeTypeOf('function'));
+		clock = 1_000;
+		resolveCredential(credential());
+
+		await expect(imported).rejects.toThrow(/expired|no longer available/i);
+		expect(await accounts.accounts.count()).toBe(0);
+		expect(await getActiveAccount(accounts)).toBeUndefined();
+		expect(secret).toEqual(new Uint8Array(32));
+	});
+
+	it('returns a usable linked account when lifecycle turns stale only after commit', async () => {
+		const accounts = registry();
+		const secret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		const lease = createExpiringSecretLease({
+			secret,
+			expiresAt: 2_000,
+			now: () => 1_000,
+			onExpire: () => undefined
+		});
+		let current = true;
+		const originalTransaction = accounts.transaction.bind(accounts) as (
+			...args: unknown[]
+		) => Promise<unknown>;
+		vi.spyOn(accounts, 'transaction').mockImplementation(((...args: unknown[]) =>
+			originalTransaction(...args).then((result) => {
+				if (args.includes(accounts.accounts) && args.includes(accounts.settings)) current = false;
+				return result;
+			})) as never);
+
+		const linked = await importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'Committed linked profile',
+			secretKey: secret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider,
+			isCurrent: () => current,
+			authorizePersistence: () => {
+				lease.take();
+			}
+		});
+		expect(linked.session.pubkey).toBe(linked.account.pubkey);
+		expect((await getActiveAccount(accounts))?.pubkey).toBe(linked.account.pubkey);
+		expect(secret).toEqual(new Uint8Array(32));
+		linked.session.lock();
+	});
+
 	it('creates, locks and unlocks the same exact Nostr identity', async () => {
 		const accounts = registry();
 		const created = await createPersistentAccount({
@@ -257,6 +332,7 @@ describe('persistent account bootstrap', () => {
 			rpId: 'aura.frankfmy.com',
 			dmRelays: ['wss://relay.one/'],
 			provider,
+			authorizePersistence: () => undefined,
 			now: () => ({ seconds: 1_750_000_000, milliseconds: 1_750_000_000_000 })
 		});
 
@@ -288,7 +364,8 @@ describe('persistent account bootstrap', () => {
 			origin: 'https://aura.frankfmy.com',
 			rpId: 'aura.frankfmy.com',
 			dmRelays: ['wss://relay.one/'],
-			provider
+			provider,
+			authorizePersistence: () => undefined
 		});
 		const originalEnvelope = JSON.stringify(first.account.envelope);
 		first.session.lock();
@@ -301,7 +378,8 @@ describe('persistent account bootstrap', () => {
 				origin: 'https://aura.frankfmy.com',
 				rpId: 'aura.frankfmy.com',
 				dmRelays: ['wss://relay.two/'],
-				provider
+				provider,
+				authorizePersistence: () => undefined
 			})
 		).rejects.toThrow(/already registered/i);
 		expect(duplicateSecret).toEqual(new Uint8Array(32));
@@ -309,5 +387,44 @@ describe('persistent account bootstrap', () => {
 		expect(JSON.stringify((await accounts.accounts.get(first.account.pubkey))?.envelope)).toBe(
 			originalEnvelope
 		);
+	});
+
+	it('reconciles a concurrent linked commit to the durable account', async () => {
+		const accounts = registry();
+		const racingSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		const concurrentSecret = Uint8Array.from(racingSecret);
+		let resolveCredential!: (value: PublicKeyCredential) => void;
+		const delayedCredential = new Promise<PublicKeyCredential>((resolve) => {
+			resolveCredential = resolve;
+		});
+		const racing = importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'Racing profile',
+			secretKey: racingSecret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider: { create: async () => delayedCredential, get: async () => null },
+			authorizePersistence: () => undefined
+		});
+		await vi.waitFor(() => expect(resolveCredential).toBeTypeOf('function'));
+		const concurrent = await importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'Committed profile',
+			secretKey: concurrentSecret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider,
+			authorizePersistence: () => undefined
+		});
+		resolveCredential(credential());
+		const reconciled = await racing;
+
+		expect(reconciled.account).toEqual(concurrent.account);
+		expect(await accounts.accounts.count()).toBe(1);
+		expect((await getActiveAccount(accounts))?.pubkey).toBe(concurrent.account.pubkey);
+		reconciled.session.lock();
+		concurrent.session.lock();
 	});
 });

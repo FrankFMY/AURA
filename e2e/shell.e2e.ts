@@ -98,11 +98,15 @@ test.describe('public shell', () => {
 			await expect(qr).toBeVisible();
 			const geometry = await page.evaluate(() => {
 				const qrImage = document.querySelector<HTMLImageElement>('.link-qr-wrap img');
-				const actions = Array.from(document.querySelectorAll<HTMLElement>('.link-target-card button'));
+				const actions = Array.from(
+					document.querySelectorAll<HTMLElement>('.link-target-card button')
+				);
 				return {
 					noOverflow: document.documentElement.scrollWidth <= window.innerWidth,
 					qrWidth: qrImage?.getBoundingClientRect().width ?? 0,
-					minimumActionHeight: Math.min(...actions.map((action) => action.getBoundingClientRect().height))
+					minimumActionHeight: Math.min(
+						...actions.map((action) => action.getBoundingClientRect().height)
+					)
 				};
 			});
 			expect(geometry.noOverflow).toBe(true);
@@ -111,6 +115,45 @@ test.describe('public shell', () => {
 			await page.getByRole('button', { name: 'Cancel' }).click();
 			await expect(page.getByRole('heading', { name: /Your people/i })).toBeVisible();
 		}
+	});
+
+	test('resets target phase focus and exposes the full link when Clipboard fails', async ({
+		page
+	}) => {
+		await page.addInitScript(() => {
+			class PlatformCredential {
+				static async isUserVerifyingPlatformAuthenticatorAvailable() {
+					return true;
+				}
+			}
+			Object.defineProperty(globalThis, 'PublicKeyCredential', {
+				configurable: true,
+				value: PlatformCredential
+			});
+		});
+		await page.routeWebSocket(/wss:\/\//u, (socket) => socket.onMessage(() => undefined));
+		await page.setViewportSize({ width: 320, height: 640 });
+		await page.goto('/');
+		const linkButton = page.getByRole('button', { name: /Link an existing profile/i });
+		await expect(linkButton).toBeVisible();
+		await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+		await linkButton.evaluate((button: HTMLButtonElement) => button.click());
+
+		const heading = page.getByRole('heading', { name: /Scan with your trusted device/i });
+		await expect(heading).toBeVisible();
+		await expect(heading).toBeFocused();
+		expect(await page.evaluate(() => window.scrollY)).toBe(0);
+		await page.evaluate(() => {
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: { writeText: () => Promise.reject(new Error('denied')) }
+			});
+		});
+		await page.getByRole('button', { name: /Copy link instead/i }).click();
+		await expect(page.getByRole('alert')).toHaveText('The device-link URL could not be copied.');
+		await expect(page.getByLabel('Full device-link URL')).toHaveValue(
+			/^http:\/\/127\.0\.0\.1:4173\/link\/#/u
+		);
 	});
 
 	test('centers the desktop empty conversation state in the full pane', async ({ page }) => {

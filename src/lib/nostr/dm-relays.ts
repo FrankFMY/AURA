@@ -7,9 +7,11 @@ import {
 } from 'nostr-tools';
 
 const HEX_32 = /^[0-9a-f]{64}$/u;
+const HEX_SIG = /^[0-9a-f]{128}$/u;
 const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 const MAX_RELAYS = 3;
 const MAX_RELAY_URL_LENGTH = 256;
+const MAX_RELAY_LIST_EVENTS = 64;
 
 export interface ResolvedDmRelayList {
 	event: Event;
@@ -85,18 +87,53 @@ function verifyWireEvent(event: Event): boolean {
 		pubkey: event.pubkey,
 		created_at: event.created_at,
 		kind: event.kind,
-		tags: event.tags.map((tag) => [...tag]),
+		tags: event.tags.map((tag) => [tag[0], tag[1]]),
 		content: event.content,
 		sig: event.sig
 	};
 	return verifyEvent(uncached);
 }
 
+function isBoundedRelayListEvent(value: unknown): value is Event {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+	const event = value as Partial<Event>;
+	if (
+		typeof event.id !== 'string' ||
+		!HEX_32.test(event.id) ||
+		typeof event.pubkey !== 'string' ||
+		!HEX_32.test(event.pubkey) ||
+		typeof event.sig !== 'string' ||
+		!HEX_SIG.test(event.sig) ||
+		!Number.isSafeInteger(event.created_at) ||
+		!Number.isSafeInteger(event.kind) ||
+		typeof event.content !== 'string' ||
+		event.content.length > 0 ||
+		!Array.isArray(event.tags) ||
+		event.tags.length > MAX_RELAYS
+	) {
+		return false;
+	}
+	for (const tag of event.tags) {
+		if (
+			!Array.isArray(tag) ||
+			tag.length !== 2 ||
+			tag[0] !== 'relay' ||
+			typeof tag[1] !== 'string' ||
+			tag[1].length < 1 ||
+			tag[1].length > MAX_RELAY_URL_LENGTH
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 function parseCandidate(event: Event, pubkey: string, now: number): ResolvedDmRelayList | null {
+	if (!isBoundedRelayListEvent(event)) return null;
 	if (event.kind !== 10050 || event.pubkey !== pubkey || event.content !== '') return null;
 	if (!Number.isSafeInteger(event.created_at) || event.created_at <= 0) return null;
 	if (event.created_at > now + MAX_CLOCK_SKEW_SECONDS) return null;
-	if (!Array.isArray(event.tags) || !verifyWireEvent(event)) return null;
+	if (!verifyWireEvent(event)) return null;
 	if (
 		event.tags.some(
 			(tag) =>
@@ -147,13 +184,23 @@ export function resolveDmRelayList(
 ): ResolvedDmRelayList | null {
 	if (!HEX_32.test(pubkey)) throw new Error('pubkey must be canonical lowercase x-only hex');
 	if (!Number.isSafeInteger(now) || now <= 0) throw new Error('now must be a positive timestamp');
-	const candidates = events
-		.map((event) => parseCandidate(event, pubkey, now))
-		.filter((candidate): candidate is ResolvedDmRelayList => candidate !== null)
-		.sort(
-			(a, b) => b.event.created_at - a.event.created_at || a.event.id.localeCompare(b.event.id)
-		);
-	return candidates[0] ?? null;
+	if (!Array.isArray(events) || events.length > MAX_RELAY_LIST_EVENTS) {
+		throw new Error('DM relay history exceeds the supported size');
+	}
+	let resolved: ResolvedDmRelayList | null = null;
+	for (const event of events) {
+		const candidate = parseCandidate(event, pubkey, now);
+		if (!candidate) continue;
+		if (
+			!resolved ||
+			candidate.event.created_at > resolved.event.created_at ||
+			(candidate.event.created_at === resolved.event.created_at &&
+				candidate.event.id.localeCompare(resolved.event.id) < 0)
+		) {
+			resolved = candidate;
+		}
+	}
+	return resolved;
 }
 
 export function requireDmRelayList(

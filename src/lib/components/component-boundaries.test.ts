@@ -48,6 +48,28 @@ describe('messenger component boundaries', () => {
 		expect(appSource).not.toMatch(/<ProfilePane[\s\S]{0,320}\{account\}/u);
 	});
 
+	it('hands off the imported key lease after Passkey protection but before persistence', () => {
+		const appSource = sources['./App.svelte'];
+		const protectStart = appSource.indexOf('async function protectLinkedProfile');
+		const protectEnd = appSource.indexOf('function cancelTargetLink', protectStart);
+		const protectSource = appSource.slice(protectStart, protectEnd);
+		expect(protectStart).toBeGreaterThanOrEqual(0);
+		expect(protectSource).toContain('authorizePersistence: () => {');
+		expect(protectSource.indexOf('authorizePersistence: () => {')).toBeLessThan(
+			protectSource.indexOf('importedLease.take()')
+		);
+		expect(protectSource.indexOf('importedLease.take()')).toBeLessThan(
+			protectSource.indexOf('persistenceAuthorized = true')
+		);
+		const expiryStart = appSource.indexOf(
+			'onExpire: () => {',
+			appSource.indexOf('acceptDeviceLinkReceipt')
+		);
+		const expirySource = appSource.slice(expiryStart, expiryStart + 900);
+		expect(expirySource).toContain('deviceLinkGeneration += 1');
+		expect(expirySource).toContain('busy = false');
+	});
+
 	it('passes reactive presentation labels explicitly instead of hidden callback dependencies', () => {
 		const chatListSource = sources['./ChatListPane.svelte'];
 		const conversationSource = sources['./ConversationPane.svelte'];

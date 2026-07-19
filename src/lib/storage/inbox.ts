@@ -34,8 +34,27 @@ export async function getRelaySubscriptionSince(
 ): Promise<number> {
 	const [relayUrl] = normalizeDmRelayUrls([relay]);
 	const cursor = await database.relayCursors.get(relayUrl);
-	if (!cursor?.initialSyncComplete) return 0;
+	if (!cursor?.initialSyncComplete || cursor.fullReplayRequired) return 0;
 	return Math.max(0, cursor.maxEventCreatedAt - RECEIVE_CURSOR_OVERLAP_SECONDS);
+}
+
+export async function markRelayFullReplayRequired(
+	database: AccountDatabase,
+	relay: string,
+	requiredAt: number
+): Promise<void> {
+	assertTimestamp(requiredAt, 'requiredAt');
+	const [relayUrl] = normalizeDmRelayUrls([relay]);
+	await database.transaction('rw', database.relayCursors, async () => {
+		const existing = await database.relayCursors.get(relayUrl);
+		await database.relayCursors.put({
+			relayUrl,
+			maxEventCreatedAt: existing?.maxEventCreatedAt ?? 0,
+			initialSyncComplete: false,
+			fullReplayRequired: true,
+			updatedAt: Math.max(existing?.updatedAt ?? 0, requiredAt)
+		});
+	});
 }
 
 export async function markRelayInitialSyncComplete(
@@ -55,6 +74,7 @@ export async function markRelayInitialSyncComplete(
 			relayUrl,
 			maxEventCreatedAt: existing?.maxEventCreatedAt ?? 0,
 			initialSyncComplete: true,
+			fullReplayRequired: false,
 			updatedAt: Math.max(existing?.updatedAt ?? 0, completedAt)
 		});
 		assertOperationCurrent(isCurrent);

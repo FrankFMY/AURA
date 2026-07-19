@@ -12,9 +12,13 @@ import {
 
 const HEX_32 = /^[0-9a-f]{64}$/u;
 const HEX_16 = /^[0-9a-f]{32}$/u;
+const HEX_SIG = /^[0-9a-f]{128}$/u;
 const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_WRAPPED_EVENT_BYTES = 128 * 1024;
+const MAX_WIRE_TAGS = 8;
+const MAX_WIRE_TAG_ITEMS = 8;
+const MAX_WIRE_TAG_ITEM_LENGTH = 1_024;
 const TWO_DAYS_SECONDS = 2 * 24 * 60 * 60;
 const encoder = new TextEncoder();
 
@@ -81,6 +85,9 @@ function assertPubkey(pubkey: string, label: string): void {
 
 function assertMessageContent(content: unknown): asserts content is string {
 	if (typeof content !== 'string') throw new Error('message content must be text');
+	if (content.length > MAX_MESSAGE_BYTES) {
+		throw new Error('message content must contain between 1 byte and 16 KiB of UTF-8 text');
+	}
 	const size = encoder.encode(content).length;
 	if (size < 1 || size > MAX_MESSAGE_BYTES) {
 		throw new Error('message content must contain between 1 byte and 16 KiB of UTF-8 text');
@@ -107,7 +114,11 @@ function assertPastTimestamp(timestamp: number, now: number, label: string): voi
 }
 
 function boundedJsonParse(value: string, label: string): unknown {
-	if (typeof value !== 'string' || encoder.encode(value).length > MAX_WRAPPED_EVENT_BYTES) {
+	if (
+		typeof value !== 'string' ||
+		value.length > MAX_WRAPPED_EVENT_BYTES ||
+		encoder.encode(value).length > MAX_WRAPPED_EVENT_BYTES
+	) {
 		throw new Error(`${label} exceeds the supported size`);
 	}
 	try {
@@ -119,13 +130,41 @@ function boundedJsonParse(value: string, label: string): unknown {
 
 function assertEventShape(value: unknown, label: string): asserts value is Event {
 	if (!isRecord(value)) throw new Error(`${label} must be an event object`);
-	for (const key of ['id', 'pubkey', 'sig', 'content'] as const) {
-		if (typeof value[key] !== 'string') throw new Error(`${label} ${key} is invalid`);
+	const eventKeys = new Set(['id', 'pubkey', 'created_at', 'kind', 'tags', 'content', 'sig']);
+	let ownKeyCount = 0;
+	for (const key in value) {
+		if (!Object.hasOwn(value, key)) continue;
+		ownKeyCount += 1;
+		if (!eventKeys.has(key)) throw new Error(`${label} exceeds supported bounds`);
+	}
+	if (ownKeyCount !== eventKeys.size) throw new Error(`${label} exceeds supported bounds`);
+	if (
+		typeof value.id !== 'string' ||
+		!HEX_32.test(value.id) ||
+		typeof value.pubkey !== 'string' ||
+		!HEX_32.test(value.pubkey) ||
+		typeof value.sig !== 'string' ||
+		!HEX_SIG.test(value.sig) ||
+		typeof value.content !== 'string' ||
+		value.content.length > MAX_WRAPPED_EVENT_BYTES
+	) {
+		throw new Error(`${label} exceeds supported bounds`);
 	}
 	if (!Number.isSafeInteger(value.kind) || !Number.isSafeInteger(value.created_at)) {
 		throw new Error(`${label} kind or timestamp is invalid`);
 	}
-	if (!Array.isArray(value.tags)) throw new Error(`${label} tags are invalid`);
+	if (!Array.isArray(value.tags) || value.tags.length > MAX_WIRE_TAGS) {
+		throw new Error(`${label} exceeds supported bounds`);
+	}
+	for (const tag of value.tags) {
+		if (
+			!Array.isArray(tag) ||
+			tag.length > MAX_WIRE_TAG_ITEMS ||
+			tag.some((item) => typeof item !== 'string' || item.length > MAX_WIRE_TAG_ITEM_LENGTH)
+		) {
+			throw new Error(`${label} exceeds supported bounds`);
+		}
+	}
 }
 
 function verifyWireEvent(event: Event): boolean {
@@ -155,32 +194,42 @@ function createCopy(
 	const sealCreatedAt = nextTimestamp();
 	assertPastTimestamp(sealCreatedAt, now, 'seal timestamp');
 	const sealConversationKey = nip44.v2.utils.getConversationKey(senderSecretKey, audiencePubkey);
-	const seal = finalizeEvent(
-		{
-			kind: 13,
-			tags: [],
-			created_at: sealCreatedAt,
-			content: nip44.v2.encrypt(JSON.stringify(rumor), sealConversationKey)
-		},
-		senderSecretKey
-	);
+	let seal: VerifiedEvent;
+	try {
+		seal = finalizeEvent(
+			{
+				kind: 13,
+				tags: [],
+				created_at: sealCreatedAt,
+				content: nip44.v2.encrypt(JSON.stringify(rumor), sealConversationKey)
+			},
+			senderSecretKey
+		);
+	} finally {
+		sealConversationKey.fill(0);
+	}
 
 	const ephemeralKey = nextEphemeralKey();
-	assertSecretKey(ephemeralKey);
-	const wrapCreatedAt = nextTimestamp();
-	assertPastTimestamp(wrapCreatedAt, now, 'gift wrap timestamp');
-	const wrapConversationKey = nip44.v2.utils.getConversationKey(ephemeralKey, audiencePubkey);
-	const wrap = finalizeEvent(
-		{
-			kind: 1059,
-			tags: [['p', audiencePubkey]],
-			created_at: wrapCreatedAt,
-			content: nip44.v2.encrypt(JSON.stringify(seal), wrapConversationKey)
-		},
-		ephemeralKey
-	);
-
-	return Object.freeze({ audience, audiencePubkey, rumorId: rumor.id, seal, wrap });
+	let wrapConversationKey: Uint8Array | undefined;
+	try {
+		assertSecretKey(ephemeralKey);
+		const wrapCreatedAt = nextTimestamp();
+		assertPastTimestamp(wrapCreatedAt, now, 'gift wrap timestamp');
+		wrapConversationKey = nip44.v2.utils.getConversationKey(ephemeralKey, audiencePubkey);
+		const wrap = finalizeEvent(
+			{
+				kind: 1059,
+				tags: [['p', audiencePubkey]],
+				created_at: wrapCreatedAt,
+				content: nip44.v2.encrypt(JSON.stringify(seal), wrapConversationKey)
+			},
+			ephemeralKey
+		);
+		return Object.freeze({ audience, audiencePubkey, rumorId: rumor.id, seal, wrap });
+	} finally {
+		wrapConversationKey?.fill(0);
+		ephemeralKey.fill(0);
+	}
 }
 
 export function createWrappedDirectMessage(
@@ -266,8 +315,13 @@ function parseSeal(value: unknown, now: number): Event {
 function parseRumor(value: unknown, sealPubkey: string, accountPubkey: string): Rumor {
 	if (!isRecord(value)) throw new Error('rumor must be an event object');
 	const allowed = new Set(['id', 'pubkey', 'created_at', 'kind', 'tags', 'content']);
-	const unknown = Object.keys(value).filter((key) => !allowed.has(key));
-	if (unknown.length > 0) throw new Error(`rumor contains unknown fields: ${unknown.join(', ')}`);
+	let ownKeyCount = 0;
+	for (const key in value) {
+		if (!Object.hasOwn(value, key)) continue;
+		ownKeyCount += 1;
+		if (!allowed.has(key)) throw new Error('rumor contains unsupported fields');
+	}
+	if (ownKeyCount !== allowed.size) throw new Error('rumor fields are incomplete');
 	if (typeof value.id !== 'string' || !HEX_32.test(value.id))
 		throw new Error('rumor id is missing or invalid');
 	if (typeof value.pubkey !== 'string' || !HEX_32.test(value.pubkey)) {
@@ -319,23 +373,26 @@ export function unwrapDirectMessage(options: UnwrapDirectMessageOptions): Readon
 	validateOuterEvent(options.wrap, accountPubkey, options.now);
 
 	let sealJson: string;
+	let outerKey: Uint8Array | undefined;
 	try {
-		const outerKey = nip44.v2.utils.getConversationKey(
-			options.accountSecretKey,
-			options.wrap.pubkey
-		);
+		outerKey = nip44.v2.utils.getConversationKey(options.accountSecretKey, options.wrap.pubkey);
 		sealJson = nip44.v2.decrypt(options.wrap.content, outerKey);
 	} catch {
 		throw new Error('outer event ciphertext could not be decrypted');
+	} finally {
+		outerKey?.fill(0);
 	}
 	const seal = parseSeal(boundedJsonParse(sealJson, 'seal'), options.now);
 
 	let rumorJson: string;
+	let sealKey: Uint8Array | undefined;
 	try {
-		const sealKey = nip44.v2.utils.getConversationKey(options.accountSecretKey, seal.pubkey);
+		sealKey = nip44.v2.utils.getConversationKey(options.accountSecretKey, seal.pubkey);
 		rumorJson = nip44.v2.decrypt(seal.content, sealKey);
 	} catch {
 		throw new Error('seal ciphertext could not be decrypted');
+	} finally {
+		sealKey?.fill(0);
 	}
 	return parseRumor(boundedJsonParse(rumorJson, 'rumor'), seal.pubkey, accountPubkey);
 }

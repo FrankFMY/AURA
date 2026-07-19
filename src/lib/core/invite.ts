@@ -103,14 +103,15 @@ function assertExactKeys(
 	label: string
 ): void {
 	const allowedSet = new Set(allowed);
-	const unknown = Object.keys(value).filter((key) => !allowedSet.has(key));
-	if (unknown.length > 0) {
-		throw new Error(`unknown ${label} field: ${unknown.sort().join(', ')}`);
+	let ownKeyCount = 0;
+	for (const key in value) {
+		if (!Object.hasOwn(value, key)) continue;
+		ownKeyCount += 1;
+		if (!allowedSet.has(key)) throw new Error(`${label} contains unsupported fields`);
 	}
-	const missing = required.filter((key) => !(key in value));
-	if (missing.length > 0) {
-		throw new Error(`missing ${label} field: ${missing.join(', ')}`);
-	}
+	if (ownKeyCount > allowed.length) throw new Error(`${label} contains unsupported fields`);
+	if (required.some((key) => !Object.hasOwn(value, key)))
+		throw new Error(`${label} fields are incomplete`);
 }
 
 function assertSafeTimestamp(value: unknown, label: string): asserts value is number {

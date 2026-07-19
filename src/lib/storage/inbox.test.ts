@@ -7,6 +7,7 @@ import {
 	commitIncomingWrap,
 	conversationPubkeyForRumor,
 	getRelaySubscriptionSince,
+	markRelayFullReplayRequired,
 	markRelayInitialSyncComplete,
 	RECEIVE_CURSOR_OVERLAP_SECONDS
 } from './inbox';
@@ -51,6 +52,18 @@ describe('incoming Gift Wrap persistence', () => {
 		expect(await database.inboxReceipts.count()).toBe(1);
 		expect(await getRelaySubscriptionSince(database, 'wss://recipient.one/')).toBe(0);
 		await markRelayInitialSyncComplete(database, 'wss://recipient.one/', NOW_MS);
+		expect(await getRelaySubscriptionSince(database, 'wss://recipient.one/')).toBe(
+			Math.max(0, wrapped.recipient.wrap.created_at - RECEIVE_CURSOR_OVERLAP_SECONDS)
+		);
+		await markRelayFullReplayRequired(database, 'wss://recipient.one/', NOW_MS + 1);
+		expect(await getRelaySubscriptionSince(database, 'wss://recipient.one/')).toBe(0);
+		expect((await database.relayCursors.get('wss://recipient.one/'))?.fullReplayRequired).toBe(
+			true
+		);
+		await markRelayInitialSyncComplete(database, 'wss://recipient.one/', NOW_MS + 2);
+		expect((await database.relayCursors.get('wss://recipient.one/'))?.fullReplayRequired).toBe(
+			false
+		);
 		expect(await getRelaySubscriptionSince(database, 'wss://recipient.one/')).toBe(
 			Math.max(0, wrapped.recipient.wrap.created_at - RECEIVE_CURSOR_OVERLAP_SECONDS)
 		);

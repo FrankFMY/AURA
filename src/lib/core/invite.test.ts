@@ -139,11 +139,11 @@ describe('signed invite envelope', () => {
 
 	it('rejects unknown fields', () => {
 		const withUnknown = { ...payload(), admin: true } as InvitePayload;
-		expect(() => createInviteToken(withUnknown, SECRET_BYTES)).toThrow(/unknown invite field/i);
+		expect(() => createInviteToken(withUnknown, SECRET_BYTES)).toThrow(/invite.*unsupported/i);
 		const nestedUnknown = payload({
 			display: { name: 'Artem', role: 'admin' } as InvitePayload['display']
 		});
-		expect(() => createInviteToken(nestedUnknown, SECRET_BYTES)).toThrow(/unknown display field/i);
+		expect(() => createInviteToken(nestedUnknown, SECRET_BYTES)).toThrow(/display.*unsupported/i);
 	});
 
 	it('rejects malformed nonces and unsafe relay hints', () => {

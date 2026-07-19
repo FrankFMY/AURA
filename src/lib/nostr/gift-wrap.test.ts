@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	finalizeEvent,
 	generateSecretKey,
@@ -17,6 +17,8 @@ const recipientSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 33
 const attackerSecret = Uint8Array.from({ length: 32 }, (_, index) => 255 - index);
 const senderPubkey = getPublicKey(senderSecret);
 const recipientPubkey = getPublicKey(recipientSecret);
+
+afterEach(() => vi.restoreAllMocks());
 
 function wrapRumor(
 	rumor: Omit<Rumor, 'id'> & { id?: string },
@@ -47,6 +49,35 @@ function wrapRumor(
 }
 
 describe('NIP-17/NIP-59 direct messages', () => {
+	it('zeroizes generated wrapper scalars and every derived NIP-44 key', () => {
+		const ephemeralKeys = [generateSecretKey(), generateSecretKey()];
+		const ownedEphemerals = [...ephemeralKeys];
+		const derivedKeys: Uint8Array[] = [];
+		const deriveConversationKey = nip44.v2.utils.getConversationKey;
+		vi.spyOn(nip44.v2.utils, 'getConversationKey').mockImplementation((secretKey, pubkey) => {
+			const derived = deriveConversationKey(secretKey, pubkey);
+			derivedKeys.push(derived);
+			return derived;
+		});
+
+		const result = createWrappedDirectMessage({
+			content: 'Custody cleanup.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW,
+			generateEphemeralKey: () => ephemeralKeys.shift()!
+		});
+		unwrapDirectMessage({
+			wrap: result.recipient.wrap,
+			accountSecretKey: recipientSecret,
+			now: NOW
+		});
+
+		for (const ephemeral of ownedEphemerals) expect(ephemeral).toEqual(new Uint8Array(32));
+		expect(derivedKeys).toHaveLength(6);
+		for (const derived of derivedKeys) expect(derived).toEqual(new Uint8Array(32));
+	});
+
 	it('builds recipient and sender copies over one rumor', () => {
 		const ephemeralKeys = [generateSecretKey(), generateSecretKey()];
 		const result = createWrappedDirectMessage({
@@ -112,6 +143,62 @@ describe('NIP-17/NIP-59 direct messages', () => {
 		expect(sender).toEqual(recipient);
 	});
 
+	it('rejects oversized plaintext before UTF-8 encoding', () => {
+		const originalEncode = TextEncoder.prototype.encode;
+		let encodedOversizedInput = false;
+		vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
+			this: TextEncoder,
+			input?: string
+		) {
+			if ((input?.length ?? 0) > 16 * 1024) encodedOversizedInput = true;
+			return originalEncode.call(this, input);
+		});
+		expect(() =>
+			createWrappedDirectMessage({
+				content: 'x'.repeat(16 * 1024 + 1),
+				senderSecretKey: senderSecret,
+				recipientPubkey,
+				createdAt: NOW
+			})
+		).toThrow(/16 KiB|supported size/i);
+		expect(encodedOversizedInput).toBe(false);
+	});
+
+	it('rejects hostile outer structure before serialization or signature work', () => {
+		const result = createWrappedDirectMessage({
+			content: 'Bound this wrapper.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW
+		});
+		let extraReads = 0;
+		const extraProperty = { ...result.recipient.wrap } as VerifiedEvent & { extra?: unknown };
+		Object.defineProperty(extraProperty, 'extra', {
+			enumerable: true,
+			get: () => {
+				extraReads += 1;
+				throw new Error('must not be serialized');
+			}
+		});
+		expect(() =>
+			unwrapDirectMessage({ wrap: extraProperty, accountSecretKey: recipientSecret, now: NOW })
+		).toThrow(/supported bounds/i);
+		expect(extraReads).toBe(0);
+
+		const tagBomb = {
+			...result.recipient.wrap,
+			tags: Array.from({ length: 9 }, () => ['p', recipientPubkey])
+		} as VerifiedEvent;
+		expect(() =>
+			unwrapDirectMessage({ wrap: tagBomb, accountSecretKey: recipientSecret, now: NOW })
+		).toThrow(/supported bounds/i);
+
+		const scalarBomb = { ...result.recipient.wrap, id: 'a'.repeat(65) };
+		expect(() =>
+			unwrapDirectMessage({ wrap: scalarBomb, accountSecretKey: recipientSecret, now: NOW })
+		).toThrow(/supported bounds/i);
+	});
+
 	it('rejects a tampered outer event before trusting ciphertext', () => {
 		const result = createWrappedDirectMessage({
 			content: 'Authentic.',
@@ -155,7 +242,7 @@ describe('NIP-17/NIP-59 direct messages', () => {
 		};
 		expect(() =>
 			unwrapDirectMessage({ wrap: wrapRumor(rumor), accountSecretKey: recipientSecret, now: NOW })
-		).toThrow(/rumor.*id/i);
+		).toThrow(/rumor.*incomplete/i);
 
 		const validRumor = { ...rumor, id: getEventHash(rumor) };
 		expect(() =>

@@ -1,5 +1,6 @@
 import { getPublicKey, type Event } from 'nostr-tools';
 import {
+	revalidateDeviceLinkRequest,
 	unwrapDeviceLinkTransfer,
 	type ImportedDeviceLinkProfile,
 	type VerifiedDeviceLinkRequest
@@ -10,9 +11,11 @@ import type { RelayPool, SubscriptionCloser } from './relay-client';
 export interface DeviceLinkReceiverOptions {
 	pool: RelayPool;
 	request: VerifiedDeviceLinkRequest;
+	expectedOrigin: string;
 	/** Ownership is transferred; stop, expiry, or success zeroizes this exact buffer. */
 	receiverSecretKey: Uint8Array;
 	now?: () => number;
+	clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 	onTransfer: (profile: ImportedDeviceLinkProfile) => void;
 	onInvalidEvent?: (error: Error) => void;
 	onClose?: (reasons: string[]) => void;
@@ -33,6 +36,7 @@ export class DeviceLinkReceiver {
 	readonly #request: VerifiedDeviceLinkRequest;
 	readonly #receiverSecretKey: Uint8Array;
 	readonly #now: () => number;
+	readonly #clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
 	readonly #onTransfer: (profile: ImportedDeviceLinkProfile) => void;
 	readonly #onInvalidEvent?: (error: Error) => void;
 	readonly #onClose?: (reasons: string[]) => void;
@@ -45,9 +49,9 @@ export class DeviceLinkReceiver {
 
 	constructor(options: DeviceLinkReceiverOptions) {
 		this.#pool = options.pool;
-		this.#request = options.request;
 		this.#receiverSecretKey = options.receiverSecretKey;
 		this.#now = options.now ?? systemNow;
+		this.#clearTimer = options.clearTimer ?? clearTimeout;
 		this.#onTransfer = options.onTransfer;
 		this.#onInvalidEvent = options.onInvalidEvent;
 		this.#onClose = options.onClose;
@@ -63,6 +67,17 @@ export class DeviceLinkReceiver {
 			this.#receiverSecretKey.fill(0);
 			throw new Error('device link receiver secret key is invalid');
 		}
+		let canonicalRequest: VerifiedDeviceLinkRequest;
+		try {
+			canonicalRequest = revalidateDeviceLinkRequest(options.request, {
+				expectedOrigin: options.expectedOrigin,
+				now: this.#now()
+			});
+		} catch (error) {
+			this.#receiverSecretKey.fill(0);
+			throw error;
+		}
+		this.#request = canonicalRequest;
 		if (pubkey !== this.#request.event.pubkey) {
 			this.#receiverSecretKey.fill(0);
 			throw new Error('device link receiver secret key does not match the request');
@@ -72,31 +87,64 @@ export class DeviceLinkReceiver {
 	start(): SubscriptionCloser {
 		if (this.#started) throw new Error('device link receiver is already started');
 		if (this.#consumed) throw new Error('device link request is already consumed');
-		if (this.#now() >= this.#request.payload.expires_at) {
+		let now: number;
+		try {
+			now = this.#now();
+		} catch (error) {
+			this.#receiverSecretKey.fill(0);
+			throw error;
+		}
+		if (now >= this.#request.payload.expires_at) {
 			this.#receiverSecretKey.fill(0);
 			throw new Error('device link request has expired');
 		}
 		this.#started = true;
 		const generation = ++this.#generation;
 		const since = Math.max(0, this.#request.payload.issued_at - 5 * 60);
-		this.#subscription = this.#pool.subscribeMany(
-			[...this.#request.payload.relay_hints],
-			{ kinds: [1059], '#p': [this.#request.event.pubkey], since },
-			{
-				onevent: (event) => this.#receive(event, generation),
-				onclose: (reasons) => {
-					if (this.#started && generation === this.#generation) this.#onClose?.(reasons);
-				},
-				maxWait: 8_000
+		let subscription: SubscriptionCloser | undefined;
+		try {
+			subscription = this.#pool.subscribeMany(
+				[...this.#request.payload.relay_hints],
+				{ kinds: [1059], '#p': [this.#request.event.pubkey], since },
+				{
+					onevent: (event) => this.#receive(event, generation),
+					onclose: (reasons) => {
+						if (this.#started && generation === this.#generation) this.#onClose?.(reasons);
+					},
+					maxWait: 8_000
+				}
+			);
+			if (!this.#started || generation !== this.#generation) {
+				try {
+					subscription.close('device link receiver completed during startup');
+				} catch {
+					// Lifecycle completion and key cleanup are already authoritative.
+				}
+				return { close: () => undefined };
 			}
-		);
-		const expiresInMs = Math.max(1, (this.#request.payload.expires_at - this.#now()) * 1_000);
-		this.#expiryTimer = setTimeout(() => {
-			if (!this.#started || generation !== this.#generation) return;
-			this.stop('device link request expired');
-			this.#onExpire?.();
-		}, expiresInMs);
-		return { close: (reason?: string) => this.stop(reason) };
+			this.#subscription = subscription;
+			const expiresInMs = Math.max(1, (this.#request.payload.expires_at - this.#now()) * 1_000);
+			this.#expiryTimer = setTimeout(() => {
+				if (!this.#started || generation !== this.#generation) return;
+				this.stop('device link request expired');
+				this.#onExpire?.();
+			}, expiresInMs);
+			return { close: (reason?: string) => this.stop(reason) };
+		} catch (error) {
+			if (subscription && this.#subscription !== subscription) {
+				try {
+					subscription.close('device link receiver startup failed');
+				} catch {
+					// Preserve the original startup failure.
+				}
+			}
+			try {
+				this.stop('device link receiver startup failed');
+			} catch {
+				this.#receiverSecretKey.fill(0);
+			}
+			throw error;
+		}
 	}
 
 	stop(reason = 'device link receiver stopped'): void {
@@ -105,24 +153,47 @@ export class DeviceLinkReceiver {
 		this.#started = false;
 		const subscription = this.#subscription;
 		this.#subscription = undefined;
-		if (this.#expiryTimer) clearTimeout(this.#expiryTimer);
+		const expiryTimer = this.#expiryTimer;
 		this.#expiryTimer = undefined;
 		this.#receiverSecretKey.fill(0);
-		subscription?.close(reason);
+		if (expiryTimer !== undefined) {
+			try {
+				this.#clearTimer(expiryTimer);
+			} catch {
+				// Timer cleanup cannot regain custody or suppress transfer/expiry completion.
+			}
+		}
+		try {
+			subscription?.close(reason);
+		} catch {
+			// Transport cleanup must not undo lifecycle invalidation or suppress completion callbacks.
+		}
 	}
 
 	#receive(event: Event, generation: number): void {
 		if (!this.#started || this.#consumed || generation !== this.#generation) return;
+		let now: number;
+		try {
+			now = this.#now();
+		} catch (error) {
+			this.stop('device link receiver clock failed');
+			this.#onInvalidEvent?.(
+				error instanceof Error ? error : new Error('device link receiver clock failed')
+			);
+			return;
+		}
 		let profile: ImportedDeviceLinkProfile;
 		try {
 			profile = unwrapDeviceLinkTransfer({
 				wrap: event,
 				receiverSecretKey: this.#receiverSecretKey,
 				request: this.#request,
-				now: this.#now()
+				now
 			});
 		} catch (error) {
-			this.#onInvalidEvent?.(error instanceof Error ? error : new Error('invalid device link event'));
+			this.#onInvalidEvent?.(
+				error instanceof Error ? error : new Error('invalid device link event')
+			);
 			return;
 		}
 		this.#consumed = true;

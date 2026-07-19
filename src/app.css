@@ -1044,8 +1044,7 @@ textarea::placeholder {
 	place-items: center;
 	padding: 2rem;
 	background:
-		radial-gradient(circle at 20% 10%, rgba(146, 214, 173, 0.12), transparent 30rem),
-		#111412;
+		radial-gradient(circle at 20% 10%, rgba(146, 214, 173, 0.12), transparent 30rem), #111412;
 }
 .link-target-card {
 	width: min(100%, 38rem);
@@ -1152,6 +1151,27 @@ textarea::placeholder {
 	box-shadow: 0 0 0 0 rgba(79, 150, 104, 0.35);
 	animation: link-pulse 1.5s ease-out infinite;
 }
+.link-manual-url {
+	display: grid;
+	gap: 0.4rem;
+	margin-top: 0.85rem;
+	text-align: left;
+}
+.link-manual-url span {
+	color: #687069;
+	font-size: 0.72rem;
+}
+.link-manual-url textarea {
+	width: 100%;
+	min-height: 4.5rem;
+	resize: vertical;
+	font:
+		0.72rem/1.45 ui-monospace,
+		SFMono-Regular,
+		Menlo,
+		monospace;
+	overflow-wrap: anywhere;
+}
 .link-profile-summary {
 	display: flex;
 	align-items: center;
@@ -1164,6 +1184,11 @@ textarea::placeholder {
 }
 .link-profile-summary p {
 	margin: 0.3rem 0 0;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+.link-profile-summary > div:last-child {
+	min-width: 0;
 }
 .link-profile-summary.target {
 	color: #222824;
@@ -1172,6 +1197,27 @@ textarea::placeholder {
 }
 .link-profile-summary.target .muted {
 	color: #687069;
+}
+.link-identity-confirmation {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.7rem;
+	margin: 1rem 0;
+	border: 1px solid rgba(56, 112, 76, 0.18);
+	border-radius: 0.9rem;
+	background: rgba(56, 112, 76, 0.06);
+	padding: 0.85rem 1rem;
+	color: #39433c;
+	font-size: 0.78rem;
+	line-height: 1.45;
+	text-align: left;
+}
+.link-identity-confirmation input {
+	flex: 0 0 auto;
+	width: 1.1rem;
+	height: 1.1rem;
+	margin-top: 0.05rem;
+	accent-color: #397a51;
 }
 .link-dialog-backdrop {
 	position: fixed;
@@ -1485,9 +1531,8 @@ textarea::placeholder {
 		min-height: 100dvh;
 		border: 0;
 		border-radius: 0;
-		padding: max(1.2rem, env(safe-area-inset-top))
-			max(0.75rem, env(safe-area-inset-right)) max(1.2rem, env(safe-area-inset-bottom))
-			max(0.75rem, env(safe-area-inset-left));
+		padding: max(1.2rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right))
+			max(1.2rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
 	}
 	.link-qr-wrap {
 		width: 100%;

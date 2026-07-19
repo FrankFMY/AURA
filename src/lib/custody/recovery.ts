@@ -20,7 +20,12 @@ function normalizeRecoveryWords(value: string): string {
 
 export function secretKeyToRecoveryWords(secretKey: Uint8Array): string {
 	assertValidSecretKey(secretKey);
-	return entropyToMnemonic(Uint8Array.from(secretKey), wordlist);
+	const entropy = Uint8Array.from(secretKey);
+	try {
+		return entropyToMnemonic(entropy, wordlist);
+	} finally {
+		entropy.fill(0);
+	}
 }
 
 export function recoveryWordsToSecretKey(value: string): Uint8Array {
@@ -30,7 +35,12 @@ export function recoveryWordsToSecretKey(value: string): Uint8Array {
 	if (!validateMnemonic(normalized, wordlist)) {
 		throw new Error('recovery code words or checksum are invalid');
 	}
-	const secretKey = Uint8Array.from(mnemonicToEntropy(normalized, wordlist));
-	assertValidSecretKey(secretKey);
-	return secretKey;
+	const secretKey = mnemonicToEntropy(normalized, wordlist);
+	try {
+		assertValidSecretKey(secretKey);
+		return secretKey;
+	} catch (error) {
+		secretKey.fill(0);
+		throw error;
+	}
 }

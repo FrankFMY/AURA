@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import Dexie from 'dexie';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	finalizeEvent,
@@ -75,7 +76,13 @@ function runtime(
 	pool: RelayPool,
 	secretKey = generateSecretKey(),
 	now = () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS }),
-	reconciliationIntervalMs = OUTBOX_RECONCILIATION_INTERVAL_MS
+	reconciliationIntervalMs = OUTBOX_RECONCILIATION_INTERVAL_MS,
+	overrides: Partial<
+		Pick<
+			ConstructorParameters<typeof MessengerRuntime>[0],
+			'maxPendingIncoming' | 'onReceiveError' | 'onTransportError'
+		>
+	> = {}
 ) {
 	const pubkey = getPublicKey(secretKey);
 	const database = new AccountDatabase(pubkey, `runtime-${crypto.randomUUID()}`);
@@ -92,12 +99,14 @@ function runtime(
 			accountDmRelays: ['wss://sender.one/'],
 			recoveryConfirmed: true,
 			now,
-			reconciliationIntervalMs
+			reconciliationIntervalMs,
+			...overrides
 		})
 	};
 }
 
 afterEach(async () => {
+	vi.unstubAllGlobals();
 	await Promise.all(databases.splice(0).map((database) => database.delete()));
 });
 
@@ -309,6 +318,261 @@ describe('messenger runtime', () => {
 		).toBe(true);
 	});
 
+	it('keeps interrupted newest-then-old replay eligible across EOSE and restart', async () => {
+		const network = fakePool();
+		const app = runtime(network.pool);
+		await app.runtime.start();
+		const senderSecretKey = generateSecretKey();
+		const newer = createWrappedDirectMessage({
+			senderSecretKey,
+			recipientPubkey: app.pubkey,
+			content: 'Newest relay history.',
+			createdAt: NOW_SECONDS
+		});
+		const older = createWrappedDirectMessage({
+			senderSecretKey,
+			recipientPubkey: app.pubkey,
+			content: 'History older than the resume overlap.',
+			createdAt: NOW_SECONDS - RECEIVE_CURSOR_OVERLAP_SECONDS - 60
+		});
+		let releaseOlder!: () => void;
+		let olderTransactionStarted!: () => void;
+		const olderGate = new Promise<void>((resolve) => {
+			releaseOlder = resolve;
+		});
+		const started = new Promise<void>((resolve) => {
+			olderTransactionStarted = resolve;
+		});
+		const originalTransaction = app.database.transaction.bind(app.database) as (
+			...args: unknown[]
+		) => Promise<unknown>;
+		let incomingTransactions = 0;
+		vi.spyOn(app.database, 'transaction').mockImplementation(((...args: unknown[]) => {
+			const tables = args.slice(1, -1);
+			if (
+				tables.includes(app.database.messages) &&
+				tables.includes(app.database.inboxReceipts) &&
+				++incomingTransactions === 2
+			) {
+				olderTransactionStarted();
+				return olderGate.then(() => originalTransaction(...args));
+			}
+			return originalTransaction(...args);
+		}) as never);
+
+		const firstSubscription = network.subscription!;
+		firstSubscription.onevent(newer.recipient.wrap);
+		await vi.waitFor(async () => {
+			expect((await app.database.messages.get(newer.rumor.id))?.state).toBe('received');
+		});
+		firstSubscription.onevent(older.recipient.wrap);
+		await started;
+		firstSubscription.oneose();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(
+			(await app.database.relayCursors.get('wss://sender.one/'))?.initialSyncComplete
+		).not.toBe(true);
+
+		app.runtime.stop();
+		releaseOlder();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(await app.database.messages.get(older.rumor.id)).toBeUndefined();
+		await app.runtime.start();
+		const replaySubscription = network.subscription!;
+		expect(replaySubscription.filter.since).toBe(0);
+		replaySubscription.onevent(older.recipient.wrap);
+		replaySubscription.oneose();
+		await vi.waitFor(async () => {
+			expect((await app.database.messages.get(older.rumor.id))?.state).toBe('received');
+			expect((await app.database.relayCursors.get('wss://sender.one/'))?.initialSyncComplete).toBe(
+				true
+			);
+		});
+	});
+
+	it('keeps a completed cursor replayable when stop wins the saturation race', async () => {
+		const secretKey = generateSecretKey();
+		const pubkey = getPublicKey(secretKey);
+		const database = new AccountDatabase(
+			pubkey,
+			`completed-saturation-stop-${crypto.randomUUID()}`
+		);
+		databases.push(database);
+		await database.relayCursors.put({
+			relayUrl: 'wss://sender.one/',
+			maxEventCreatedAt: NOW_SECONDS,
+			initialSyncComplete: true,
+			updatedAt: NOW_MS
+		});
+		const network = fakePool();
+		const messenger = new MessengerRuntime({
+			session: new UnlockedSession(secretKey),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			maxPendingIncoming: 1,
+			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS })
+		});
+		let releasePending!: () => void;
+		let pendingStarted!: () => void;
+		const pendingGate = new Promise<void>((resolve) => {
+			releasePending = resolve;
+		});
+		const started = new Promise<void>((resolve) => {
+			pendingStarted = resolve;
+		});
+		const originalTransaction = database.transaction.bind(database) as (
+			...args: unknown[]
+		) => Promise<unknown>;
+		let incomingTransactions = 0;
+		vi.spyOn(database, 'transaction').mockImplementation(((...args: unknown[]) => {
+			const tables = args.slice(1, -1);
+			if (
+				tables.includes(database.messages) &&
+				tables.includes(database.inboxReceipts) &&
+				++incomingTransactions === 1
+			) {
+				pendingStarted();
+				return pendingGate.then(() => originalTransaction(...args));
+			}
+			return originalTransaction(...args);
+		}) as never);
+
+		await messenger.start();
+		const firstSubscription = network.subscription!;
+		expect(firstSubscription.filter.since).toBe(NOW_SECONDS - RECEIVE_CURSOR_OVERLAP_SECONDS);
+		const senderSecretKey = generateSecretKey();
+		const pending = createWrappedDirectMessage({
+			senderSecretKey,
+			recipientPubkey: pubkey,
+			content: 'Pending accepted event.',
+			createdAt: NOW_SECONDS
+		});
+		const old = createWrappedDirectMessage({
+			senderSecretKey,
+			recipientPubkey: pubkey,
+			content: 'Older than the completed overlap.',
+			createdAt: NOW_SECONDS - RECEIVE_CURSOR_OVERLAP_SECONDS - 100
+		});
+		firstSubscription.onevent(pending.recipient.wrap);
+		await started;
+		firstSubscription.onevent(old.recipient.wrap);
+		messenger.stop();
+
+		await messenger.start();
+		const restarted = network.subscription!;
+		expect(restarted.filter.since).toBe(0);
+		releasePending();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		restarted.onevent(old.recipient.wrap);
+		restarted.oneose();
+		await vi.waitFor(async () => {
+			expect((await database.messages.get(old.rumor.id))?.state).toBe('received');
+			expect((await database.relayCursors.get('wss://sender.one/'))?.initialSyncComplete).toBe(
+				true
+			);
+		});
+		messenger.stop();
+	});
+
+	it('persists full-replay safety across reset failure and runtime replacement', async () => {
+		const secretKey = generateSecretKey();
+		const pubkey = getPublicKey(secretKey);
+		const database = new AccountDatabase(pubkey, `reset-failure-${crypto.randomUUID()}`);
+		databases.push(database);
+		const persistedReplayKeys = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			setItem: (key: string, value: string) => persistedReplayKeys.set(key, value),
+			getItem: (key: string) => persistedReplayKeys.get(key) ?? null,
+			removeItem: (key: string) => persistedReplayKeys.delete(key)
+		});
+		await database.relayCursors.put({
+			relayUrl: 'wss://sender.one/',
+			maxEventCreatedAt: NOW_SECONDS,
+			initialSyncComplete: true,
+			updatedAt: NOW_MS
+		});
+		const network = fakePool();
+		const onTransportError = vi.fn();
+		const firstRuntime = new MessengerRuntime({
+			session: new UnlockedSession(secretKey),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			maxPendingIncoming: 1,
+			onTransportError,
+			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS })
+		});
+		await firstRuntime.start();
+		const firstSubscription = network.subscription!;
+		const malformed = finalizeEvent(
+			{
+				kind: 1059,
+				tags: [['p', pubkey]],
+				content: 'not encrypted',
+				created_at: NOW_SECONDS
+			},
+			generateSecretKey()
+		);
+		const senderSecretKey = generateSecretKey();
+		const old = createWrappedDirectMessage({
+			senderSecretKey,
+			recipientPubkey: pubkey,
+			content: 'Replay after cursor downgrade failure.',
+			createdAt: NOW_SECONDS - RECEIVE_CURSOR_OVERLAP_SECONDS - 100
+		});
+		let releaseEose!: () => void;
+		let markEoseStarted!: () => void;
+		const eoseStarted = new Promise<void>((resolve) => {
+			markEoseStarted = resolve;
+		});
+		const originalCursorGet = database.relayCursors.get.bind(database.relayCursors);
+		vi.spyOn(database.relayCursors, 'get').mockImplementationOnce(((key: string) => {
+			markEoseStarted();
+			const gate = new Promise<void>((resolve) => {
+				releaseEose = resolve;
+			});
+			return Dexie.waitFor(gate).then(() => originalCursorGet(key));
+		}) as never);
+		firstSubscription.oneose();
+		await eoseStarted;
+		vi.spyOn(database.relayCursors, 'put').mockRejectedValueOnce(
+			new Error('full-replay sentinel failed')
+		);
+		firstSubscription.onevent(malformed);
+		firstSubscription.onevent(old.recipient.wrap);
+		releaseEose();
+		await vi.waitFor(() => expect(onTransportError).toHaveBeenCalled());
+		expect([...persistedReplayKeys.keys()]).toEqual(['aura-r1:full-replay-required']);
+		expect([...persistedReplayKeys.keys()].join('')).not.toContain(pubkey);
+		expect([...persistedReplayKeys.keys()].join('')).not.toContain('sender.one');
+		firstRuntime.stop();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		const replacement = new MessengerRuntime({
+			session: new UnlockedSession(secretKey),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS })
+		});
+		await replacement.start();
+		const restarted = network.subscription!;
+		expect(restarted.filter.since).toBe(0);
+		restarted.onevent(old.recipient.wrap);
+		restarted.oneose();
+		await vi.waitFor(async () => {
+			expect((await database.messages.get(old.rumor.id))?.state).toBe('received');
+		});
+		replacement.stop();
+	});
+
 	it('reports malformed incoming events without declaring a transport failure', async () => {
 		const secretKey = generateSecretKey();
 		const pubkey = getPublicKey(secretKey);
@@ -345,6 +609,18 @@ describe('messenger runtime', () => {
 		expect(firstSubscription.closeReasons).toContain('incoming receive queue saturated; replaying');
 		await vi.waitFor(() => expect(onReceiveError).toHaveBeenCalledOnce());
 		expect(onTransportError).not.toHaveBeenCalled();
+
+		firstSubscription.onevent(malformed);
+		firstSubscription.oneose();
+		firstSubscription.onclose(['stale superseded close']);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(onReceiveError).toHaveBeenCalledOnce();
+		expect(onTransportError).not.toHaveBeenCalled();
+		expect(network.subscriptions).toHaveLength(2);
+		expect((await database.relayCursors.get('wss://sender.one/'))?.initialSyncComplete).not.toBe(
+			true
+		);
+
 		network.subscription?.onclose(['offline']);
 		expect(onTransportError).toHaveBeenCalledOnce();
 		messenger.stop();

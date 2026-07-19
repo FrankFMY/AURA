@@ -58,6 +58,34 @@ describe('kind-10050 DM relay policy', () => {
 		}
 	});
 
+	it('rejects oversized tag graphs before copying or signature verification', () => {
+		const signed = event(['wss://relay.example'], NOW);
+		const hostileTag = ['relay', 'wss://relay.example'];
+		Object.defineProperty(hostileTag, Symbol.iterator, {
+			value: () => {
+				throw new Error('hostile tag iterator reached');
+			}
+		});
+		const hostile = {
+			...signed,
+			tags: [hostileTag, hostileTag, hostileTag, hostileTag]
+		};
+		expect(() => resolveDmRelayList([hostile], pubkey, NOW)).not.toThrow();
+		expect(resolveDmRelayList([hostile], pubkey, NOW)).toBeNull();
+	});
+
+	it('caps relay history before accessing attacker-controlled entries', () => {
+		const history = new Proxy(new Array(65), {
+			get(target, property, receiver) {
+				if (typeof property === 'string' && /^\d+$/u.test(property)) {
+					throw new Error('hostile history entry reached');
+				}
+				return Reflect.get(target, property, receiver);
+			}
+		});
+		expect(() => resolveDmRelayList(history, pubkey, NOW)).toThrow(/too many|supported/i);
+	});
+
 	it('fails closed when no valid recipient list exists', () => {
 		expect(resolveDmRelayList([], pubkey, NOW)).toBeNull();
 		expect(() => requireDmRelayList([], pubkey, NOW)).toThrow(/recipient_not_dm_ready/i);

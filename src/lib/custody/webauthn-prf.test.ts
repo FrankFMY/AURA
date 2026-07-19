@@ -7,7 +7,8 @@ const prfOutput = Uint8Array.from({ length: 32 }, (_, index) => index + 50);
 
 function credential(
 	output: Uint8Array | null = prfOutput,
-	includeEnabled = true
+	includeEnabled = true,
+	returnExactBuffer = false
 ): PublicKeyCredential {
 	return {
 		id: 'credential',
@@ -20,7 +21,9 @@ function credential(
 				? ({
 						prf: {
 							...(includeEnabled ? { enabled: true } : {}),
-							results: { first: output.buffer }
+							results: {
+								first: returnExactBuffer ? output.buffer : Uint8Array.from(output).buffer
+							}
 						}
 					} as AuthenticationExtensionsClientOutputs)
 				: ({ prf: { enabled: false } } as AuthenticationExtensionsClientOutputs),
@@ -53,6 +56,49 @@ describe('WebAuthn PRF custody adapter', () => {
 			userVerification: 'required'
 		});
 		expect(creation?.publicKey?.rp.id).toBe('aura.frankfmy.com');
+	});
+
+	it('copies and zeroizes the browser-returned PRF buffer', async () => {
+		const browserPrfOutput = new Uint8Array(32).fill(77);
+		const expected = browserPrfOutput.slice();
+		const result = await createPrfCredential({
+			accountPubkey: pubkey,
+			displayName: 'Artem',
+			rpId: 'aura.frankfmy.com',
+			provider: {
+				create: async () => credential(browserPrfOutput, true, true),
+				get: async () => null
+			}
+		});
+
+		expect(result.prfOutput).toEqual(expected);
+		expect(browserPrfOutput).toEqual(new Uint8Array(32));
+		result.prfOutput.fill(0);
+	});
+
+	it('reads extension results once and wipes the exact browser-returned PRF buffer', async () => {
+		const first = new Uint8Array(32).fill(77);
+		const second = new Uint8Array(32).fill(88);
+		let extensionCalls = 0;
+		const changingCredential = credential(first, true, true);
+		changingCredential.getClientExtensionResults = () => {
+			const output = extensionCalls++ === 0 ? first : second;
+			return {
+				prf: { enabled: true, results: { first: output.buffer } }
+			} as AuthenticationExtensionsClientOutputs;
+		};
+		const result = await createPrfCredential({
+			accountPubkey: pubkey,
+			displayName: 'Artem',
+			rpId: 'aura.frankfmy.com',
+			provider: { create: async () => changingCredential, get: async () => null }
+		});
+
+		expect(extensionCalls).toBe(1);
+		expect(result.prfOutput).toEqual(new Uint8Array(32).fill(77));
+		expect(first).toEqual(new Uint8Array(32));
+		expect(second).toEqual(new Uint8Array(32).fill(88));
+		result.prfOutput.fill(0);
 	});
 
 	it('falls back to an immediate user-verified assertion when create-time PRF evaluation is unavailable', async () => {

@@ -44,14 +44,25 @@ export async function collectLocalDiagnostics(
 	options: LocalDiagnosticsOptions
 ): Promise<LocalDiagnosticsReport> {
 	const [messages, wireCopies, inboxReceipts, relayCursors, outboxTotal, ...statusCounts] =
-		await Promise.all([
-			database.messages.count(),
-			database.wireCopies.count(),
-			database.inboxReceipts.count(),
-			database.relayCursors.count(),
-			database.outbox.count(),
-			...OUTBOX_STATUSES.map((status) => database.outbox.where('status').equals(status).count())
-		]);
+		await database.transaction(
+			'r',
+			[
+				database.messages,
+				database.wireCopies,
+				database.inboxReceipts,
+				database.relayCursors,
+				database.outbox
+			],
+			() =>
+				Promise.all([
+					database.messages.count(),
+					database.wireCopies.count(),
+					database.inboxReceipts.count(),
+					database.relayCursors.count(),
+					database.outbox.count(),
+					...OUTBOX_STATUSES.map((status) => database.outbox.where('status').equals(status).count())
+				])
+		);
 	const [queued, publishing, accepted, rejected, retryWait] = statusCounts;
 	const recognizedOutboxRows = queued + publishing + accepted + rejected + retryWait;
 

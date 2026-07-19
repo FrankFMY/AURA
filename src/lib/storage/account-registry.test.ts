@@ -134,7 +134,24 @@ describe('encrypted account registry', () => {
 		expect(await Dexie.exists(account.name)).toBe(true);
 	});
 
-	it('registers a linked identity as recovery-confirmed without replacing a duplicate', async () => {
+	it('rolls back linked registration if active selection cannot commit', async () => {
+		const { pubkey, envelope, registry } = await fixture();
+		vi.spyOn(registry.settings, 'put').mockRejectedValueOnce(new Error('settings write failed'));
+
+		await expect(
+			registerLinkedAccount(registry, {
+				pubkey,
+				displayName: 'Linked Artem',
+				envelope,
+				dmRelays: ['wss://relay.one/'],
+				createdAt: 1_750_000_000_000
+			})
+		).rejects.toThrow(/settings write failed/i);
+		expect(await registry.accounts.get(pubkey)).toBeUndefined();
+		expect(await getActiveAccount(registry)).toBeUndefined();
+	});
+
+	it('atomically registers and activates a linked identity without replacing a duplicate', async () => {
 		const { pubkey, envelope, registry } = await fixture();
 		const input = {
 			pubkey,
@@ -145,6 +162,7 @@ describe('encrypted account registry', () => {
 		};
 		const linked = await registerLinkedAccount(registry, input);
 		expect(linked.recoveryConfirmed).toBe(true);
+		expect((await getActiveAccount(registry))?.pubkey).toBe(pubkey);
 		expect((await registry.accounts.get(pubkey))?.recoveryConfirmed).toBe(true);
 		await expect(registerLinkedAccount(registry, input)).rejects.toThrow(/already registered/i);
 		expect(await registry.accounts.count()).toBe(1);

@@ -13,6 +13,7 @@ import {
 import {
 	commitIncomingWrap,
 	getRelaySubscriptionSince,
+	markRelayFullReplayRequired,
 	markRelayInitialSyncComplete
 } from '../storage/inbox';
 import { runOutboxBatch } from '../storage/outbox-worker';
@@ -32,6 +33,48 @@ export interface RuntimeClock {
 }
 
 export const OUTBOX_RECONCILIATION_INTERVAL_MS = 2_500;
+
+const forcedFullReplays = new Set<string>();
+const REPLAY_STORAGE_KEY = 'aura-r1:full-replay-required';
+
+function replayRequirementKey(database: AccountDatabase, relayUrl: string): string {
+	return `${database.name}\n${relayUrl}`;
+}
+
+function requireFullReplayFallback(database: AccountDatabase, relayUrl: string): void {
+	forcedFullReplays.add(replayRequirementKey(database, relayUrl));
+	try {
+		globalThis.localStorage?.setItem(REPLAY_STORAGE_KEY, '1');
+	} catch {
+		// The in-process and cursor-record sentinels remain available.
+	}
+}
+
+function clearDurableReplayStorageFallback(): void {
+	try {
+		globalThis.localStorage?.removeItem(REPLAY_STORAGE_KEY);
+	} catch {
+		// Retaining an origin-wide full-replay flag is conservative.
+	}
+}
+
+function hasFullReplayFallback(database: AccountDatabase, relayUrl: string): boolean {
+	const key = replayRequirementKey(database, relayUrl);
+	if (forcedFullReplays.has(key)) return true;
+	try {
+		if (globalThis.localStorage?.getItem(REPLAY_STORAGE_KEY) === '1') {
+			forcedFullReplays.add(key);
+			return true;
+		}
+	} catch {
+		// The cursor record remains authoritative when localStorage is unavailable.
+	}
+	return false;
+}
+
+function clearFullReplayFallback(database: AccountDatabase, relayUrl: string): void {
+	forcedFullReplays.delete(replayRequirementKey(database, relayUrl));
+}
 
 export interface MessengerRuntimeOptions {
 	session: UnlockedSession;
@@ -68,6 +111,14 @@ interface OutboxRunState {
 	promise: Promise<number>;
 }
 
+interface RelaySubscriptionState {
+	relayUrl: string;
+	generation: number;
+	replayEpoch: number;
+	active: boolean;
+	closer?: SubscriptionCloser;
+}
+
 export class MessengerRuntime {
 	readonly #session: UnlockedSession;
 	readonly #database: AccountDatabase;
@@ -80,12 +131,14 @@ export class MessengerRuntime {
 	readonly #maxPendingIncoming: number;
 	readonly #onReceiveError?: (error: Error) => void;
 	readonly #onTransportError?: (error: Error) => void;
-	#subscriptions: SubscriptionCloser[] = [];
+	#subscriptions: RelaySubscriptionState[] = [];
 	#reconciliationTimer: ReturnType<typeof setInterval> | undefined;
 	#outboxRun: OutboxRunState | undefined;
 	#receiveQueue: Promise<void> = Promise.resolve();
 	#pendingIncoming = 0;
 	#restartingRelays = new Map<string, number>();
+	#replaySafety = new Map<string, Promise<void>>();
+	#replayEpochs = new Map<string, number>();
 	#generation = 0;
 	#started = false;
 
@@ -128,6 +181,10 @@ export class MessengerRuntime {
 		return this.#started && this.#isGenerationCurrent(generation);
 	}
 
+	#isActiveSubscription(subscription: RelaySubscriptionState): boolean {
+		return subscription.active && this.#isStartedGeneration(subscription.generation);
+	}
+
 	#assertStartedGeneration(generation: number, message: string): void {
 		if (!this.#isStartedGeneration(generation)) throw new Error(message);
 	}
@@ -137,7 +194,7 @@ export class MessengerRuntime {
 		const generation = ++this.#generation;
 		this.#started = true;
 		this.#subscriptions = [];
-		const opened: SubscriptionCloser[] = [];
+		const opened: RelaySubscriptionState[] = [];
 		try {
 			for (const relayUrl of this.#accountDmRelays) {
 				const subscription = await this.#openRelay(relayUrl, generation);
@@ -158,7 +215,12 @@ export class MessengerRuntime {
 			};
 		} catch (error) {
 			for (const subscription of opened) {
-				subscription.close('messenger runtime startup failed');
+				subscription.active = false;
+				try {
+					subscription.closer?.close('messenger runtime startup failed');
+				} catch {
+					// Preserve the startup failure.
+				}
 			}
 			if (this.#generation === generation) {
 				this.#subscriptions = [];
@@ -168,42 +230,51 @@ export class MessengerRuntime {
 		}
 	}
 
-	async #openRelay(relayUrl: string, generation: number): Promise<SubscriptionCloser> {
-		const since = await getRelaySubscriptionSince(this.#database, relayUrl);
+	async #openRelay(relayUrl: string, generation: number): Promise<RelaySubscriptionState> {
+		const replaySafety = this.#replaySafety.get(relayUrl);
+		if (replaySafety) {
+			await replaySafety;
+			if (this.#replaySafety.get(relayUrl) === replaySafety) {
+				this.#replaySafety.delete(relayUrl);
+			}
+			this.#assertStartedGeneration(generation, 'messenger runtime stopped during startup');
+		}
+		const since = hasFullReplayFallback(this.#database, relayUrl)
+			? 0
+			: await getRelaySubscriptionSince(this.#database, relayUrl);
 		this.#assertStartedGeneration(generation, 'messenger runtime stopped during startup');
-		let subscription: SubscriptionCloser | undefined;
-		subscription = subscribeGiftWraps(
+		const subscription: RelaySubscriptionState = {
+			relayUrl,
+			generation,
+			replayEpoch: this.#replayEpochs.get(relayUrl) ?? 0,
+			active: true
+		};
+		subscription.closer = subscribeGiftWraps(
 			this.#pool,
 			[relayUrl],
 			this.#session.pubkey,
 			since,
 			(event) => {
-				if (!this.#isStartedGeneration(generation)) return;
+				if (!this.#isActiveSubscription(subscription)) return;
 				this.#enqueueReceive(event, relayUrl, generation, () => {
-					if (subscription) this.#requestRelayReplay(relayUrl, subscription);
+					this.#requestRelayReplay(subscription);
 				});
 			},
 			(reasons) => {
-				if (!this.#isStartedGeneration(generation)) return;
+				if (!this.#isActiveSubscription(subscription)) return;
 				if (reasons.length > 0 && this.#restartingRelays.get(relayUrl) !== generation) {
 					this.#onTransportError?.(new Error(`relay subscription closed: ${reasons.join('; ')}`));
 				}
 			},
-			() => {
-				if (!this.#isStartedGeneration(generation)) return;
-				void markRelayInitialSyncComplete(
-					this.#database,
-					relayUrl,
-					this.#now().milliseconds,
-					this.#operationGuard(generation)
-				).catch((error) => {
-					if (!this.#isStartedGeneration(generation)) return;
-					this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
-				});
-			}
+			() => this.#enqueueInitialSyncComplete(subscription)
 		);
-		if (!this.#isStartedGeneration(generation)) {
-			subscription.close('messenger runtime stopped during startup');
+		if (!this.#isActiveSubscription(subscription)) {
+			subscription.active = false;
+			try {
+				subscription.closer.close('messenger runtime stopped during startup');
+			} catch {
+				// Lifecycle invalidation already completed.
+			}
 			throw new Error('messenger runtime stopped during startup');
 		}
 		return subscription;
@@ -211,7 +282,14 @@ export class MessengerRuntime {
 
 	stop(reason = 'messenger runtime stopped'): void {
 		this.#generation += 1;
-		for (const subscription of this.#subscriptions) subscription.close(reason);
+		for (const subscription of this.#subscriptions) {
+			subscription.active = false;
+			try {
+				subscription.closer?.close(reason);
+			} catch {
+				// Generation invalidation is authoritative even if transport cleanup throws.
+			}
+		}
 		this.#subscriptions = [];
 		this.#restartingRelays.clear();
 		if (this.#reconciliationTimer) clearInterval(this.#reconciliationTimer);
@@ -267,6 +345,30 @@ export class MessengerRuntime {
 		return state.promise;
 	}
 
+	#enqueueInitialSyncComplete(subscription: RelaySubscriptionState): void {
+		if (!this.#isActiveSubscription(subscription)) return;
+		const { relayUrl, generation } = subscription;
+		const completionIsCurrent = (): boolean =>
+			this.#isActiveSubscription(subscription) &&
+			(this.#replayEpochs.get(relayUrl) ?? 0) === subscription.replayEpoch;
+		this.#receiveQueue = this.#receiveQueue.then(async () => {
+			if (!completionIsCurrent()) return;
+			try {
+				await markRelayInitialSyncComplete(
+					this.#database,
+					relayUrl,
+					this.#now().milliseconds,
+					completionIsCurrent
+				);
+				assertOperationCurrent(completionIsCurrent);
+				clearFullReplayFallback(this.#database, relayUrl);
+			} catch (error) {
+				if (!this.#isStartedGeneration(generation)) return;
+				this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
+	}
+
 	#enqueueReceive(
 		event: Event,
 		relayUrl: string,
@@ -292,18 +394,56 @@ export class MessengerRuntime {
 		}
 	}
 
-	#requestRelayReplay(relayUrl: string, subscription: SubscriptionCloser): void {
-		const generation = this.#generation;
-		if (!this.#started || this.#restartingRelays.get(relayUrl) === generation) return;
+	#requestRelayReplay(subscription: RelaySubscriptionState): void {
+		const { relayUrl, generation } = subscription;
+		if (
+			!this.#isActiveSubscription(subscription) ||
+			this.#restartingRelays.get(relayUrl) === generation
+		)
+			return;
 		this.#restartingRelays.set(relayUrl, generation);
-		subscription.close('incoming receive queue saturated; replaying');
-		this.#subscriptions = this.#subscriptions.filter((current) => current !== subscription);
-		void this.#receiveQueue.then(async () => {
+		this.#replayEpochs.set(relayUrl, (this.#replayEpochs.get(relayUrl) ?? 0) + 1);
+		subscription.active = false;
+		const pendingReceiveQueue = this.#receiveQueue;
+		requireFullReplayFallback(this.#database, relayUrl);
+		const replaySafety = (async () => {
 			try {
+				await markRelayFullReplayRequired(this.#database, relayUrl, this.#now().milliseconds);
+				clearDurableReplayStorageFallback();
+			} catch (error) {
+				if (this.#isStartedGeneration(generation)) {
+					this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
+				}
+			}
+		})();
+		this.#replaySafety.set(relayUrl, replaySafety);
+		void (async () => {
+			let transportClosed = false;
+			const closeTransport = (): void => {
+				if (transportClosed) return;
+				transportClosed = true;
+				try {
+					subscription.closer?.close('incoming receive queue saturated; replaying');
+				} catch (error) {
+					if (this.#isStartedGeneration(generation)) {
+						this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
+					}
+				}
+			};
+			try {
+				await replaySafety;
+				await pendingReceiveQueue;
 				if (!this.#started || generation !== this.#generation) return;
+				this.#subscriptions = this.#subscriptions.filter((current) => current !== subscription);
+				closeTransport();
 				const replacement = await this.#openRelay(relayUrl, generation);
 				if (!this.#started || generation !== this.#generation) {
-					replacement.close('messenger runtime stopped before relay replay');
+					replacement.active = false;
+					try {
+						replacement.closer?.close('messenger runtime stopped before relay replay');
+					} catch {
+						// Lifecycle invalidation already completed.
+					}
 					return;
 				}
 				this.#clearRelayRestart(relayUrl, generation);
@@ -312,9 +452,12 @@ export class MessengerRuntime {
 				if (!this.#isStartedGeneration(generation)) return;
 				this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
 			} finally {
+				const stillOwned = this.#subscriptions.includes(subscription);
+				this.#subscriptions = this.#subscriptions.filter((current) => current !== subscription);
+				if (stillOwned) closeTransport();
 				this.#clearRelayRestart(relayUrl, generation);
 			}
-		});
+		})();
 	}
 
 	async #receive(event: Event, relayUrl: string, generation: number): Promise<void> {

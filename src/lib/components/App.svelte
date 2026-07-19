@@ -27,6 +27,8 @@
 		type BootstrappedAccount
 	} from '$lib/app/account-service';
 	import { collectLocalDiagnostics } from '$lib/app/diagnostics';
+	import { acceptDeviceLinkReceipt } from '$lib/app/device-link-receipt';
+	import type { ExpiringSecretLease } from '$lib/app/expiring-secret';
 	import {
 		contactDisplayLabel,
 		inviteDisplayName as inviteName,
@@ -128,6 +130,7 @@
 	let targetVerificationCode = $state('');
 	let targetRequest = $state.raw<VerifiedDeviceLinkRequest>();
 	let targetImported = $state.raw<ImportedDeviceLinkProfile>();
+	let targetImportedLease = $state.raw<ExpiringSecretLease>();
 	let targetReceiver = $state.raw<DeviceLinkReceiver>();
 	let targetPool = $state.raw<ReturnType<typeof createNostrPool>>();
 	let targetCopied = $state(false);
@@ -306,7 +309,8 @@
 		}
 		if (!selectedAccount && sourceRequest) {
 			sourceRequest = undefined;
-			error = 'Open this link inside the AURA profile on your already trusted device, or paste it there.';
+			error =
+				'Open this link inside the AURA profile on your already trusted device, or paste it there.';
 		}
 		account = selectedAccount;
 		phase = selectedAccount
@@ -380,6 +384,8 @@
 	function clearTargetLinkState(reason: string): void {
 		deviceLinkGeneration += 1;
 		destroyTargetLinkTransport(reason);
+		targetImportedLease?.cancel();
+		targetImportedLease = undefined;
 		targetImported?.accountSecretKey.fill(0);
 		targetImported = undefined;
 		targetRequest = undefined;
@@ -447,12 +453,58 @@
 			const receiver = new DeviceLinkReceiver({
 				pool: linkPool,
 				request: created,
+				expectedOrigin: location.origin,
 				receiverSecretKey: created.receiverSecretKey,
 				onTransfer: (profile) => {
-					if (!operationIsCurrent()) {
+					const request = targetRequest;
+					if (!request) {
 						profile.accountSecretKey.fill(0);
 						return;
 					}
+					const receipt = acceptDeviceLinkReceipt({
+						profile,
+						expiresAt: request.payload.expires_at * 1_000,
+						isCurrent: operationIsCurrent,
+						onExpire: () => {
+							if (
+								componentGeneration !== mountedGeneration ||
+								phase !== 'link-target' ||
+								targetImported !== profile
+							)
+								return;
+							deviceLinkGeneration += 1;
+							targetImportedLease = undefined;
+							targetImported = undefined;
+							busy = false;
+							linkTargetStatus = 'expired';
+							error = 'This one-time device-link transfer expired before it was protected.';
+						}
+					});
+					if (receipt.status === 'stale') return;
+					if (receipt.status !== 'received') {
+						deviceLinkGeneration += 1;
+						targetImportedLease?.cancel();
+						targetImportedLease = undefined;
+						targetImported = undefined;
+						targetRequest = undefined;
+						targetVerificationCode = '';
+						targetLinkUrl = '';
+						targetQrDataUrl = '';
+						busy = false;
+						linkTargetStatus = receipt.status;
+						error =
+							receipt.status === 'expired'
+								? 'This one-time device-link transfer expired before it was protected.'
+								: boundedDeviceLinkError(
+										receipt.cause,
+										'The transferred profile could not be protected on this device.'
+									);
+						destroyTargetLinkTransport('device link secret lease failed');
+						return;
+					}
+					const lease = receipt.lease;
+					targetImportedLease?.cancel();
+					targetImportedLease = lease;
 					targetImported = profile;
 					linkTargetStatus = 'received';
 					targetLinkUrl = '';
@@ -481,10 +533,7 @@
 			created?.receiverSecretKey.fill(0);
 			if (operationIsCurrent()) {
 				linkTargetStatus = 'error';
-				error = boundedDeviceLinkError(
-					cause,
-					'A secure device-link request could not be created.'
-				);
+				error = boundedDeviceLinkError(cause, 'A secure device-link request could not be created.');
 				destroyTargetLinkTransport('device link startup failed');
 			}
 		} finally {
@@ -505,9 +554,9 @@
 	}
 
 	async function protectLinkedProfile(): Promise<void> {
-		if (busy || !targetImported || !targetRequest) return;
+		if (busy || !targetImported || !targetRequest || !targetImportedLease) return;
 		const imported = targetImported;
-		targetImported = undefined;
+		const importedLease = targetImportedLease;
 		const generation = ++deviceLinkGeneration;
 		const mountedGeneration = componentGeneration;
 		const operationIsCurrent = (): boolean =>
@@ -515,13 +564,16 @@
 		busy = true;
 		error = '';
 		let linked: Awaited<ReturnType<typeof importLinkedPersistentAccount>> | undefined;
+		let persistenceAuthorized = false;
 		try {
 			if (!(await hasPlatformWebAuthn())) {
-				imported.accountSecretKey.fill(0);
 				throw new Error('This browser cannot create a user-verified device credential.');
 			}
-			if (!operationIsCurrent()) {
-				imported.accountSecretKey.fill(0);
+			if (
+				!operationIsCurrent() ||
+				targetImported !== imported ||
+				targetImportedLease !== importedLease
+			) {
 				return;
 			}
 			linked = await importLinkedPersistentAccount({
@@ -531,25 +583,54 @@
 				origin: location.origin,
 				rpId: location.hostname,
 				dmRelays: imported.dmRelays,
-				isCurrent: operationIsCurrent
+				isCurrent: operationIsCurrent,
+				authorizePersistence: () => {
+					if (
+						!operationIsCurrent() ||
+						targetImported !== imported ||
+						targetImportedLease !== importedLease
+					) {
+						throw new Error('operation cancelled');
+					}
+					const handedOffSecret = importedLease.take();
+					if (handedOffSecret !== imported.accountSecretKey) {
+						handedOffSecret.fill(0);
+						throw new Error('device-link secret ownership mismatch');
+					}
+					persistenceAuthorized = true;
+					targetImportedLease = undefined;
+					targetImported = undefined;
+				}
 			});
-			if (!operationIsCurrent()) {
-				linked.session.lock();
-				return;
-			}
-			await setActiveAccount(registry, linked.account.pubkey, operationIsCurrent);
+			if (!persistenceAuthorized) throw new Error('device-link persistence was not authorized');
 			if (!operationIsCurrent()) {
 				linked.session.lock();
 				return;
 			}
 			account = linked.account;
-			await activate(linked.session);
+			try {
+				await activate(linked.session);
+			} catch {
+				linked.session.lock();
+				linked = undefined;
+				targetRequest = undefined;
+				targetVerificationCode = '';
+				if (operationIsCurrent()) {
+					phase = 'unlock';
+					linkTargetStatus = 'received';
+					error = 'The profile was linked securely. Unlock it to continue.';
+				}
+				return;
+			}
 			if (!operationIsCurrent()) return;
 			targetRequest = undefined;
 			targetVerificationCode = '';
 			linked = undefined;
 		} catch (cause) {
 			linked?.session.lock();
+			importedLease.cancel();
+			if (targetImportedLease === importedLease) targetImportedLease = undefined;
+			if (targetImported === imported) targetImported = undefined;
 			imported.accountSecretKey.fill(0);
 			if (operationIsCurrent()) {
 				linkTargetStatus = 'error';
@@ -600,7 +681,8 @@
 	}
 
 	async function approveSourceLink(): Promise<void> {
-		if (!sourceRequest || !sourceLinkOpen || sourceLinkBusy || !account || !session || !pool) return;
+		if (!sourceRequest || !sourceLinkOpen || sourceLinkBusy || !account || !session || !pool)
+			return;
 		const request = sourceRequest;
 		const currentAccount = account;
 		const currentSession = session;
@@ -1433,7 +1515,10 @@
 	}
 
 	function boundedDeviceLinkError(cause: unknown, fallback: string): string {
-		if (cause instanceof Error && /cancel|notallowederror/iu.test(`${cause.name} ${cause.message}`)) {
+		if (
+			cause instanceof Error &&
+			/cancel|notallowederror/iu.test(`${cause.name} ${cause.message}`)
+		) {
 			return 'The device confirmation was cancelled.';
 		}
 		return fallback;
@@ -1500,13 +1585,21 @@
 			{/if}
 			{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
 			<div class="stack-actions">
-				<button class="button primary" disabled={busy} onclick={() => void openOnboarding('create')}>
+				<button
+					class="button primary"
+					disabled={busy}
+					onclick={() => void openOnboarding('create')}
+				>
 					Create secure profile <ArrowRight size={18} />
 				</button>
 				<button class="button secondary" disabled={busy} onclick={() => void startTargetLink()}>
 					Link an existing profile
 				</button>
-				<button class="button secondary" disabled={busy} onclick={() => void openOnboarding('restore')}>
+				<button
+					class="button secondary"
+					disabled={busy}
+					onclick={() => void openOnboarding('restore')}
+				>
 					I have a Recovery Code
 				</button>
 			</div>
@@ -1623,9 +1716,12 @@
 	<DeviceLinkTargetPane
 		status={linkTargetStatus}
 		qrDataUrl={targetQrDataUrl}
+		linkUrl={targetLinkUrl}
 		verificationCode={targetVerificationCode}
 		receivedName={targetImported?.displayName}
-		receivedIdentityLabel={targetImported ? shortKey(targetImported.accountPubkey) : undefined}
+		receivedIdentityLabel={targetImported
+			? nip19.npubEncode(targetImported.accountPubkey)
+			: undefined}
 		{busy}
 		copied={targetCopied}
 		{error}
@@ -1733,7 +1829,7 @@
 		mode={sourceLinkMode}
 		verificationCode={sourceRequest?.verificationCode}
 		profileName={account.displayName}
-		identityLabel={shortKey(account.pubkey)}
+		identityLabel={nip19.npubEncode(account.pubkey)}
 		busy={sourceLinkBusy}
 		error={sourceLinkError}
 		onDetected={acceptScannedSourceLink}
