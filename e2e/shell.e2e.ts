@@ -71,6 +71,38 @@ test.describe('public shell', () => {
 		).toBe(true);
 	});
 
+	test('centers the desktop empty conversation state in the full pane', async ({ page }) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await page.goto('/');
+		const geometry = await page.evaluate(() => {
+			const shell = document.createElement('main');
+			shell.className = 'app-shell';
+			const rail = document.createElement('aside');
+			rail.className = 'rail';
+			const chatList = document.createElement('section');
+			chatList.className = 'chat-list-pane';
+			const pane = document.createElement('section');
+			pane.className = 'conversation-pane';
+			const empty = document.createElement('div');
+			empty.className = 'desktop-empty';
+			empty.innerHTML =
+				'<div class="quiet-orbit large"></div><h2>Choose a conversation</h2><p>Your private messages will open here.</p>';
+			pane.append(empty);
+			shell.append(rail, chatList, pane);
+			document.body.replaceChildren(shell);
+			const paneBox = pane.getBoundingClientRect();
+			const emptyBox = empty.getBoundingClientRect();
+			return {
+				paneCenterX: paneBox.left + paneBox.width / 2,
+				paneCenterY: paneBox.top + paneBox.height / 2,
+				emptyCenterX: emptyBox.left + emptyBox.width / 2,
+				emptyCenterY: emptyBox.top + emptyBox.height / 2
+			};
+		});
+		expect(Math.abs(geometry.emptyCenterX - geometry.paneCenterX)).toBeLessThanOrEqual(1);
+		expect(Math.abs(geometry.emptyCenterY - geometry.paneCenterY)).toBeLessThanOrEqual(1);
+	});
+
 	test('applies the full-screen viewport CSS contract to a mobile conversation', async ({
 		page
 	}) => {

@@ -754,6 +754,11 @@ textarea::placeholder {
 	justify-items: center;
 	text-align: center;
 }
+.desktop-empty {
+	min-height: 0;
+	grid-row: 1 / -1;
+	grid-column: 1;
+}
 .conversation-empty > svg {
 	color: var(--aura);
 }
