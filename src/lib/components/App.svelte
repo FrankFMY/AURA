@@ -27,6 +27,17 @@
 		type BootstrappedAccount
 	} from '$lib/app/account-service';
 	import {
+		CoalescingTaskRunner,
+		ConversationDraftStore,
+		isCurrentRefreshContext,
+		isCurrentSessionOperation,
+		isNearConversationEnd,
+		resizeComposer,
+		scrollToConversationEnd,
+		shouldClearSubmittedDraft,
+		shouldSendComposerKey
+	} from '$lib/app/conversation-ui';
+	import {
 		createInviteToken,
 		generateInviteNonce,
 		parseAndVerifyInviteUrl,
@@ -80,6 +91,7 @@
 	let recoveryWords = $state('');
 	let recoveryAnswers = $state(['', '', '']);
 	let busy = $state(false);
+	let sendBusy = $state(false);
 	let error = $state('');
 	let notice = $state('');
 	let contactInput = $state('');
@@ -93,11 +105,20 @@
 	let copied = $state<'invite' | 'pubkey'>();
 	let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
 	let displayNameInput = $state.raw<HTMLInputElement>();
+	let composerInput = $state.raw<HTMLTextAreaElement>();
+	let messageSpace = $state.raw<HTMLDivElement>();
+	let mobileComposer = $state(false);
+	let unseenBelow = $state(0);
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let reconciling = false;
+	let pendingForceEnd = '';
+	let sessionGeneration = 0;
+	let accountOperationGeneration = 0;
+	let componentGeneration = 0;
+	const refreshRunner = new CoalescingTaskRunner(performRefresh, handleBackgroundRefreshError);
+	const draftStore = new ConversationDraftStore();
+	const messageErrors = new Map<string, string>();
 
-	const hex = (bytes: Uint8Array) =>
-		Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 	const shortKey = (pubkey: string) => {
 		try {
 			const npub = nip19.npubEncode(pubkey);
@@ -127,50 +148,139 @@
 		}
 	};
 
+	$effect(() => {
+		if (composerInput) resizeComposer(composerInput);
+	});
+
 	async function reconcileAndRefresh() {
-		if (phase !== 'app' || !runtime || reconciling) return;
+		if (phase !== 'app' || !runtime || !session || reconciling) return;
+		const runtimeInstance = runtime;
+		const sessionInstance = session;
+		const operationContext = {
+			generation: sessionGeneration,
+			runtime: runtimeInstance,
+			session: sessionInstance
+		};
+		const operationIsCurrent = (): boolean => {
+			if (!runtime || !session) return false;
+			return isCurrentSessionOperation(operationContext, {
+				generation: sessionGeneration,
+				runtime,
+				session
+			});
+		};
 		reconciling = true;
 		try {
-			await runtime.reconcileOutbox();
+			await runtimeInstance.reconcileOutbox();
+			if (!operationIsCurrent()) return;
 			await refreshData();
 		} catch (cause) {
+			if (!operationIsCurrent()) return;
 			connection = 'offline';
 			notice = friendlyError(cause, 'Queued messages will retry when relays are available.');
 		} finally {
-			reconciling = false;
+			if (operationIsCurrent()) reconciling = false;
 		}
 	}
 
 	onMount(() => {
-		void initialize();
+		const mountedGeneration = ++componentGeneration;
+		const componentIsCurrent = (): boolean => componentGeneration === mountedGeneration;
+		const mobileMedia = window.matchMedia('(max-width: 680px)');
+		const updateMobileComposer = () => {
+			mobileComposer = mobileMedia.matches;
+		};
+		const updateVisualViewport = () => {
+			const viewport = window.visualViewport;
+			const height = Math.max(1, Math.round(viewport?.height ?? window.innerHeight));
+			const offsetTop = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+			document.documentElement.style.setProperty('--aura-viewport-height', `${height}px`);
+			document.documentElement.style.setProperty('--aura-viewport-top', `${offsetTop}px`);
+		};
+		updateMobileComposer();
+		updateVisualViewport();
+		mobileMedia.addEventListener('change', updateMobileComposer);
+		window.visualViewport?.addEventListener('resize', updateVisualViewport);
+		window.visualViewport?.addEventListener('scroll', updateVisualViewport);
+		window.addEventListener('resize', updateVisualViewport);
+		void initialize(componentIsCurrent).catch((cause) => {
+			if (!componentIsCurrent()) return;
+			account = undefined;
+			phase = invite ? 'invite' : inviteError ? 'invite-error' : 'welcome';
+			error = friendlyError(cause, 'This device profile could not be loaded.');
+		});
 		poll = setInterval(() => {
-			if (phase === 'app') void refreshData();
+			if (phase === 'app') void refreshData().catch(handleBackgroundRefreshError);
 		}, 2_500);
 		const onOnline = () => void reconcileAndRefresh();
 		window.addEventListener('online', onOnline);
 		return () => {
 			if (poll) clearInterval(poll);
+			poll = undefined;
+			mobileMedia.removeEventListener('change', updateMobileComposer);
+			window.visualViewport?.removeEventListener('resize', updateVisualViewport);
+			window.visualViewport?.removeEventListener('scroll', updateVisualViewport);
+			window.removeEventListener('resize', updateVisualViewport);
 			window.removeEventListener('online', onOnline);
-			runtime?.stop();
-			pool?.destroy();
-			session?.lock();
+			refreshRunner.cancelQueued();
+			document.documentElement.style.removeProperty('--aura-viewport-height');
+			document.documentElement.style.removeProperty('--aura-viewport-top');
+			componentGeneration += 1;
+			sessionGeneration += 1;
+			accountOperationGeneration += 1;
+			const currentSession = session;
+			const pendingSession = pending?.session;
+			const currentRuntime = runtime;
+			const currentPool = pool;
+			const currentDatabase = database;
+			session = undefined;
+			runtime = undefined;
+			pool = undefined;
+			database = undefined;
+			currentSession?.lock();
+			if (pendingSession && pendingSession !== currentSession) pendingSession.lock();
+			clearSensitiveUiState();
+			account = undefined;
+			try {
+				currentRuntime?.stop();
+			} catch {
+				// Key material is already zeroized; continue cleanup.
+			}
+			try {
+				currentPool?.destroy();
+			} catch {
+				// Continue cleanup.
+			}
+			try {
+				currentDatabase?.close();
+			} catch {
+				// Continue cleanup.
+			}
 			registry?.close();
-			database?.close();
 		};
 	});
 
-	async function initialize() {
+	async function initialize(componentIsCurrent: () => boolean) {
+		if (!componentIsCurrent()) return;
 		parseInvite();
-		account = await getActiveAccount(registry);
-		if (!account) {
-			account = await registry.accounts.orderBy('updatedAt').last();
-			if (account) await setActiveAccount(registry, account.pubkey);
+		let selectedAccount = await getActiveAccount(registry);
+		if (!componentIsCurrent()) return;
+		if (!selectedAccount) {
+			selectedAccount = await registry.accounts.orderBy('updatedAt').last();
+			if (!componentIsCurrent()) return;
+			if (selectedAccount) {
+				await setActiveAccount(registry, selectedAccount.pubkey, componentIsCurrent);
+				if (!componentIsCurrent()) return;
+			}
 		}
-		if (account) {
-			phase = 'unlock';
-			return;
-		}
-		phase = invite ? 'invite' : inviteError ? 'invite-error' : 'welcome';
+		account = selectedAccount;
+		phase = selectedAccount
+			? 'unlock'
+			: invite
+				? 'invite'
+				: inviteError
+					? 'invite-error'
+					: 'welcome';
 	}
 
 	function parseInvite() {
@@ -192,73 +302,149 @@
 		notice = '';
 	}
 
+	function startAccountOperation(): () => boolean {
+		const generation = ++accountOperationGeneration;
+		busy = true;
+		return () => accountOperationGeneration === generation;
+	}
+
+	function abandonPendingAccount(): void {
+		const pendingSession = pending?.session;
+		if (pendingSession) {
+			if (session === pendingSession) session = undefined;
+			pendingSession.lock();
+		}
+		pending = undefined;
+		recoveryInput = '';
+		recoveryWords = '';
+		recoveryAnswers = ['', '', ''];
+	}
+
 	async function openOnboarding(nextPhase: 'create' | 'restore') {
+		accountOperationGeneration += 1;
+		busy = false;
+		abandonPendingAccount();
 		phase = nextPhase;
 		error = '';
+		if (nextPhase === 'restore') recoveryInput = '';
+		await tick();
+		displayNameInput?.focus();
+	}
+
+	function leaveOnboarding(): void {
+		accountOperationGeneration += 1;
+		busy = false;
+		abandonPendingAccount();
+		error = '';
+		phase = invite ? 'invite' : 'welcome';
+	}
+
+	async function restoreDifferentIdentity(): Promise<void> {
+		accountOperationGeneration += 1;
+		busy = false;
+		abandonPendingAccount();
+		displayName = account?.displayName ?? '';
+		error = '';
+		phase = 'restore';
 		await tick();
 		displayNameInput?.focus();
 	}
 
 	async function createAccount() {
+		if (busy) return;
 		clearFeedback();
 		if (!displayName.trim()) {
 			error = 'Enter the name people should see.';
 			return;
 		}
-		busy = true;
+		const operationIsCurrent = startAccountOperation();
 		try {
 			if (!(await hasPlatformWebAuthn())) {
 				throw new Error('This browser cannot create a user-verified device credential.');
 			}
-			pending = await createPersistentAccount({
+			if (!operationIsCurrent()) return;
+			const created = await createPersistentAccount({
 				registry,
 				displayName: displayName.trim().normalize('NFC'),
 				origin: location.origin,
 				rpId: location.hostname,
-				dmRelays: DM_RELAYS
+				dmRelays: DM_RELAYS,
+				isCurrent: operationIsCurrent
 			});
-			recoveryWords = pending.recoveryWords;
+			if (!operationIsCurrent()) {
+				created.session.lock();
+				return;
+			}
+			pending = created;
+			recoveryWords = created.recoveryWords;
 			recoveryAnswers = ['', '', ''];
 			phase = 'recovery';
 		} catch (cause) {
-			error = friendlyError(cause, 'A secure profile could not be created.');
+			if (operationIsCurrent())
+				error = friendlyError(cause, 'A secure profile could not be created.');
 		} finally {
-			busy = false;
+			if (operationIsCurrent()) busy = false;
 		}
 	}
 
 	async function restoreAccount() {
+		if (busy) return;
 		clearFeedback();
 		if (!displayName.trim()) {
 			error = 'Enter the name people should see.';
 			return;
 		}
-		busy = true;
+		const operationIsCurrent = startAccountOperation();
+		let restored: BootstrappedAccount | undefined;
 		try {
-			pending = await restorePersistentAccount({
+			restored = await restorePersistentAccount({
 				registry,
 				displayName: displayName.trim().normalize('NFC'),
 				recoveryWords: recoveryInput,
 				origin: location.origin,
 				rpId: location.hostname,
-				dmRelays: DM_RELAYS
+				dmRelays: DM_RELAYS,
+				isCurrent: operationIsCurrent
 			});
+			if (!operationIsCurrent()) {
+				restored.session.lock();
+				return;
+			}
+			pending = restored;
 			recoveryInput = '';
-			await confirmRecoveryCode(registry, pending.account.pubkey, Date.now());
-			await setActiveAccount(registry, pending.account.pubkey);
-			account = await registry.accounts.get(pending.account.pubkey);
-			if (!account) throw new Error('Restored account was not persisted.');
-			await activate(pending.session);
+			await confirmRecoveryCode(registry, restored.account.pubkey, Date.now(), operationIsCurrent);
+			if (!operationIsCurrent()) {
+				restored.session.lock();
+				return;
+			}
+			await setActiveAccount(registry, restored.account.pubkey, operationIsCurrent);
+			if (!operationIsCurrent()) {
+				restored.session.lock();
+				return;
+			}
+			const restoredAccount = await registry.accounts.get(restored.account.pubkey);
+			if (!operationIsCurrent()) {
+				restored.session.lock();
+				return;
+			}
+			if (!restoredAccount) throw new Error('Restored account was not persisted.');
+			account = restoredAccount;
+			await activate(restored.session);
+			if (!operationIsCurrent()) return;
 			pending = undefined;
+			restored = undefined;
 		} catch (cause) {
-			error = friendlyError(cause, 'The Recovery Code could not be restored.');
+			restored?.session.lock();
+			if (restored && pending?.session === restored.session) pending = undefined;
+			if (operationIsCurrent())
+				error = friendlyError(cause, 'The Recovery Code could not be restored.');
 		} finally {
-			busy = false;
+			if (operationIsCurrent()) busy = false;
 		}
 	}
 
 	async function confirmRecovery() {
-		if (!pending) return;
+		if (!pending || busy) return;
 		clearFeedback();
 		const words = recoveryWords.split(' ');
 		const valid = RECOVERY_CHECKS.every(
@@ -268,98 +454,296 @@
 			error = 'Those words do not match. Check your saved Recovery Code.';
 			return;
 		}
-		busy = true;
+		const pendingProfile = pending;
+		const operationIsCurrent = startAccountOperation();
 		try {
-			await confirmRecoveryCode(registry, pending.account.pubkey, Date.now());
-			await setActiveAccount(registry, pending.account.pubkey);
-			account = await registry.accounts.get(pending.account.pubkey);
-			if (!account) throw new Error('Account confirmation was not persisted.');
-			const pendingSession = pending.session;
+			await confirmRecoveryCode(
+				registry,
+				pendingProfile.account.pubkey,
+				Date.now(),
+				operationIsCurrent
+			);
+			if (!operationIsCurrent()) return;
+			await setActiveAccount(registry, pendingProfile.account.pubkey, operationIsCurrent);
+			if (!operationIsCurrent()) return;
+			const confirmedAccount = await registry.accounts.get(pendingProfile.account.pubkey);
+			if (!operationIsCurrent()) return;
+			if (!confirmedAccount) throw new Error('Account confirmation was not persisted.');
+			account = confirmedAccount;
+			const pendingSession = pendingProfile.session;
 			pending = undefined;
 			recoveryWords = '';
 			recoveryAnswers = ['', '', ''];
 			await activate(pendingSession);
 		} catch (cause) {
-			error = friendlyError(cause, 'Recovery confirmation failed.');
+			if (operationIsCurrent()) error = friendlyError(cause, 'Recovery confirmation failed.');
 		} finally {
-			busy = false;
+			if (operationIsCurrent()) busy = false;
 		}
 	}
 
 	async function unlock() {
-		if (!account) return;
+		if (!account || busy) return;
 		clearFeedback();
-		busy = true;
+		const currentAccount = account;
+		const operationIsCurrent = startAccountOperation();
+		let unlocked: UnlockedSession | undefined;
 		try {
-			const unlocked = await unlockPersistentAccount({
-				account,
+			unlocked = await unlockPersistentAccount({
+				account: currentAccount,
 				origin: location.origin,
-				rpId: location.hostname
+				rpId: location.hostname,
+				isCurrent: operationIsCurrent
 			});
+			if (!operationIsCurrent()) {
+				unlocked.lock();
+				return;
+			}
 			await activate(unlocked);
 		} catch (cause) {
-			error = friendlyError(cause, 'This profile could not be unlocked.');
+			unlocked?.lock();
+			if (operationIsCurrent()) error = friendlyError(cause, 'This profile could not be unlocked.');
 		} finally {
-			busy = false;
+			if (operationIsCurrent()) busy = false;
 		}
 	}
 
 	async function activate(unlocked: UnlockedSession) {
 		if (!account) throw new Error('No account is selected.');
+		const currentAccount = account;
+		const previousSession = session;
+		const activationGeneration = ++sessionGeneration;
+		if (previousSession && previousSession !== unlocked) previousSession.lock();
 		session = unlocked;
-		if (!account.recoveryConfirmed) {
+		if (!currentAccount.recoveryConfirmed) {
 			recoveryWords = unlocked.withSecretKey((secretKey) => secretKeyToRecoveryWords(secretKey));
-			pending = { account, session: unlocked, recoveryWords };
+			pending = { account: currentAccount, session: unlocked, recoveryWords };
 			phase = 'recovery';
 			return;
 		}
-		database?.close();
-		database = new AccountDatabase(account.pubkey);
-		pool?.destroy();
-		pool = createNostrPool();
-		runtime = new MessengerRuntime({
-			session,
-			database,
-			pool,
-			lookupRelays: LOOKUP_RELAYS,
-			accountDmRelays: account.dmRelays,
-			recoveryConfirmed: account.recoveryConfirmed,
-			onTransportError: (cause) => {
-				connection = 'offline';
-				notice = friendlyError(cause, 'A relay connection closed.');
+
+		let databaseInstance: AccountDatabase | undefined;
+		let poolInstance: ReturnType<typeof createNostrPool> | undefined;
+		let runtimeInstance: MessengerRuntime | undefined;
+		const activationIsCurrent = (): boolean =>
+			sessionGeneration === activationGeneration &&
+			session === unlocked &&
+			account?.pubkey === currentAccount.pubkey &&
+			runtime === runtimeInstance;
+		const disposeActivation = (wasCurrent: boolean): void => {
+			if (wasCurrent && sessionGeneration === activationGeneration) sessionGeneration += 1;
+			unlocked.lock();
+			if (pending?.session === unlocked) {
+				pending = undefined;
+				recoveryWords = '';
+				recoveryAnswers = ['', '', ''];
 			}
-		});
-		connection = 'connecting';
-		await runtime.start();
-		phase = 'app';
-		view = 'chats';
-		if (invite) activeConversation = invite.issuer_pubkey;
-		await refreshData();
-		void runtime
+			try {
+				runtimeInstance?.stop();
+			} catch {
+				// Key material is already zeroized; continue best-effort resource cleanup.
+			}
+			try {
+				poolInstance?.destroy();
+			} catch {
+				// Continue cleanup.
+			}
+			try {
+				databaseInstance?.close();
+			} catch {
+				// Continue cleanup.
+			}
+			if (runtime === runtimeInstance) runtime = undefined;
+			if (pool === poolInstance) pool = undefined;
+			if (database === databaseInstance) database = undefined;
+			if (session === unlocked) session = undefined;
+			if (wasCurrent) {
+				connection = 'offline';
+				phase = 'unlock';
+			}
+		};
+
+		try {
+			const previousRuntime = runtime;
+			const previousDatabase = database;
+			const previousPool = pool;
+			runtime = undefined;
+			database = undefined;
+			pool = undefined;
+			try {
+				previousRuntime?.stop();
+			} catch {
+				// Previous session is already zeroized; continue replacement cleanup.
+			}
+			try {
+				previousDatabase?.close();
+			} catch {
+				// Continue replacement cleanup.
+			}
+			try {
+				previousPool?.destroy();
+			} catch {
+				// Continue replacement cleanup.
+			}
+			databaseInstance = new AccountDatabase(currentAccount.pubkey);
+			database = databaseInstance;
+			poolInstance = createNostrPool();
+			pool = poolInstance;
+			runtimeInstance = new MessengerRuntime({
+				session,
+				database,
+				pool,
+				lookupRelays: LOOKUP_RELAYS,
+				accountDmRelays: currentAccount.dmRelays,
+				recoveryConfirmed: currentAccount.recoveryConfirmed,
+				onTransportError: (cause) => {
+					if (!activationIsCurrent()) return;
+					connection = 'offline';
+					notice = friendlyError(cause, 'A relay connection closed.');
+				}
+			});
+			runtime = runtimeInstance;
+			connection = 'connecting';
+			await runtimeInstance.start();
+			if (!activationIsCurrent()) {
+				disposeActivation(false);
+				return;
+			}
+			phase = 'app';
+			view = 'chats';
+			if (invite) activeConversation = invite.issuer_pubkey;
+			await refreshData(Boolean(activeConversation));
+			if (!activationIsCurrent()) {
+				disposeActivation(false);
+				return;
+			}
+		} catch (cause) {
+			const wasCurrent = sessionGeneration === activationGeneration && session === unlocked;
+			disposeActivation(wasCurrent);
+			throw cause;
+		}
+
+		void runtimeInstance
 			.publishOwnRelayList()
 			.then(() => {
+				if (!activationIsCurrent()) return;
 				connection = 'online';
 			})
 			.catch((cause) => {
+				if (!activationIsCurrent()) return;
 				connection = 'offline';
 				notice = friendlyError(cause, 'Private relays are temporarily unavailable.');
 			});
 	}
 
-	async function refreshData() {
+	function revealLatestMessages(): void {
+		if (!messageSpace) return;
+		scrollToConversationEnd(messageSpace);
+		unseenBelow = 0;
+	}
+
+	function handleConversationScroll(): void {
+		if (messageSpace && isNearConversationEnd(messageSpace)) unseenBelow = 0;
+	}
+
+	function refreshData(forceEnd = false): Promise<void> {
+		if (forceEnd && activeConversation) pendingForceEnd = activeConversation;
+		return refreshRunner.request();
+	}
+
+	async function performRefresh(): Promise<void> {
 		if (!database || !runtime) return;
-		const records = await database.messages.toArray();
+		const databaseInstance = database;
+		const runtimeInstance = runtime;
+		const conversation = activeConversation;
+		const capturedContext = {
+			database: databaseInstance,
+			runtime: runtimeInstance,
+			conversation
+		};
+		const contextIsCurrent = (): boolean => {
+			if (!database || !runtime) return false;
+			return isCurrentRefreshContext(capturedContext, {
+				database,
+				runtime,
+				conversation: activeConversation
+			});
+		};
+		const previousCount = messages.length;
+		const loaded = await (async () => {
+			try {
+				const records = await databaseInstance.messages.toArray();
+				if (!contextIsCurrent()) return undefined;
+				const nextMessages = conversation
+					? await runtimeInstance.readConversation(conversation)
+					: undefined;
+				return { records, nextMessages };
+			} catch (cause) {
+				if (!contextIsCurrent()) return undefined;
+				throw cause;
+			}
+		})();
+		if (!loaded || !contextIsCurrent()) return;
 		const latest = new Map<string, number>();
-		for (const record of records) {
+		for (const record of loaded.records) {
 			latest.set(
 				record.conversationPubkey,
 				Math.max(latest.get(record.conversationPubkey) ?? 0, record.createdAt)
 			);
 		}
-		chats = [...latest]
+		const nextChats = [...latest]
 			.map(([pubkey, lastAt]) => ({ pubkey, lastAt, unread: 0 }))
 			.sort((a, b) => b.lastAt - a.lastAt);
-		if (activeConversation) messages = await runtime.readConversation(activeConversation);
+		const shouldFollow =
+			pendingForceEnd === conversation || !messageSpace || isNearConversationEnd(messageSpace);
+		chats = nextChats;
+		if (loaded.nextMessages) {
+			messages = loaded.nextMessages;
+			await tick();
+			if (!contextIsCurrent()) return;
+			if (shouldFollow) {
+				revealLatestMessages();
+				if (pendingForceEnd === conversation) pendingForceEnd = '';
+			} else if (loaded.nextMessages.length > previousCount) {
+				unseenBelow += loaded.nextMessages.length - previousCount;
+			}
+		}
+	}
+
+	function handleBackgroundRefreshError(cause: unknown): void {
+		if (phase !== 'app') return;
+		connection = 'offline';
+		notice = friendlyError(cause, 'Local conversation refresh failed.');
+	}
+
+	async function openConversation(pubkey: string): Promise<void> {
+		const changedConversation = activeConversation !== pubkey;
+		activeConversation = pubkey;
+		if (changedConversation) messages = [];
+		composer = draftStore.load(pubkey);
+		error = messageErrors.get(pubkey) ?? '';
+		notice = '';
+		unseenBelow = 0;
+		await refreshData(true);
+		await tick();
+		if (composerInput) resizeComposer(composerInput);
+	}
+
+	async function openConversationFromList(pubkey: string): Promise<void> {
+		try {
+			await openConversation(pubkey);
+		} catch (cause) {
+			handleBackgroundRefreshError(cause);
+			if (view === 'chats' && activeConversation === pubkey) {
+				error = friendlyError(cause, 'This conversation could not be refreshed yet.');
+			}
+		}
+	}
+
+	function showChats(): void {
+		view = 'chats';
+		error = activeConversation ? (messageErrors.get(activeConversation) ?? '') : '';
+		notice = '';
 	}
 
 	function openNewChat() {
@@ -370,34 +754,70 @@
 
 	async function beginChat() {
 		clearFeedback();
+		let pubkey: string;
 		try {
-			const pubkey = parseNostrPubkey(contactInput);
+			pubkey = parseNostrPubkey(contactInput);
 			if (pubkey === account?.pubkey)
 				throw new Error('Choose another person, not your own identity.');
-			activeConversation = pubkey;
-			view = 'chats';
-			messages = (await runtime?.readConversation(pubkey)) ?? [];
 		} catch (cause) {
 			error = friendlyError(cause, 'That contact identifier is invalid.');
+			return;
 		}
+		view = 'chats';
+		await openConversationFromList(pubkey);
 	}
 
 	async function sendMessage() {
-		if (!runtime || !activeConversation || !composer.trim()) return;
+		if (sendBusy || !runtime || !session || !activeConversation || !composer.trim()) return;
+		const runtimeInstance = runtime;
+		const sessionInstance = session;
+		const operationContext = {
+			generation: sessionGeneration,
+			runtime: runtimeInstance,
+			session: sessionInstance
+		};
+		const operationIsCurrent = (): boolean => {
+			if (!runtime || !session) return false;
+			return isCurrentSessionOperation(operationContext, {
+				generation: sessionGeneration,
+				runtime,
+				session
+			});
+		};
+		const conversation = activeConversation;
+		const submittedDraft = composer;
+		const content = submittedDraft.trim();
 		clearFeedback();
-		busy = true;
-		const content = composer.trim();
+		messageErrors.delete(conversation);
+		sendBusy = true;
 		try {
-			await runtime.send(activeConversation, content);
-			composer = '';
-			await refreshData();
+			await runtimeInstance.send(conversation, content);
+			if (!operationIsCurrent()) return;
+			if (shouldClearSubmittedDraft(draftStore.load(conversation), submittedDraft)) {
+				draftStore.save(conversation, '');
+			}
+			messageErrors.delete(conversation);
+			if (activeConversation === conversation) {
+				if (shouldClearSubmittedDraft(composer, submittedDraft)) composer = '';
+				await tick();
+				if (!operationIsCurrent()) return;
+				if (composerInput) resizeComposer(composerInput);
+			}
+			try {
+				await refreshData(activeConversation === conversation);
+			} catch (cause) {
+				if (operationIsCurrent()) handleBackgroundRefreshError(cause);
+			}
 		} catch (cause) {
+			if (!operationIsCurrent()) return;
 			const message = cause instanceof Error ? cause.message : '';
-			error = /recipient_not_dm_ready/u.test(message)
+			const failure = /recipient_not_dm_ready/u.test(message)
 				? 'This person has not published a private-message relay list yet. Nothing was sent.'
 				: friendlyError(cause, 'The message was not sent.');
+			messageErrors.set(conversation, failure);
+			if (view === 'chats' && activeConversation === conversation) error = failure;
 		} finally {
-			busy = false;
+			if (operationIsCurrent()) sendBusy = false;
 		}
 	}
 
@@ -414,6 +834,13 @@
 		if (!session || !account) return;
 		const currentSession = session;
 		const currentAccount = account;
+		const operationGeneration = sessionGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration &&
+			sessionGeneration === operationGeneration &&
+			session === currentSession &&
+			account?.pubkey === currentAccount.pubkey;
 		clearFeedback();
 		try {
 			const issuedAt = Math.floor(Date.now() / 1000);
@@ -430,21 +857,39 @@
 						expires_at: issuedAt + 7 * 24 * 60 * 60,
 						nonce: generateInviteNonce()
 					},
-					hex(secretKey)
+					secretKey
 				)
 			);
-			inviteUrl = `${location.origin}/i/#${token}`;
-			await navigator.clipboard.writeText(inviteUrl);
+			if (!operationIsCurrent()) return;
+			const nextInviteUrl = `${location.origin}/i/#${token}`;
+			await navigator.clipboard.writeText(nextInviteUrl);
+			if (!operationIsCurrent()) return;
+			inviteUrl = nextInviteUrl;
 			showCopied('invite');
 		} catch (cause) {
-			error = friendlyError(cause, 'The invitation could not be copied.');
+			if (operationIsCurrent()) error = friendlyError(cause, 'The invitation could not be copied.');
 		}
 	}
 
 	async function copyPubkey() {
-		if (!account) return;
-		await navigator.clipboard.writeText(nip19.npubEncode(account.pubkey));
-		showCopied('pubkey');
+		if (!session || !account) return;
+		const currentSession = session;
+		const currentPubkey = account.pubkey;
+		const operationGeneration = sessionGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration &&
+			sessionGeneration === operationGeneration &&
+			session === currentSession &&
+			account?.pubkey === currentPubkey;
+		clearFeedback();
+		try {
+			await navigator.clipboard.writeText(nip19.npubEncode(currentPubkey));
+			if (!operationIsCurrent()) return;
+			showCopied('pubkey');
+		} catch (cause) {
+			if (operationIsCurrent()) error = friendlyError(cause, 'The identity could not be copied.');
+		}
 	}
 
 	function clearSensitiveUiState(): void {
@@ -456,6 +901,7 @@
 		recoveryWords = '';
 		recoveryAnswers = ['', '', ''];
 		busy = false;
+		sendBusy = false;
 		error = '';
 		notice = '';
 		contactInput = '';
@@ -463,6 +909,13 @@
 		messages = [];
 		chats = [];
 		composer = '';
+		displayNameInput = undefined;
+		composerInput = undefined;
+		messageSpace = undefined;
+		unseenBelow = 0;
+		pendingForceEnd = '';
+		draftStore.clear();
+		messageErrors.clear();
 		invite = undefined;
 		inviteError = '';
 		inviteUrl = '';
@@ -472,29 +925,67 @@
 	}
 
 	function lock() {
-		runtime?.stop();
-		pool?.destroy();
-		pool = undefined;
-		database?.close();
-		database = undefined;
-		session?.lock();
+		sessionGeneration += 1;
+		accountOperationGeneration += 1;
+		refreshRunner.cancelQueued();
+		const currentSession = session;
+		const currentRuntime = runtime;
+		const currentPool = pool;
+		const currentDatabase = database;
 		session = undefined;
 		runtime = undefined;
+		pool = undefined;
+		database = undefined;
+		currentSession?.lock();
+		try {
+			currentRuntime?.stop();
+		} catch {
+			// Key material is already zeroized; continue cleanup.
+		}
+		try {
+			currentPool?.destroy();
+		} catch {
+			// Continue cleanup.
+		}
+		try {
+			currentDatabase?.close();
+		} catch {
+			// Continue cleanup.
+		}
 		clearSensitiveUiState();
 		phase = 'unlock';
 		connection = 'offline';
 	}
 
 	async function deleteCurrentAccount() {
-		if (!account) return;
+		if (!account || busy) return;
 		if (!window.confirm('Remove this profile and its local message history from this device?'))
 			return;
-		const pubkey = account.pubkey;
+		const deletingAccount = account;
+		const pubkey = deletingAccount.pubkey;
 		lock();
-		await removeAccount(registry, pubkey);
-		account = undefined;
-		invite = undefined;
-		phase = 'welcome';
+		const operationIsCurrent = startAccountOperation();
+		try {
+			await removeAccount(registry, pubkey, undefined, operationIsCurrent);
+			if (!operationIsCurrent()) return;
+			account = undefined;
+			invite = undefined;
+			phase = 'welcome';
+		} catch (cause) {
+			if (!operationIsCurrent()) return;
+			let remainingAccount: RegisteredAccount = deletingAccount;
+			try {
+				remainingAccount = (await registry.accounts.get(pubkey)) ?? deletingAccount;
+			} catch {
+				remainingAccount = deletingAccount;
+			}
+			if (!operationIsCurrent()) return;
+			account = remainingAccount;
+			phase = 'unlock';
+			error = friendlyError(cause, 'The local profile could not be removed completely.');
+		} finally {
+			if (operationIsCurrent()) busy = false;
+		}
 	}
 
 	function friendlyError(cause: unknown, fallback: string) {
@@ -556,6 +1047,7 @@
 					Code.
 				</p>
 			{/if}
+			{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
 			<div class="stack-actions">
 				<button class="button primary" onclick={() => void openOnboarding('create')}>
 					Create secure profile <ArrowRight size={18} />
@@ -583,10 +1075,8 @@
 				type="button"
 				class="back-button"
 				aria-label="Go back"
-				onclick={() => {
-					phase = invite ? 'invite' : 'welcome';
-					error = '';
-				}}><ChevronLeft size={20} /></button
+				disabled={busy}
+				onclick={leaveOnboarding}><ChevronLeft size={20} /></button
 			>
 			<Logo />
 			<p class="eyebrow">{phase === 'create' ? 'New private identity' : 'Restore identity'}</p>
@@ -687,28 +1177,20 @@
 			<button class="button primary full" disabled={busy} onclick={unlock}
 				><LockKeyhole size={18} /> {busy ? 'Confirming…' : 'Unlock with device'}</button
 			>
-			<button
-				class="text-button"
-				onclick={() => {
-					phase = 'restore';
-					displayName = account?.displayName ?? '';
-					error = '';
-				}}>Restore a different identity</button
+			<button class="text-button" disabled={busy} onclick={() => void restoreDifferentIdentity()}
+				>Restore a different identity</button
 			>
 		</section>
 	</main>
 {:else if phase === 'app' && account}
-	<main class="app-shell">
+	<main class="app-shell" class:conversation-open={view === 'chats' && Boolean(activeConversation)}>
 		<aside class="rail">
 			<div class="rail-logo"><Logo compact /></div>
 			<nav aria-label="Primary navigation">
 				<button
 					class:active={view === 'chats'}
 					aria-current={view === 'chats' ? 'page' : undefined}
-					onclick={() => {
-						view = 'chats';
-						error = '';
-					}}
+					onclick={showChats}
 					aria-label="Chats"><MessageCircle size={21} /></button
 				>
 				<button
@@ -758,10 +1240,7 @@
 							<button
 								class="chat-item"
 								class:active={activeConversation === chat.pubkey}
-								onclick={() => {
-									activeConversation = chat.pubkey;
-									void refreshData();
-								}}
+								onclick={() => void openConversationFromList(chat.pubkey)}
 							>
 								<span class="avatar">{chat.pubkey.slice(0, 2).toUpperCase()}</span>
 								<span class="chat-meta"
@@ -789,7 +1268,10 @@
 						<button
 							class="mobile-back"
 							aria-label="Back to chats"
-							onclick={() => (activeConversation = '')}><ChevronLeft size={21} /></button
+							onclick={() => {
+								activeConversation = '';
+								unseenBelow = 0;
+							}}><ChevronLeft size={21} /></button
 						>
 						<span class="avatar small">{activeConversation.slice(0, 2).toUpperCase()}</span>
 						<div>
@@ -800,7 +1282,12 @@
 							><small>Private relay routing</small>
 						</div>
 					</header>
-					<div class="message-space" aria-live="polite">
+					<div
+						class="message-space"
+						bind:this={messageSpace}
+						onscroll={handleConversationScroll}
+						aria-live="polite"
+					>
 						{#if messages.length === 0}
 							<div class="conversation-empty">
 								<LockKeyhole size={24} />
@@ -825,28 +1312,53 @@
 							</div>
 						{/if}
 					</div>
+					{#if unseenBelow > 0}
+						<button class="new-message-chip" onclick={revealLatestMessages}>
+							{unseenBelow} new {unseenBelow === 1 ? 'message' : 'messages'}
+						</button>
+					{/if}
 					{#if error}<div class="composer-error" role="alert">{error}</div>{/if}
 					<form
 						class="composer"
+						aria-busy={sendBusy}
 						onsubmit={(event) => {
 							event.preventDefault();
 							void sendMessage();
 						}}
 					>
 						<textarea
+							bind:this={composerInput}
 							bind:value={composer}
 							rows="1"
 							maxlength="16384"
+							enterkeyhint={mobileComposer ? 'enter' : 'send'}
 							placeholder="Write a message"
 							aria-label="Message"
+							oninput={(event) => {
+								draftStore.save(activeConversation, event.currentTarget.value);
+								resizeComposer(event.currentTarget);
+							}}
 							onkeydown={(event) => {
-								if (event.key === 'Enter' && !event.shiftKey) {
+								if (
+									shouldSendComposerKey(
+										{
+											key: event.key,
+											shiftKey: event.shiftKey,
+											isComposing: event.isComposing,
+											keyCode: event.keyCode
+										},
+										{ mobile: mobileComposer }
+									)
+								) {
 									event.preventDefault();
 									void sendMessage();
 								}
 							}}></textarea>
-						<button type="submit" aria-label="Send message" disabled={busy || !composer.trim()}
-							><Send size={19} /></button
+						<button
+							type="submit"
+							aria-label="Send message"
+							disabled={sendBusy || !composer.trim()}
+							onpointerdown={(event) => event.preventDefault()}><Send size={19} /></button
 						>
 					</form>
 				{:else}
@@ -860,7 +1372,7 @@
 		{:else if view === 'new-chat'}
 			<section class="single-pane">
 				<div class="single-content narrow">
-					<button class="back-button inline" onclick={() => (view = 'chats')}
+					<button class="back-button inline" onclick={showChats}
 						><ChevronLeft size={20} /> Chats</button
 					>
 					<p class="eyebrow">Direct connection</p>

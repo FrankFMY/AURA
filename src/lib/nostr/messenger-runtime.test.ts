@@ -105,6 +105,7 @@ describe('messenger runtime', () => {
 	it('does zero publication and zero persistence when recipient has no kind-10050 list', async () => {
 		const network = fakePool();
 		const app = runtime(network.pool);
+		await app.runtime.start();
 		await expect(app.runtime.send(getPublicKey(generateSecretKey()), 'Hello')).rejects.toThrow(
 			/recipient_not_dm_ready/i
 		);
@@ -115,6 +116,7 @@ describe('messenger runtime', () => {
 	it('publishes its signed DM relay preference before becoming discoverable', async () => {
 		const network = fakePool();
 		const app = runtime(network.pool);
+		await app.runtime.start();
 		const event = await app.runtime.publishOwnRelayList();
 		expect(event.kind).toBe(10050);
 		expect(event.pubkey).toBe(app.pubkey);
@@ -129,6 +131,7 @@ describe('messenger runtime', () => {
 		const recipientPubkey = getPublicKey(recipientSecret);
 		const network = fakePool([relayList(recipientSecret, ['wss://recipient.one/'])]);
 		const app = runtime(network.pool);
+		await app.runtime.start();
 		const rumorId = await app.runtime.send(recipientPubkey, 'A quiet, private hello.');
 		expect(network.published.map((item) => item.relay).sort()).toEqual([
 			'wss://recipient.one/',
@@ -159,6 +162,7 @@ describe('messenger runtime', () => {
 			recoveryConfirmed: false,
 			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS })
 		});
+		await app.start();
 		await expect(app.send(getPublicKey(generateSecretKey()), 'Hello')).rejects.toThrow(/recovery/i);
 		expect(network.published).toHaveLength(0);
 	});
@@ -168,6 +172,7 @@ describe('messenger runtime', () => {
 		const recipientPubkey = getPublicKey(recipientSecret);
 		const network = fakePool();
 		const app = runtime(network.pool);
+		await app.runtime.start();
 		const wrapped = createWrappedDirectMessage({
 			senderSecretKey: app.secretKey,
 			recipientPubkey,
@@ -182,6 +187,33 @@ describe('messenger runtime', () => {
 		});
 		expect(network.published).toHaveLength(0);
 		await app.runtime.reconcileOutbox();
+		expect(network.published.map(({ event }) => event.id).sort()).toEqual(
+			[wrapped.recipient.wrap.id, wrapped.sender.wrap.id].sort()
+		);
+		expect((await app.database.messages.get(wrapped.rumor.id))?.state).toBe('network_accepted');
+	});
+
+	it('starts a fresh outbox drain after the previous run has settled', async () => {
+		const recipientSecret = generateSecretKey();
+		const recipientPubkey = getPublicKey(recipientSecret);
+		const network = fakePool();
+		const app = runtime(network.pool);
+		await app.runtime.start();
+		await expect(app.runtime.reconcileOutbox()).resolves.toBe(0);
+		const wrapped = createWrappedDirectMessage({
+			senderSecretKey: app.secretKey,
+			recipientPubkey,
+			content: 'Committed after a settled drain.',
+			createdAt: NOW_SECONDS
+		});
+		await commitOutgoingMessage(app.database, {
+			wrapped,
+			recipientRelays: ['wss://recipient.one/'],
+			senderRelays: ['wss://sender.one/'],
+			committedAt: NOW_MS
+		});
+
+		await expect(app.runtime.reconcileOutbox()).resolves.toBe(2);
 		expect(network.published.map(({ event }) => event.id).sort()).toEqual(
 			[wrapped.recipient.wrap.id, wrapped.sender.wrap.id].sort()
 		);
@@ -204,15 +236,77 @@ describe('messenger runtime', () => {
 			() => ({ seconds: Math.floor(milliseconds / 1000), milliseconds }),
 			10
 		);
+		const subscription = await app.runtime.start();
 		const rumorId = await app.runtime.send(recipientPubkey, 'Retry without another send.');
 		expect((await app.database.messages.get(rumorId))?.state).toBe('retry_wait');
 
-		const subscription = await app.runtime.start();
 		milliseconds += 2_000;
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(attempts).toBe(4);
 		expect((await app.database.messages.get(rumorId))?.state).toBe('network_accepted');
 		subscription.close();
+	});
+
+	it('cancels send before persistence when stopped during recipient discovery', async () => {
+		const recipientSecret = generateSecretKey();
+		const recipientPubkey = getPublicKey(recipientSecret);
+		const network = fakePool();
+		let releaseDiscovery!: (events: Event[]) => void;
+		const discovery = new Promise<Event[]>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		const query = vi.fn(() => discovery);
+		network.pool.querySync = query;
+		const app = runtime(network.pool);
+		await app.runtime.start();
+
+		const sending = app.runtime.send(recipientPubkey, 'Do not commit after stop.');
+		await vi.waitFor(() => expect(query).toHaveBeenCalledOnce());
+		app.runtime.stop();
+		releaseDiscovery([relayList(recipientSecret, ['wss://recipient.one/'])]);
+
+		await expect(sending).rejects.toThrow(/operation cancelled/i);
+		expect(await app.database.messages.count()).toBe(0);
+		expect(network.published).toHaveLength(0);
+	});
+
+	it('does not persist outbox outcomes after stop during publication', async () => {
+		const recipientSecret = generateSecretKey();
+		const recipientPubkey = getPublicKey(recipientSecret);
+		const network = fakePool();
+		let releasePublish!: (message: string) => void;
+		const publication = new Promise<string>((resolve) => {
+			releasePublish = resolve;
+		});
+		const publish = vi.fn(() => [publication]);
+		network.pool.publish = publish;
+		const app = runtime(network.pool);
+		await app.runtime.start();
+		const wrapped = createWrappedDirectMessage({
+			senderSecretKey: app.secretKey,
+			recipientPubkey,
+			content: 'Persisted before reconciliation.',
+			createdAt: NOW_SECONDS
+		});
+		await commitOutgoingMessage(app.database, {
+			wrapped,
+			recipientRelays: ['wss://recipient.one/'],
+			senderRelays: ['wss://sender.one/'],
+			committedAt: NOW_MS
+		});
+
+		const reconciling = app.runtime.reconcileOutbox();
+		await vi.waitFor(() => expect(publish).toHaveBeenCalled());
+		app.runtime.stop();
+		releasePublish('saved');
+
+		await expect(reconciling).rejects.toThrow(/operation cancelled/i);
+		expect((await app.database.messages.get(wrapped.rumor.id))?.state).toBe('publishing');
+		expect(
+			(await app.database.outbox.where('rumorId').equals(wrapped.rumor.id).toArray()).every(
+				(row) => row.status === 'publishing'
+			)
+		).toBe(true);
 	});
 
 	it('reports malformed incoming events without declaring a transport failure', async () => {
@@ -262,6 +356,7 @@ describe('messenger runtime', () => {
 		const database = new AccountDatabase(pubkey, `restart-${crypto.randomUUID()}`);
 		databases.push(database);
 		const network = fakePool();
+		const onTransportError = vi.fn();
 		const messenger = new MessengerRuntime({
 			session: new UnlockedSession(secretKey),
 			database,
@@ -269,7 +364,8 @@ describe('messenger runtime', () => {
 			lookupRelays: ['wss://lookup.one/'],
 			accountDmRelays: ['wss://sender.one/'],
 			recoveryConfirmed: true,
-			maxPendingIncoming: 1
+			maxPendingIncoming: 1,
+			onTransportError
 		});
 		await messenger.start();
 		const malformed = finalizeEvent(
@@ -287,6 +383,8 @@ describe('messenger runtime', () => {
 		messenger.stop();
 		await messenger.start();
 		const restartedSubscription = network.subscription!;
+		restartedSubscription.onclose(['new-generation close']);
+		expect(onTransportError).toHaveBeenCalledOnce();
 		restartedSubscription.onevent(malformed);
 		restartedSubscription.onevent(malformed);
 		await vi.waitFor(() => expect(network.subscriptions).toHaveLength(3));
@@ -295,6 +393,165 @@ describe('messenger runtime', () => {
 			'incoming receive queue saturated; replaying'
 		);
 		messenger.stop();
+	});
+
+	it('does not let a stale start closer stop a newer runtime generation', async () => {
+		const network = fakePool();
+		const app = runtime(network.pool);
+		const firstCloser = await app.runtime.start();
+		app.runtime.stop();
+		await app.runtime.start();
+		const currentSubscription = network.subscriptions.at(-1)!;
+
+		firstCloser.close('stale closer');
+		expect(currentSubscription.closeReasons).toEqual([]);
+		await expect(app.runtime.reconcileOutbox()).resolves.toBe(0);
+	});
+
+	it('rejects fresh public operations after stop without new side effects', async () => {
+		const network = fakePool();
+		const app = runtime(network.pool);
+		await app.runtime.start();
+		app.runtime.stop();
+
+		await expect(
+			app.runtime.send(getPublicKey(generateSecretKey()), 'Must not start after stop.')
+		).rejects.toThrow(/not started/i);
+		await expect(app.runtime.reconcileOutbox()).rejects.toThrow(/not started/i);
+		await expect(app.runtime.publishOwnRelayList()).rejects.toThrow(/not started/i);
+		await expect(app.runtime.readConversation(getPublicKey(generateSecretKey()))).rejects.toThrow(
+			/not started/i
+		);
+		expect(network.published).toHaveLength(0);
+		expect(await app.database.messages.count()).toBe(0);
+	});
+
+	it('does not finish startup after stop invalidates the runtime generation', async () => {
+		const network = fakePool();
+		const app = runtime(network.pool, generateSecretKey(), undefined, 10);
+		let releaseCursor!: () => void;
+		const cursorGate = new Promise<void>((resolve) => {
+			releaseCursor = resolve;
+		});
+		const originalGet = app.database.relayCursors.get.bind(app.database.relayCursors);
+		const cursorSpy = vi
+			.spyOn(app.database.relayCursors, 'get')
+			.mockImplementation(((key: { [key: string]: unknown }) =>
+				cursorGate.then(() => originalGet(key))) as never);
+
+		const starting = app.runtime.start();
+		await vi.waitFor(() => expect(cursorSpy).toHaveBeenCalledOnce());
+		app.runtime.stop();
+		releaseCursor();
+		await expect(starting).rejects.toThrow(/stopped during startup/i);
+		expect(network.subscriptions).toHaveLength(0);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(network.published).toHaveLength(0);
+	});
+
+	it('ignores event, EOSE, and close callbacks from a stopped generation', async () => {
+		const recipientSecret = generateSecretKey();
+		const recipientPubkey = getPublicKey(recipientSecret);
+		const senderSecret = generateSecretKey();
+		const network = fakePool();
+		const onReceiveError = vi.fn();
+		const onTransportError = vi.fn();
+		const database = new AccountDatabase(recipientPubkey, `late-${crypto.randomUUID()}`);
+		databases.push(database);
+		const messenger = new MessengerRuntime({
+			session: new UnlockedSession(recipientSecret),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS }),
+			onReceiveError,
+			onTransportError
+		});
+		await messenger.start();
+		const stoppedSubscription = network.subscription!;
+		messenger.stop();
+		const wrapped = createWrappedDirectMessage({
+			content: 'Must stay outside a stopped runtime.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW_SECONDS,
+			randomPastTimestamp: () => NOW_SECONDS - 1
+		});
+
+		stoppedSubscription.onevent(wrapped.recipient.wrap);
+		stoppedSubscription.oneose();
+		stoppedSubscription.onclose(['late close']);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(await database.messages.get(wrapped.rumor.id)).toBeUndefined();
+		expect(await database.relayCursors.get('wss://sender.one/')).toBeUndefined();
+		expect(onReceiveError).not.toHaveBeenCalled();
+		expect(onTransportError).not.toHaveBeenCalled();
+	});
+
+	it('rolls back an incoming callback already inside persistence when stopped', async () => {
+		const recipientSecret = generateSecretKey();
+		const recipientPubkey = getPublicKey(recipientSecret);
+		const senderSecret = generateSecretKey();
+		const network = fakePool();
+		const onReceiveError = vi.fn();
+		const database = new AccountDatabase(recipientPubkey, `inflight-${crypto.randomUUID()}`);
+		databases.push(database);
+		const messenger = new MessengerRuntime({
+			session: new UnlockedSession(recipientSecret),
+			database,
+			pool: network.pool,
+			lookupRelays: ['wss://lookup.one/'],
+			accountDmRelays: ['wss://sender.one/'],
+			recoveryConfirmed: true,
+			now: () => ({ seconds: NOW_SECONDS, milliseconds: NOW_MS }),
+			onReceiveError
+		});
+		await messenger.start();
+		let releaseLookup!: () => void;
+		const lookupGate = new Promise<void>((resolve) => {
+			releaseLookup = resolve;
+		});
+		const originalGet = database.messages.get.bind(database.messages);
+		const lookup = vi
+			.spyOn(database.messages, 'get')
+			.mockImplementation(((key: string) => lookupGate.then(() => originalGet(key))) as never);
+		const wrapped = createWrappedDirectMessage({
+			content: 'Must roll back after stop.',
+			senderSecretKey: senderSecret,
+			recipientPubkey,
+			createdAt: NOW_SECONDS,
+			randomPastTimestamp: () => NOW_SECONDS - 1
+		});
+
+		network.subscription!.onevent(wrapped.recipient.wrap);
+		await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce());
+		messenger.stop();
+		releaseLookup();
+		await vi.waitFor(async () => expect(await database.messages.count()).toBe(0));
+		expect(await database.wireCopies.count()).toBe(0);
+		expect(await database.inboxReceipts.count()).toBe(0);
+		expect(onReceiveError).not.toHaveBeenCalled();
+	});
+
+	it('invalidates relay-list publication completion after stop', async () => {
+		const network = fakePool();
+		let releasePublish!: (message: string) => void;
+		const publication = new Promise<string>((resolve) => {
+			releasePublish = resolve;
+		});
+		const publish = vi.fn(() => [publication]);
+		network.pool.publish = publish;
+		const app = runtime(network.pool);
+		await app.runtime.start();
+
+		const publishing = app.runtime.publishOwnRelayList();
+		await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+		app.runtime.stop();
+		releasePublish('saved');
+		await expect(publishing).rejects.toThrow(/operation cancelled/i);
 	});
 
 	it('closes already opened relay subscriptions when startup partially fails', async () => {

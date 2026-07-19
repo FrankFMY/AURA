@@ -1,5 +1,11 @@
 import { verifyEvent, type Event } from 'nostr-tools';
 import {
+	assertOperationCurrent,
+	isOperationCancelled,
+	operationAlwaysCurrent,
+	type OperationGuard
+} from '../core/operation-guard';
+import {
 	classifyPublishAttempt,
 	transitionMessageState,
 	type MessageDeliveryState,
@@ -124,9 +130,12 @@ export async function claimDueOutboxRows(
 	database: AccountDatabase,
 	rumorId: string,
 	rows: OutboxRecord[],
-	now: number
+	now: number,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<OutboxRecord[]> {
+	assertOperationCurrent(isCurrent);
 	return database.transaction('rw', database.messages, database.outbox, async () => {
+		assertOperationCurrent(isCurrent);
 		const currentRows = (await database.outbox.bulkGet(rows.map((row) => row.id))).filter(
 			(row): row is OutboxRecord =>
 				row !== undefined &&
@@ -135,8 +144,10 @@ export async function claimDueOutboxRows(
 				(row.status === 'queued' || row.status === 'retry_wait') &&
 				row.nextAttemptAt <= now
 		);
+		assertOperationCurrent(isCurrent);
 		if (currentRows.length === 0) return [];
 		let message = await database.messages.get(rumorId);
+		assertOperationCurrent(isCurrent);
 		if (!message) throw new Error(`outbox message ${rumorId} is missing`);
 		if (message.state === 'encrypted_and_signed') {
 			message = applyTransition(message, 'queued', now, 'durable outbox ready');
@@ -146,6 +157,7 @@ export async function claimDueOutboxRows(
 		} else if (message.state === 'network_rejected' || message.state === 'permanent_failure') {
 			throw new Error(`outbox cannot run while message is ${message.state}`);
 		}
+		assertOperationCurrent(isCurrent);
 		await database.messages.put(message);
 		const prepared = currentRows.map((row) => ({
 			...row,
@@ -154,7 +166,9 @@ export async function claimDueOutboxRows(
 			updatedAt: now,
 			lastError: undefined
 		}));
+		assertOperationCurrent(isCurrent);
 		await database.outbox.bulkPut(prepared);
+		assertOperationCurrent(isCurrent);
 		return prepared;
 	});
 }
@@ -162,8 +176,10 @@ export async function claimDueOutboxRows(
 async function publishRow(
 	row: OutboxRecord,
 	publisher: RelayPublisher,
-	now: number
+	now: number,
+	isCurrent: OperationGuard
 ): Promise<OutboxRecord> {
+	assertOperationCurrent(isCurrent);
 	let event: Event;
 	try {
 		event = parsePersistedEvent(row);
@@ -176,7 +192,9 @@ async function publishRow(
 		};
 	}
 	try {
+		assertOperationCurrent(isCurrent);
 		const response = await publisher(row.relayUrl, event);
+		assertOperationCurrent(isCurrent);
 		if (response.accepted) {
 			return { ...row, status: 'accepted', updatedAt: now, lastError: undefined };
 		}
@@ -191,6 +209,7 @@ async function publishRow(
 		}
 		return { ...row, status: 'rejected', updatedAt: now, lastError: response.message };
 	} catch (error) {
+		if (isOperationCancelled(error)) throw error;
 		return {
 			...row,
 			status: 'retry_wait',
@@ -201,28 +220,57 @@ async function publishRow(
 	}
 }
 
-async function updateLogicalState(
+async function commitOwnedOutcomes(
 	database: AccountDatabase,
 	rumorId: string,
-	now: number
-): Promise<void> {
-	await database.transaction('rw', database.messages, database.outbox, async () => {
+	outcomes: OutboxRecord[],
+	now: number,
+	isCurrent: OperationGuard
+): Promise<number> {
+	assertOperationCurrent(isCurrent);
+	return database.transaction('rw', database.messages, database.outbox, async () => {
+		assertOperationCurrent(isCurrent);
+		const currentRows = await database.outbox.bulkGet(outcomes.map((row) => row.id));
+		assertOperationCurrent(isCurrent);
+		const owned = outcomes.filter((outcome, index) => {
+			const current = currentRows[index];
+			return (
+				current !== undefined &&
+				current.accountPubkey === database.accountPubkey &&
+				current.rumorId === rumorId &&
+				outcome.rumorId === rumorId &&
+				current.wrapId === outcome.wrapId &&
+				current.relayUrl === outcome.relayUrl &&
+				current.audience === outcome.audience &&
+				current.status === 'publishing' &&
+				current.attempt === outcome.attempt
+			);
+		});
+		if (owned.length === 0) return 0;
+		assertOperationCurrent(isCurrent);
+		await database.outbox.bulkPut(owned);
+		assertOperationCurrent(isCurrent);
 		const message = await database.messages.get(rumorId);
-		if (!message || message.state !== 'publishing') return;
+		assertOperationCurrent(isCurrent);
+		if (!message) throw new Error(`outbox message ${rumorId} is missing`);
+		if (message.state !== 'publishing' && message.state !== 'retry_wait') return owned.length;
 		const recipientRows = await database.outbox
 			.where('rumorId')
 			.equals(rumorId)
 			.and((row) => row.audience === 'recipient')
 			.toArray();
+		assertOperationCurrent(isCurrent);
 		const accepted = recipientRows.filter((row) => row.status === 'accepted').length;
 		const rejected = recipientRows.filter((row) => row.status === 'rejected').length;
 		const pending = recipientRows.length - accepted - rejected;
 		const next = classifyPublishAttempt({ accepted, rejected, pending });
+		if (message.state === next) return owned.length;
+		assertOperationCurrent(isCurrent);
 		await database.messages.put(
 			applyTransition(
 				message,
 				next,
-				now,
+				Math.max(now, message.updatedAt),
 				next === 'network_accepted'
 					? 'at least one intended recipient relay acknowledged'
 					: next === 'network_rejected'
@@ -230,21 +278,74 @@ async function updateLogicalState(
 						: 'no conclusive recipient relay acknowledgement'
 			)
 		);
+		assertOperationCurrent(isCurrent);
+		return owned.length;
+	});
+}
+
+async function reconcileConclusiveOutboxStates(
+	database: AccountDatabase,
+	now: number,
+	isCurrent: OperationGuard
+): Promise<number> {
+	assertOperationCurrent(isCurrent);
+	return database.transaction('rw', database.messages, database.outbox, async () => {
+		assertOperationCurrent(isCurrent);
+		const candidates = await database.messages
+			.where('state')
+			.anyOf(['publishing', 'retry_wait'])
+			.and((message) => message.direction === 'outgoing')
+			.toArray();
+		assertOperationCurrent(isCurrent);
+		let repaired = 0;
+		for (const message of candidates) {
+			const recipientRows = await database.outbox
+				.where('rumorId')
+				.equals(message.rumorId)
+				.and((row) => row.accountPubkey === database.accountPubkey && row.audience === 'recipient')
+				.toArray();
+			assertOperationCurrent(isCurrent);
+			if (recipientRows.length === 0) continue;
+			const accepted = recipientRows.filter((row) => row.status === 'accepted').length;
+			const rejected = recipientRows.filter((row) => row.status === 'rejected').length;
+			const pending = recipientRows.length - accepted - rejected;
+			if (accepted === 0 && !(rejected > 0 && pending === 0)) continue;
+			const next = classifyPublishAttempt({ accepted, rejected, pending });
+			if (message.state === next) continue;
+			assertOperationCurrent(isCurrent);
+			await database.messages.put(
+				applyTransition(
+					message,
+					next,
+					Math.max(now, message.updatedAt),
+					next === 'network_accepted'
+						? 'reconciled persisted recipient relay acknowledgement'
+						: 'reconciled persisted recipient relay rejections'
+				)
+			);
+			assertOperationCurrent(isCurrent);
+			repaired += 1;
+		}
+		return repaired;
 	});
 }
 
 async function recoverInterruptedPublications(
 	database: AccountDatabase,
-	now: number
+	now: number,
+	isCurrent: OperationGuard
 ): Promise<number> {
+	assertOperationCurrent(isCurrent);
 	const cutoff = now - OUTBOX_PUBLISH_LEASE_MS;
 	if (cutoff < 0) return 0;
 	return database.transaction('rw', database.outbox, async () => {
+		assertOperationCurrent(isCurrent);
 		const stale = await database.outbox
 			.where('status')
 			.equals('publishing')
 			.and((row) => row.updatedAt <= cutoff)
 			.toArray();
+		assertOperationCurrent(isCurrent);
 		if (stale.length === 0) return 0;
 		await database.outbox.bulkPut(
 			stale.map((row) => ({
@@ -255,6 +356,7 @@ async function recoverInterruptedPublications(
 				lastError: 'publication interrupted before relay outcome'
 			}))
 		);
+		assertOperationCurrent(isCurrent);
 		return stale.length;
 	});
 }
@@ -262,11 +364,17 @@ async function recoverInterruptedPublications(
 export async function runOutboxBatch(
 	database: AccountDatabase,
 	publisher: RelayPublisher,
-	now: number
+	now: number,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<number> {
 	if (!Number.isSafeInteger(now) || now < 0) throw new Error('outbox time is invalid');
-	await recoverInterruptedPublications(database, now);
+	assertOperationCurrent(isCurrent);
+	await recoverInterruptedPublications(database, now, isCurrent);
+	assertOperationCurrent(isCurrent);
+	await reconcileConclusiveOutboxStates(database, now, isCurrent);
+	assertOperationCurrent(isCurrent);
 	const due = await getDueOutbox(database, now);
+	assertOperationCurrent(isCurrent);
 	const groups = new Map<string, OutboxRecord[]>();
 	for (const row of due) {
 		const group = groups.get(row.rumorId) ?? [];
@@ -276,12 +384,18 @@ export async function runOutboxBatch(
 
 	let processed = 0;
 	for (const [rumorId, rows] of groups) {
-		const prepared = await claimDueOutboxRows(database, rumorId, rows, now);
+		assertOperationCurrent(isCurrent);
+		const prepared = await claimDueOutboxRows(database, rumorId, rows, now, isCurrent);
+		assertOperationCurrent(isCurrent);
 		if (prepared.length === 0) continue;
-		const outcomes = await Promise.all(prepared.map((row) => publishRow(row, publisher, now)));
-		await database.outbox.bulkPut(outcomes);
-		await updateLogicalState(database, rumorId, now);
-		processed += outcomes.length;
+		const outcomes = await Promise.all(
+			prepared.map((row) => publishRow(row, publisher, now, isCurrent))
+		);
+		assertOperationCurrent(isCurrent);
+		const committed = await commitOwnedOutcomes(database, rumorId, outcomes, now, isCurrent);
+		assertOperationCurrent(isCurrent);
+		processed += committed;
 	}
+	assertOperationCurrent(isCurrent);
 	return processed;
 }

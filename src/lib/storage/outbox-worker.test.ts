@@ -1,7 +1,12 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { createMessageState, transitionMessageState } from '../core/message-state';
+import {
+	createMessageState,
+	transitionMessageState,
+	type MessageDeliveryState,
+	type MessageStateTransition
+} from '../core/message-state';
 import { createWrappedDirectMessage } from '../nostr/gift-wrap';
 import { AccountDatabase, commitOutgoingMessage, getDueOutbox } from './account-database';
 import {
@@ -135,6 +140,154 @@ describe('durable relay outbox worker', () => {
 		expect(secondPublisher).not.toHaveBeenCalled();
 		expect(firstCalls).toBe(2);
 		expect((await database.messages.toCollection().first())?.state).toBe('network_accepted');
+	});
+
+	it('rejects stale outcomes after an expired lease is reclaimed by a newer attempt', async () => {
+		const { database } = await fixture();
+		let releaseFirst!: () => void;
+		const blocked = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		let markFirstStarted!: () => void;
+		const firstStarted = new Promise<void>((resolve) => {
+			markFirstStarted = resolve;
+		});
+		let firstCalls = 0;
+		const firstPublisher: RelayPublisher = async () => {
+			firstCalls += 1;
+			if (firstCalls === 2) markFirstStarted();
+			await blocked;
+			return { accepted: false, retryable: true, message: 'late timeout' };
+		};
+		const first = runOutboxBatch(database, firstPublisher, NOW_MS);
+		await firstStarted;
+
+		const secondPublisher = vi.fn<RelayPublisher>(async () => ({
+			accepted: true,
+			message: 'saved by attempt two'
+		}));
+		await expect(
+			runOutboxBatch(database, secondPublisher, NOW_MS + OUTBOX_PUBLISH_LEASE_MS + 1)
+		).resolves.toBe(2);
+		releaseFirst();
+		await expect(first).resolves.toBe(0);
+
+		const rows = await database.outbox.toArray();
+		expect(rows).toHaveLength(2);
+		expect(rows.every((row) => row.status === 'accepted' && row.attempt === 2)).toBe(true);
+		expect((await database.messages.toCollection().first())?.state).toBe('network_accepted');
+	});
+
+	it('atomically rolls back outcomes when cancellation precedes logical state update', async () => {
+		const { database } = await fixture();
+		let current = true;
+		database.messages.hook('reading', (message) => {
+			if (message?.state === 'publishing') current = false;
+			return message;
+		});
+
+		await expect(
+			runOutboxBatch(
+				database,
+				async () => ({ accepted: true, message: 'saved' }),
+				NOW_MS,
+				() => current
+			)
+		).rejects.toThrow(/operation cancelled/i);
+
+		const rows = await database.outbox.toArray();
+		expect(rows.every((row) => row.status === 'publishing' && row.attempt === 1)).toBe(true);
+		expect((await database.messages.get(rows[0].rumorId))?.state).toBe('publishing');
+	});
+
+	it('repairs a pre-fix split commit with finalized rows and a publishing message', async () => {
+		const { database, wrapped } = await fixture();
+		const due = await getDueOutbox(database, NOW_MS);
+		await claimDueOutboxRows(database, wrapped.rumor.id, due, NOW_MS);
+		await database.outbox.toCollection().modify((row) => {
+			row.status = 'accepted';
+			row.updatedAt = NOW_MS + 1;
+		});
+		expect((await database.messages.get(wrapped.rumor.id))?.state).toBe('publishing');
+		expect(await getDueOutbox(database, NOW_MS + 1)).toEqual([]);
+		const publisher = vi.fn<RelayPublisher>();
+
+		await expect(runOutboxBatch(database, publisher, NOW_MS + 1)).resolves.toBe(0);
+		expect(publisher).not.toHaveBeenCalled();
+		expect((await database.messages.get(wrapped.rumor.id))?.state).toBe('network_accepted');
+	});
+
+	it('applies conclusive fenced evidence after another owner moves the message to retry wait', async () => {
+		const { database, wrapped } = await fixture(['wss://recipient.one/', 'wss://recipient.two/']);
+		await database.outbox.toCollection().modify((row) => {
+			row.attempt = 1;
+			row.updatedAt = NOW_MS;
+			if (row.audience === 'sender') {
+				row.status = 'accepted';
+			} else if (row.relayUrl === 'wss://recipient.one/') {
+				row.status = 'retry_wait';
+				row.nextAttemptAt = NOW_MS + 2_000;
+			} else {
+				row.status = 'publishing';
+			}
+		});
+		const initial = await database.messages.get(wrapped.rumor.id);
+		if (!initial || initial.direction !== 'outgoing') throw new Error('fixture message is missing');
+		let state = transitionMessageState(
+			{
+				messageId: initial.rumorId,
+				state: initial.state as MessageDeliveryState,
+				updatedAt: initial.updatedAt,
+				attempts: initial.attempts,
+				history: initial.stateHistory as MessageStateTransition[]
+			},
+			'queued',
+			NOW_MS
+		);
+		state = transitionMessageState(state, 'publishing', NOW_MS);
+		state = transitionMessageState(state, 'retry_wait', NOW_MS, 'another owner is still pending');
+		await database.messages.put({
+			...initial,
+			state: state.state,
+			stateHistory: state.history,
+			attempts: state.attempts,
+			updatedAt: state.updatedAt
+		});
+
+		await runOutboxBatch(
+			database,
+			async () => {
+				const claimedMessage = await database.messages.get(wrapped.rumor.id);
+				if (!claimedMessage || claimedMessage.state !== 'publishing') {
+					throw new Error('worker did not claim the retry');
+				}
+				const retry = transitionMessageState(
+					{
+						messageId: claimedMessage.rumorId,
+						state: claimedMessage.state,
+						updatedAt: claimedMessage.updatedAt,
+						attempts: claimedMessage.attempts,
+						history: claimedMessage.stateHistory as MessageStateTransition[]
+					},
+					'retry_wait',
+					NOW_MS + 3_000,
+					'another owner completed first'
+				);
+				await database.messages.put({
+					...claimedMessage,
+					state: retry.state,
+					stateHistory: retry.history,
+					attempts: retry.attempts,
+					updatedAt: retry.updatedAt
+				});
+				return { accepted: true, message: 'late saved acknowledgement' };
+			},
+			NOW_MS + 2_000
+		);
+
+		expect((await database.messages.get(wrapped.rumor.id))?.state).toBe('network_accepted');
+		const accepted = await database.outbox.where('relayUrl').equals('wss://recipient.one/').first();
+		expect(accepted).toMatchObject({ status: 'accepted', attempt: 2 });
 	});
 
 	it('rejects a stale due snapshot after another worker has claimed its rows', async () => {

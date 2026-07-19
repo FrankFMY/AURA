@@ -1,4 +1,9 @@
 import { getPublicKey, type Event } from 'nostr-tools';
+import {
+	assertOperationCurrent,
+	operationAlwaysCurrent,
+	type OperationGuard
+} from '../core/operation-guard';
 import { normalizeDmRelayUrls } from '../nostr/dm-relays';
 import { unwrapDirectMessage, type Rumor } from '../nostr/gift-wrap';
 import {
@@ -36,19 +41,25 @@ export async function getRelaySubscriptionSince(
 export async function markRelayInitialSyncComplete(
 	database: AccountDatabase,
 	relay: string,
-	completedAt: number
+	completedAt: number,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<void> {
+	assertOperationCurrent(isCurrent);
 	assertTimestamp(completedAt, 'completedAt');
 	const [relayUrl] = normalizeDmRelayUrls([relay]);
 	await database.transaction('rw', database.relayCursors, async () => {
+		assertOperationCurrent(isCurrent);
 		const existing = await database.relayCursors.get(relayUrl);
+		assertOperationCurrent(isCurrent);
 		await database.relayCursors.put({
 			relayUrl,
 			maxEventCreatedAt: existing?.maxEventCreatedAt ?? 0,
 			initialSyncComplete: true,
 			updatedAt: Math.max(existing?.updatedAt ?? 0, completedAt)
 		});
+		assertOperationCurrent(isCurrent);
 	});
+	assertOperationCurrent(isCurrent);
 }
 
 export function conversationPubkeyForRumor(rumor: Rumor, accountPubkey: string): string {
@@ -64,8 +75,10 @@ export function conversationPubkeyForRumor(rumor: Rumor, accountPubkey: string):
 
 export async function commitIncomingWrap(
 	database: AccountDatabase,
-	input: CommitIncomingWrapInput
+	input: CommitIncomingWrapInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<string> {
+	assertOperationCurrent(isCurrent);
 	assertTimestamp(input.receivedAt, 'receivedAt');
 	assertTimestamp(input.now, 'now');
 	const [relayUrl] = normalizeDmRelayUrls([input.relayUrl]);
@@ -134,6 +147,7 @@ export async function commitIncomingWrap(
 		updatedAt: input.receivedAt
 	};
 
+	assertOperationCurrent(isCurrent);
 	await database.transaction(
 		'rw',
 		database.messages,
@@ -141,7 +155,9 @@ export async function commitIncomingWrap(
 		database.inboxReceipts,
 		database.relayCursors,
 		async () => {
+			assertOperationCurrent(isCurrent);
 			const existing = await database.messages.get(rumor.id);
+			assertOperationCurrent(isCurrent);
 			if (
 				existing &&
 				(existing.conversationPubkey !== conversationPubkey ||
@@ -149,10 +165,15 @@ export async function commitIncomingWrap(
 			) {
 				throw new Error('conflicting logical rumor identity');
 			}
+			assertOperationCurrent(isCurrent);
 			if (!existing) await database.messages.add(message);
+			assertOperationCurrent(isCurrent);
 			await database.wireCopies.put(wire);
+			assertOperationCurrent(isCurrent);
 			await database.inboxReceipts.put(receipt);
+			assertOperationCurrent(isCurrent);
 			const existingCursor = await database.relayCursors.get(relayUrl);
+			assertOperationCurrent(isCurrent);
 			await database.relayCursors.put({
 				...cursor,
 				maxEventCreatedAt: Math.max(
@@ -162,7 +183,9 @@ export async function commitIncomingWrap(
 				initialSyncComplete: existingCursor?.initialSyncComplete ?? false,
 				updatedAt: Math.max(existingCursor?.updatedAt ?? 0, cursor.updatedAt)
 			});
+			assertOperationCurrent(isCurrent);
 		}
 	);
+	assertOperationCurrent(isCurrent);
 	return rumor.id;
 }

@@ -334,16 +334,17 @@ function parseToken(token: string): { payload: unknown; signature: string } {
 	return { payload, signature };
 }
 
-export function createInviteToken(payload: InvitePayload, secretKey: string): string {
+export function createInviteToken(payload: InvitePayload, secretKey: Uint8Array): string {
 	validatePayload(payload, { expectedOrigin: payload.origin, now: payload.issued_at });
-	if (!HEX_32.test(secretKey)) throw new Error('secret key must be canonical lowercase hex');
-	const secretKeyBytes = hexToBytes(secretKey);
-	const actualPubkey = bytesToHex(schnorr.getPublicKey(secretKeyBytes));
+	if (!(secretKey instanceof Uint8Array) || secretKey.length !== 32) {
+		throw new Error('secret key must be 32 bytes');
+	}
+	const actualPubkey = bytesToHex(schnorr.getPublicKey(secretKey));
 	if (actualPubkey !== payload.issuer_pubkey) {
 		throw new Error('secret key does not match issuer_pubkey');
 	}
 	const digest = digestPayload(payload);
-	const signature = bytesToHex(schnorr.sign(digest, secretKeyBytes));
+	const signature = bytesToHex(schnorr.sign(digest, secretKey));
 	const encoded = bytesToBase64Url(encoder.encode(canonicalize(payload)));
 	const token = `${encoded}.${signature}`;
 	if (token.length > MAX_TOKEN_LENGTH) throw new Error('invite token is too large');

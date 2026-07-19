@@ -72,6 +72,19 @@ describe('message state machine', () => {
 		expect(rejected.state).toBe('queued');
 	});
 
+	it('accepts conclusive late relay evidence while waiting to retry', () => {
+		let waiting = createMessageState('msg-late-evidence', T0);
+		waiting = advance(waiting, 'encrypted_and_signed', 1);
+		waiting = advance(waiting, 'queued', 2);
+		waiting = advance(waiting, 'publishing', 3);
+		waiting = advance(waiting, 'retry_wait', 4, 'another relay is pending');
+
+		expect(advance(waiting, 'network_accepted', 5, 'late ACK').state).toBe('network_accepted');
+		expect(advance(waiting, 'network_rejected', 5, 'late conclusive rejection').state).toBe(
+			'network_rejected'
+		);
+	});
+
 	it('classifies relay evidence without calling it delivery', () => {
 		expect(classifyPublishAttempt({ accepted: 1, rejected: 0, pending: 2 })).toBe(
 			'network_accepted'

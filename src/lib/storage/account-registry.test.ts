@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { createKeyEnvelope } from '../custody/key-envelope';
 import { AccountDatabase } from './account-database';
@@ -84,5 +84,52 @@ describe('encrypted account registry', () => {
 		await removeAccount(registry, pubkey);
 		expect(await registry.accounts.get(pubkey)).toBeUndefined();
 		expect(await Dexie.exists(account.name)).toBe(false);
+	});
+
+	it('aborts active-account selection when the lifecycle becomes stale after lookup', async () => {
+		const { pubkey, envelope, registry } = await fixture();
+		await registerAccount(registry, {
+			pubkey,
+			displayName: 'Alicia',
+			envelope,
+			dmRelays: ['wss://relay.one/'],
+			createdAt: 1_750_000_000_000
+		});
+		let current = true;
+		const originalGet = registry.accounts.get.bind(registry.accounts);
+		vi.spyOn(registry.accounts, 'get').mockImplementation(((key: string) =>
+			originalGet(key).then((record) => {
+				current = false;
+				return record;
+			})) as never);
+
+		await expect(setActiveAccount(registry, pubkey, () => current)).rejects.toThrow(
+			/operation cancelled/i
+		);
+		expect(await getActiveAccount(registry)).toBeUndefined();
+	});
+
+	it('keeps registry metadata retryable when physical database deletion fails', async () => {
+		const { pubkey, envelope, registry } = await fixture();
+		await registerAccount(registry, {
+			pubkey,
+			displayName: 'Artem',
+			envelope,
+			dmRelays: ['wss://relay.one/'],
+			createdAt: 1_750_000_000_000
+		});
+		await setActiveAccount(registry, pubkey);
+		const account = new AccountDatabase(pubkey);
+		await account.open();
+		account.close();
+
+		await expect(
+			removeAccount(registry, pubkey, async () => {
+				throw new Error('database deletion failed');
+			})
+		).rejects.toThrow('database deletion failed');
+		expect(await registry.accounts.get(pubkey)).toBeDefined();
+		expect((await getActiveAccount(registry))?.pubkey).toBe(pubkey);
+		expect(await Dexie.exists(account.name)).toBe(true);
 	});
 });

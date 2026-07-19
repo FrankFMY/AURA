@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { createWrappedDirectMessage, type Rumor } from '../nostr/gift-wrap';
 import { AccountDatabase } from './account-database';
@@ -92,6 +92,81 @@ describe('incoming Gift Wrap persistence', () => {
 		expect(conversationPubkeyForRumor(rumor, recipientPubkey)).toBe(senderPubkey);
 		expect(conversationPubkeyForRumor(rumor, senderPubkey)).toBe(recipientPubkey);
 		expect(rumor.tags[0]).toEqual(['subject', 'A subject']);
+	});
+
+	it('aborts an incoming transaction when its operation becomes stale after lookup', async () => {
+		const { database, recipientSecretKey, wrapped } = fixture();
+		let current = true;
+		const originalGet = database.messages.get.bind(database.messages);
+		vi.spyOn(database.messages, 'get').mockImplementation(((key: string) =>
+			originalGet(key).then((record) => {
+				current = false;
+				return record;
+			})) as never);
+
+		await expect(
+			commitIncomingWrap(
+				database,
+				{
+					wrap: wrapped.recipient.wrap,
+					accountSecretKey: recipientSecretKey,
+					relayUrl: 'wss://recipient.one/',
+					receivedAt: NOW_MS,
+					now: NOW_SECONDS
+				},
+				() => current
+			)
+		).rejects.toThrow(/operation cancelled/i);
+		expect(await database.messages.count()).toBe(0);
+		expect(await database.wireCopies.count()).toBe(0);
+		expect(await database.inboxReceipts.count()).toBe(0);
+	});
+
+	it('rolls back all incoming writes when cancellation lands during the final put', async () => {
+		const { database, recipientSecretKey, wrapped } = fixture();
+		let current = true;
+		const originalPut = database.relayCursors.put.bind(database.relayCursors);
+		vi.spyOn(database.relayCursors, 'put').mockImplementation(((
+			record: Parameters<typeof originalPut>[0]
+		) =>
+			originalPut(record).then((key) => {
+				current = false;
+				return key;
+			})) as never);
+
+		await expect(
+			commitIncomingWrap(
+				database,
+				{
+					wrap: wrapped.recipient.wrap,
+					accountSecretKey: recipientSecretKey,
+					relayUrl: 'wss://recipient.one/',
+					receivedAt: NOW_MS,
+					now: NOW_SECONDS
+				},
+				() => current
+			)
+		).rejects.toThrow(/operation cancelled/i);
+		expect(await database.messages.count()).toBe(0);
+		expect(await database.wireCopies.count()).toBe(0);
+		expect(await database.inboxReceipts.count()).toBe(0);
+		expect(await database.relayCursors.count()).toBe(0);
+	});
+
+	it('aborts EOSE cursor persistence when its operation becomes stale after lookup', async () => {
+		const { database } = fixture();
+		let current = true;
+		const originalGet = database.relayCursors.get.bind(database.relayCursors);
+		vi.spyOn(database.relayCursors, 'get').mockImplementation(((key: string) =>
+			originalGet(key).then((record) => {
+				current = false;
+				return record;
+			})) as never);
+
+		await expect(
+			markRelayInitialSyncComplete(database, 'wss://recipient.one/', NOW_MS, () => current)
+		).rejects.toThrow(/operation cancelled/i);
+		expect(await database.relayCursors.count()).toBe(0);
 	});
 
 	it('does not write anything for an invalid outer signature', async () => {

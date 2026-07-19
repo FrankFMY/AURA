@@ -4,9 +4,6 @@ import { getPublicKey, nip19 } from 'nostr-tools';
 import { createInviteToken, generateInviteNonce } from '../src/lib/core/invite';
 
 const INVITE_SECRET = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
-const INVITE_SECRET_HEX = Array.from(INVITE_SECRET, (byte) =>
-	byte.toString(16).padStart(2, '0')
-).join('');
 
 test.describe('public shell', () => {
 	test('renders a calm first-run landing and opens secure profile creation', async ({ page }) => {
@@ -26,9 +23,43 @@ test.describe('public shell', () => {
 		await expect(page.locator('form').filter({ has: displayName })).toHaveCount(1);
 	});
 
+	test('prevents onboarding navigation while credential persistence is in flight', async ({
+		page
+	}) => {
+		await page.addInitScript(() => {
+			class PendingPublicKeyCredential {
+				static async isUserVerifyingPlatformAuthenticatorAvailable() {
+					return true;
+				}
+			}
+			Object.defineProperty(globalThis, 'PublicKeyCredential', {
+				configurable: true,
+				value: PendingPublicKeyCredential
+			});
+			Object.defineProperty(navigator, 'credentials', {
+				configurable: true,
+				value: {
+					create: () => new Promise(() => undefined),
+					get: () => new Promise(() => undefined)
+				}
+			});
+		});
+		await page.goto('/');
+		await page.getByRole('button', { name: /Create secure profile/i }).click();
+		await page.getByLabel('Display name').fill('Pending profile');
+		await page.getByRole('button', { name: /Continue with Passkey/i }).click();
+
+		await expect(page.getByRole('button', { name: /Waiting for your device/i })).toBeDisabled();
+		await expect(page.getByRole('button', { name: /Go back/i })).toBeDisabled();
+	});
+
 	test('fits the first-run experience on a phone viewport', async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.goto('/');
+		await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+			'content',
+			/viewport-fit=cover.*interactive-widget=resizes-content/u
+		);
 		await expect(page.getByRole('button', { name: /Create secure profile/i })).toBeVisible();
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
@@ -38,6 +69,96 @@ test.describe('public shell', () => {
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
 		).toBe(true);
+	});
+
+	test('applies the full-screen viewport CSS contract to a mobile conversation', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto('/');
+		const layout = await page.evaluate(() => {
+			document.documentElement.style.setProperty('--aura-viewport-height', '600px');
+			document.documentElement.style.setProperty('--aura-viewport-top', '20px');
+			const shellFixture = document.createElement('main');
+			shellFixture.className = 'app-shell conversation-open';
+			const railFixture = document.createElement('aside');
+			railFixture.className = 'rail';
+			const chatListFixture = document.createElement('section');
+			chatListFixture.className = 'chat-list-pane hidden-mobile';
+			const paneFixture = document.createElement('section');
+			paneFixture.className = 'conversation-pane';
+			const headerFixture = document.createElement('header');
+			headerFixture.className = 'conversation-header';
+			const backFixture = document.createElement('button');
+			backFixture.className = 'mobile-back';
+			backFixture.textContent = 'Back';
+			headerFixture.append(backFixture);
+			const messageFixture = document.createElement('div');
+			messageFixture.className = 'message-space';
+			const tallMessageContent = document.createElement('div');
+			tallMessageContent.style.height = '1200px';
+			messageFixture.append(tallMessageContent);
+			const newMessageFixture = document.createElement('button');
+			newMessageFixture.className = 'new-message-chip';
+			newMessageFixture.textContent = '1 new message';
+			const composerFixture = document.createElement('form');
+			composerFixture.className = 'composer';
+			const textareaFixture = document.createElement('textarea');
+			textareaFixture.rows = 1;
+			textareaFixture.style.height = '144px';
+			const sendFixture = document.createElement('button');
+			sendFixture.textContent = 'Send';
+			composerFixture.append(textareaFixture, sendFixture);
+			paneFixture.append(headerFixture, messageFixture, newMessageFixture, composerFixture);
+			shellFixture.append(railFixture, chatListFixture, paneFixture);
+			document.body.replaceChildren(shellFixture);
+			const shell = document.querySelector<HTMLElement>('.app-shell')!;
+			const pane = document.querySelector<HTMLElement>('.conversation-pane')!;
+			const rail = document.querySelector<HTMLElement>('.rail')!;
+			const back = document.querySelector<HTMLElement>('.mobile-back')!;
+			const composer = document.querySelector<HTMLElement>('.composer')!;
+			const shellRect = shell.getBoundingClientRect();
+			const paneRect = pane.getBoundingClientRect();
+			const backRect = back.getBoundingClientRect();
+			const composerRect = composer.getBoundingClientRect();
+			const headerRect = document
+				.querySelector<HTMLElement>('.conversation-header')!
+				.getBoundingClientRect();
+			const messageArea = document.querySelector<HTMLElement>('.message-space')!;
+			const messageRect = messageArea.getBoundingClientRect();
+			const chipRect = document
+				.querySelector<HTMLElement>('.new-message-chip')!
+				.getBoundingClientRect();
+			return {
+				shellTop: shellRect.top,
+				shellHeight: shellRect.height,
+				paneBottom: paneRect.bottom,
+				composerBottom: composerRect.bottom,
+				composerTop: composerRect.top,
+				headerBottom: headerRect.bottom,
+				messageTop: messageRect.top,
+				messageBottom: messageRect.bottom,
+				messageClientHeight: messageArea.clientHeight,
+				messageScrollHeight: messageArea.scrollHeight,
+				chipTop: chipRect.top,
+				chipBottom: chipRect.bottom,
+				railDisplay: getComputedStyle(rail).display,
+				backWidth: backRect.width,
+				backHeight: backRect.height
+			};
+		});
+
+		expect(layout.shellTop).toBe(20);
+		expect(layout.shellHeight).toBe(600);
+		expect(layout.railDisplay).toBe('none');
+		expect(layout.backWidth).toBeGreaterThanOrEqual(44);
+		expect(layout.backHeight).toBeGreaterThanOrEqual(44);
+		expect(layout.paneBottom - layout.composerBottom).toBeLessThanOrEqual(16);
+		expect(layout.messageTop).toBeGreaterThanOrEqual(layout.headerBottom);
+		expect(layout.messageScrollHeight).toBeGreaterThan(layout.messageClientHeight);
+		expect(layout.chipTop).toBeGreaterThanOrEqual(layout.messageTop);
+		expect(layout.chipBottom).toBeLessThanOrEqual(layout.messageBottom);
+		expect(layout.chipBottom).toBeLessThanOrEqual(layout.composerTop - 8);
 	});
 
 	test('keeps an invite fragment out of all HTTP requests', async ({ page }) => {
@@ -68,7 +189,7 @@ test.describe('public shell', () => {
 				expires_at: now + 300,
 				nonce: generateInviteNonce()
 			},
-			INVITE_SECRET_HEX
+			INVITE_SECRET
 		);
 		await page.goto(`/i/#${token}`);
 		await expect(

@@ -1,5 +1,10 @@
 import Dexie, { type EntityTable } from 'dexie';
 import {
+	assertOperationCurrent,
+	operationAlwaysCurrent,
+	type OperationGuard
+} from '../core/operation-guard';
+import {
 	createMessageState,
 	transitionMessageState,
 	type MessageDeliveryState,
@@ -167,8 +172,10 @@ function outboxRecords(
 
 export async function commitOutgoingMessage(
 	database: AccountDatabase,
-	input: CommitOutgoingMessageInput
+	input: CommitOutgoingMessageInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<void> {
+	assertOperationCurrent(isCurrent);
 	assertTimestamp(input.committedAt);
 	if (input.wrapped.rumor.pubkey !== database.accountPubkey) {
 		throw new Error('outgoing rumor does not belong to this account database');
@@ -207,7 +214,9 @@ export async function commitOutgoingMessage(
 		database.wireCopies,
 		database.outbox,
 		async () => {
+			assertOperationCurrent(isCurrent);
 			const existing = await database.messages.get(message.rumorId);
+			assertOperationCurrent(isCurrent);
 			if (
 				existing &&
 				(existing.recipientWrapId !== message.recipientWrapId ||
@@ -216,11 +225,16 @@ export async function commitOutgoingMessage(
 			) {
 				throw new Error('conflicting logical message reuse');
 			}
+			assertOperationCurrent(isCurrent);
 			await database.messages.put(existing ?? message);
+			assertOperationCurrent(isCurrent);
 			await database.wireCopies.bulkPut([recipient, sender]);
+			assertOperationCurrent(isCurrent);
 			await database.outbox.bulkPut(outbox);
+			assertOperationCurrent(isCurrent);
 		}
 	);
+	assertOperationCurrent(isCurrent);
 }
 
 export async function getDueOutbox(

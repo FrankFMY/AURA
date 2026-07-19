@@ -1,4 +1,9 @@
 import type { Event } from 'nostr-tools';
+import {
+	assertOperationCurrent,
+	isOperationCancelled,
+	type OperationGuard
+} from '../core/operation-guard';
 import type { UnlockedSession } from '../custody/session';
 import {
 	commitOutgoingMessage,
@@ -56,6 +61,13 @@ function systemClock(): RuntimeClock {
 	return { seconds: Math.floor(milliseconds / 1000), milliseconds };
 }
 
+interface OutboxRunState {
+	generation: number;
+	rerun: boolean;
+	settled: boolean;
+	promise: Promise<number>;
+}
+
 export class MessengerRuntime {
 	readonly #session: UnlockedSession;
 	readonly #database: AccountDatabase;
@@ -70,6 +82,7 @@ export class MessengerRuntime {
 	readonly #onTransportError?: (error: Error) => void;
 	#subscriptions: SubscriptionCloser[] = [];
 	#reconciliationTimer: ReturnType<typeof setInterval> | undefined;
+	#outboxRun: OutboxRunState | undefined;
 	#receiveQueue: Promise<void> = Promise.resolve();
 	#pendingIncoming = 0;
 	#restartingRelays = new Map<string, number>();
@@ -103,34 +116,61 @@ export class MessengerRuntime {
 		this.#onTransportError = options.onTransportError;
 	}
 
+	#isGenerationCurrent(generation: number): boolean {
+		return this.#generation === generation;
+	}
+
+	#operationGuard(generation: number): OperationGuard {
+		return () => this.#isGenerationCurrent(generation);
+	}
+
+	#isStartedGeneration(generation: number): boolean {
+		return this.#started && this.#isGenerationCurrent(generation);
+	}
+
+	#assertStartedGeneration(generation: number, message: string): void {
+		if (!this.#isStartedGeneration(generation)) throw new Error(message);
+	}
+
 	async start(): Promise<SubscriptionCloser> {
 		if (this.#started) throw new Error('messenger runtime is already started');
-		this.#generation += 1;
+		const generation = ++this.#generation;
 		this.#started = true;
+		this.#subscriptions = [];
 		const opened: SubscriptionCloser[] = [];
 		try {
 			for (const relayUrl of this.#accountDmRelays) {
-				opened.push(await this.#openRelay(relayUrl));
+				const subscription = await this.#openRelay(relayUrl, generation);
+				this.#assertStartedGeneration(generation, 'messenger runtime stopped during startup');
+				opened.push(subscription);
+				this.#subscriptions.push(subscription);
 			}
-			this.#subscriptions = opened;
-			this.#runReconciliation();
+			this.#assertStartedGeneration(generation, 'messenger runtime stopped during startup');
+			this.#runReconciliation(generation);
 			this.#reconciliationTimer = setInterval(
-				() => this.#runReconciliation(),
+				() => this.#runReconciliation(generation),
 				this.#reconciliationIntervalMs
 			);
-			return { close: (reason?: string) => this.stop(reason) };
+			return {
+				close: (reason?: string) => {
+					if (this.#isStartedGeneration(generation)) this.stop(reason);
+				}
+			};
 		} catch (error) {
 			for (const subscription of opened) {
 				subscription.close('messenger runtime startup failed');
 			}
-			this.#subscriptions = [];
-			this.#started = false;
+			if (this.#generation === generation) {
+				this.#subscriptions = [];
+				this.#started = false;
+			}
 			throw error;
 		}
 	}
 
-	async #openRelay(relayUrl: string): Promise<SubscriptionCloser> {
+	async #openRelay(relayUrl: string, generation: number): Promise<SubscriptionCloser> {
 		const since = await getRelaySubscriptionSince(this.#database, relayUrl);
+		this.#assertStartedGeneration(generation, 'messenger runtime stopped during startup');
 		let subscription: SubscriptionCloser | undefined;
 		subscription = subscribeGiftWraps(
 			this.#pool,
@@ -138,23 +178,34 @@ export class MessengerRuntime {
 			this.#session.pubkey,
 			since,
 			(event) => {
-				this.#enqueueReceive(event, relayUrl, () => {
+				if (!this.#isStartedGeneration(generation)) return;
+				this.#enqueueReceive(event, relayUrl, generation, () => {
 					if (subscription) this.#requestRelayReplay(relayUrl, subscription);
 				});
 			},
 			(reasons) => {
-				if (reasons.length > 0 && !this.#restartingRelays.has(relayUrl)) {
+				if (!this.#isStartedGeneration(generation)) return;
+				if (reasons.length > 0 && this.#restartingRelays.get(relayUrl) !== generation) {
 					this.#onTransportError?.(new Error(`relay subscription closed: ${reasons.join('; ')}`));
 				}
 			},
 			() => {
-				void markRelayInitialSyncComplete(this.#database, relayUrl, this.#now().milliseconds).catch(
-					(error) => {
-						this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
-					}
-				);
+				if (!this.#isStartedGeneration(generation)) return;
+				void markRelayInitialSyncComplete(
+					this.#database,
+					relayUrl,
+					this.#now().milliseconds,
+					this.#operationGuard(generation)
+				).catch((error) => {
+					if (!this.#isStartedGeneration(generation)) return;
+					this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
+				});
 			}
 		);
+		if (!this.#isStartedGeneration(generation)) {
+			subscription.close('messenger runtime stopped during startup');
+			throw new Error('messenger runtime stopped during startup');
+		}
 		return subscription;
 	}
 
@@ -162,33 +213,74 @@ export class MessengerRuntime {
 		this.#generation += 1;
 		for (const subscription of this.#subscriptions) subscription.close(reason);
 		this.#subscriptions = [];
+		this.#restartingRelays.clear();
 		if (this.#reconciliationTimer) clearInterval(this.#reconciliationTimer);
 		this.#reconciliationTimer = undefined;
 		this.#started = false;
 	}
 
-	#runReconciliation(): void {
+	#runReconciliation(generation: number): void {
+		if (!this.#isStartedGeneration(generation)) return;
 		void this.reconcileOutbox().catch((error) => {
+			if (isOperationCancelled(error) || !this.#isStartedGeneration(generation)) return;
 			this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
 		});
 	}
 
-	async reconcileOutbox() {
-		return runOutboxBatch(
-			this.#database,
-			createPoolPublisher(this.#pool),
-			this.#now().milliseconds
-		);
+	async reconcileOutbox(): Promise<number> {
+		const generation = this.#generation;
+		this.#assertStartedGeneration(generation, 'messenger runtime is not started');
+		return this.#requestOutboxRun(generation);
 	}
 
-	#enqueueReceive(event: Event, relayUrl: string, onSaturated: () => void): void {
+	#requestOutboxRun(generation: number): Promise<number> {
+		this.#assertStartedGeneration(generation, 'messenger runtime is not started');
+		const currentRun = this.#outboxRun;
+		if (currentRun?.generation === generation && !currentRun.settled) {
+			currentRun.rerun = true;
+			return currentRun.promise;
+		}
+
+		const state = { generation, rerun: false, settled: false } as OutboxRunState;
+		state.promise = (async () => {
+			try {
+				let processed = 0;
+				const isCurrent = this.#operationGuard(generation);
+				do {
+					state.rerun = false;
+					assertOperationCurrent(isCurrent);
+					processed += await runOutboxBatch(
+						this.#database,
+						createPoolPublisher(this.#pool),
+						this.#now().milliseconds,
+						isCurrent
+					);
+					assertOperationCurrent(isCurrent);
+				} while (state.rerun);
+				return processed;
+			} finally {
+				state.settled = true;
+				if (this.#outboxRun === state) this.#outboxRun = undefined;
+			}
+		})();
+		this.#outboxRun = state;
+		return state.promise;
+	}
+
+	#enqueueReceive(
+		event: Event,
+		relayUrl: string,
+		generation: number,
+		onSaturated: () => void
+	): void {
+		if (!this.#isStartedGeneration(generation)) return;
 		if (this.#pendingIncoming >= this.#maxPendingIncoming) {
 			onSaturated();
 			return;
 		}
 		this.#pendingIncoming += 1;
 		this.#receiveQueue = this.#receiveQueue
-			.then(() => this.#receive(event, relayUrl))
+			.then(() => this.#receive(event, relayUrl, generation))
 			.finally(() => {
 				this.#pendingIncoming -= 1;
 			});
@@ -209,7 +301,7 @@ export class MessengerRuntime {
 		void this.#receiveQueue.then(async () => {
 			try {
 				if (!this.#started || generation !== this.#generation) return;
-				const replacement = await this.#openRelay(relayUrl);
+				const replacement = await this.#openRelay(relayUrl, generation);
 				if (!this.#started || generation !== this.#generation) {
 					replacement.close('messenger runtime stopped before relay replay');
 					return;
@@ -217,6 +309,7 @@ export class MessengerRuntime {
 				this.#clearRelayRestart(relayUrl, generation);
 				this.#subscriptions.push(replacement);
 			} catch (error) {
+				if (!this.#isStartedGeneration(generation)) return;
 				this.#onTransportError?.(error instanceof Error ? error : new Error(String(error)));
 			} finally {
 				this.#clearRelayRestart(relayUrl, generation);
@@ -224,27 +317,39 @@ export class MessengerRuntime {
 		});
 	}
 
-	async #receive(event: Event, relayUrl: string): Promise<void> {
+	async #receive(event: Event, relayUrl: string, generation: number): Promise<void> {
+		if (!this.#isStartedGeneration(generation)) return;
 		const now = this.#now();
 		try {
-			await this.#session.withSecretKey((accountSecretKey) =>
-				commitIncomingWrap(this.#database, {
-					wrap: event,
-					accountSecretKey,
-					relayUrl,
-					receivedAt: now.milliseconds,
-					now: now.seconds
-				})
-			);
+			const isCurrent = this.#operationGuard(generation);
+			await this.#session.withSecretKey((accountSecretKey) => {
+				this.#assertStartedGeneration(generation, 'messenger runtime stopped before receive');
+				return commitIncomingWrap(
+					this.#database,
+					{
+						wrap: event,
+						accountSecretKey,
+						relayUrl,
+						receivedAt: now.milliseconds,
+						now: now.seconds
+					},
+					isCurrent
+				);
+			});
 		} catch (error) {
+			if (!this.#isStartedGeneration(generation)) return;
 			this.#onReceiveError?.(error instanceof Error ? error : new Error(String(error)));
 		}
 	}
 
 	async send(recipientPubkey: string, content: string): Promise<string> {
+		const generation = this.#generation;
+		this.#assertStartedGeneration(generation, 'messenger runtime is not started');
 		if (!this.#recoveryConfirmed) {
 			throw new Error('confirm the Recovery Code before sending messages');
 		}
+		const isCurrent = this.#operationGuard(generation);
+		assertOperationCurrent(isCurrent);
 		const now = this.#now();
 		const recipient = await discoverRecipientRelays(
 			this.#pool,
@@ -252,33 +357,53 @@ export class MessengerRuntime {
 			recipientPubkey,
 			now.seconds
 		);
-		const wrapped = this.#session.withSecretKey((senderSecretKey) =>
-			createWrappedDirectMessage({
+		assertOperationCurrent(isCurrent);
+		const wrapped = this.#session.withSecretKey((senderSecretKey) => {
+			assertOperationCurrent(isCurrent);
+			return createWrappedDirectMessage({
 				content,
 				senderSecretKey,
 				recipientPubkey,
 				createdAt: now.seconds
-			})
-		);
-		await commitOutgoingMessage(this.#database, {
-			wrapped,
-			recipientRelays: recipient.relays,
-			senderRelays: this.#accountDmRelays,
-			committedAt: now.milliseconds
+			});
 		});
-		await runOutboxBatch(this.#database, createPoolPublisher(this.#pool), now.milliseconds);
+		assertOperationCurrent(isCurrent);
+		await commitOutgoingMessage(
+			this.#database,
+			{
+				wrapped,
+				recipientRelays: recipient.relays,
+				senderRelays: this.#accountDmRelays,
+				committedAt: now.milliseconds
+			},
+			isCurrent
+		);
+		assertOperationCurrent(isCurrent);
+		await this.#requestOutboxRun(generation);
+		assertOperationCurrent(isCurrent);
 		return wrapped.rumor.id;
 	}
 
 	async publishOwnRelayList() {
+		const generation = this.#generation;
+		this.#assertStartedGeneration(generation, 'messenger runtime is not started');
+		const isCurrent = this.#operationGuard(generation);
+		assertOperationCurrent(isCurrent);
 		const now = this.#now();
-		const event = this.#session.withSecretKey((secretKey) =>
-			createDmRelayList(secretKey, this.#accountDmRelays, now.seconds)
-		);
+		const event = this.#session.withSecretKey((secretKey) => {
+			assertOperationCurrent(isCurrent);
+			return createDmRelayList(secretKey, this.#accountDmRelays, now.seconds);
+		});
 		const publisher = createPoolPublisher(this.#pool);
 		const results = await Promise.all(
-			this.#lookupRelays.map((relayUrl) => publisher(relayUrl, event))
+			this.#lookupRelays.map(async (relayUrl) => {
+				assertOperationCurrent(isCurrent);
+				const result = await publisher(relayUrl, event);
+				assertOperationCurrent(isCurrent);
+				return result;
+			})
 		);
+		assertOperationCurrent(isCurrent);
 		if (!results.some((result) => result.accepted)) {
 			throw new Error('DM relay preference was not accepted by any lookup relay');
 		}
@@ -286,15 +411,22 @@ export class MessengerRuntime {
 	}
 
 	async readConversation(conversationPubkey: string): Promise<HydratedMessage[]> {
+		const generation = this.#generation;
+		this.#assertStartedGeneration(generation, 'messenger runtime is not started');
+		const isCurrent = this.#operationGuard(generation);
+		assertOperationCurrent(isCurrent);
 		const records = await this.#database.messages
 			.where('conversationPubkey')
 			.equals(conversationPubkey)
 			.sortBy('createdAt');
+		assertOperationCurrent(isCurrent);
 		const hydrated: HydratedMessage[] = [];
 		for (const record of records) {
+			assertOperationCurrent(isCurrent);
 			const wrapId = record.direction === 'incoming' ? record.recipientWrapId : record.senderWrapId;
 			if (!wrapId) continue;
 			const wire = await this.#database.wireCopies.get(wrapId);
+			assertOperationCurrent(isCurrent);
 			if (!wire) continue;
 			let wrap: Event;
 			try {
@@ -303,9 +435,11 @@ export class MessengerRuntime {
 				continue;
 			}
 			const now = this.#now();
-			const rumor = this.#session.withSecretKey((accountSecretKey) =>
-				unwrapDirectMessage({ wrap, accountSecretKey, now: now.seconds })
-			);
+			const rumor = this.#session.withSecretKey((accountSecretKey) => {
+				assertOperationCurrent(isCurrent);
+				return unwrapDirectMessage({ wrap, accountSecretKey, now: now.seconds });
+			});
+			assertOperationCurrent(isCurrent);
 			hydrated.push({
 				rumorId: rumor.id,
 				conversationPubkey: record.conversationPubkey,
@@ -315,6 +449,7 @@ export class MessengerRuntime {
 				state: record.state
 			});
 		}
+		assertOperationCurrent(isCurrent);
 		return hydrated;
 	}
 }

@@ -1,5 +1,10 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
+	assertOperationCurrent,
+	operationAlwaysCurrent,
+	type OperationGuard
+} from '../core/operation-guard';
+import {
 	createKeyEnvelope,
 	readKeyEnvelopeCredential,
 	unlockKeyEnvelope
@@ -31,6 +36,7 @@ interface CommonAccountOptions {
 	dmRelays: readonly string[];
 	provider?: CredentialProvider;
 	now?: () => ClockValue;
+	isCurrent?: OperationGuard;
 }
 
 export interface CreatePersistentAccountOptions extends CommonAccountOptions {}
@@ -44,6 +50,7 @@ export interface UnlockPersistentAccountOptions {
 	origin: string;
 	rpId: string;
 	provider?: CredentialProvider;
+	isCurrent?: OperationGuard;
 }
 
 export interface BootstrappedAccount {
@@ -62,10 +69,11 @@ async function persistSecret(
 	options: CommonAccountOptions,
 	replaceExisting = false
 ): Promise<BootstrappedAccount> {
-	const recoveryWords = secretKeyToRecoveryWords(secretKey);
-	const pubkey = getPublicKey(secretKey);
+	const isCurrent = options.isCurrent ?? operationAlwaysCurrent;
 	let prfOutput: Uint8Array | undefined;
 	try {
+		assertOperationCurrent(isCurrent);
+		const pubkey = getPublicKey(secretKey);
 		const ceremony = await createPrfCredential({
 			accountPubkey: pubkey,
 			displayName: options.displayName,
@@ -73,6 +81,7 @@ async function persistSecret(
 			provider: options.provider
 		});
 		prfOutput = ceremony.prfOutput;
+		assertOperationCurrent(isCurrent);
 		const now = (options.now ?? systemClock)();
 		const envelope = await createKeyEnvelope({
 			secretKey,
@@ -82,6 +91,7 @@ async function persistSecret(
 			origin: options.origin,
 			createdAt: now.seconds
 		});
+		assertOperationCurrent(isCurrent);
 		const accountInput = {
 			pubkey,
 			displayName: options.displayName,
@@ -90,9 +100,12 @@ async function persistSecret(
 			createdAt: now.milliseconds
 		};
 		const existing = replaceExisting ? await options.registry.accounts.get(pubkey) : undefined;
+		assertOperationCurrent(isCurrent);
 		const account = existing
-			? await replaceRecoveredAccount(options.registry, accountInput)
-			: await registerAccount(options.registry, accountInput);
+			? await replaceRecoveredAccount(options.registry, accountInput, isCurrent)
+			: await registerAccount(options.registry, accountInput, isCurrent);
+		assertOperationCurrent(isCurrent);
+		const recoveryWords = secretKeyToRecoveryWords(secretKey);
 		const session = new UnlockedSession(secretKey);
 		return { account, session, recoveryWords };
 	} finally {
@@ -116,6 +129,8 @@ export async function restorePersistentAccount(
 export async function unlockPersistentAccount(
 	options: UnlockPersistentAccountOptions
 ): Promise<UnlockedSession> {
+	const isCurrent = options.isCurrent ?? operationAlwaysCurrent;
+	assertOperationCurrent(isCurrent);
 	const { credentialId, prfSalt } = readKeyEnvelopeCredential(options.account.envelope);
 	const prfOutput = await getPrfOutput({
 		credentialId,
@@ -125,11 +140,13 @@ export async function unlockPersistentAccount(
 	});
 	let secretKey: Uint8Array | undefined;
 	try {
+		assertOperationCurrent(isCurrent);
 		secretKey = await unlockKeyEnvelope({
 			envelope: options.account.envelope,
 			prfOutput,
 			expectedOrigin: options.origin
 		});
+		assertOperationCurrent(isCurrent);
 		return new UnlockedSession(secretKey);
 	} finally {
 		prfOutput.fill(0);

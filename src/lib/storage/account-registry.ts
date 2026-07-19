@@ -1,4 +1,9 @@
 import Dexie, { type EntityTable } from 'dexie';
+import {
+	assertOperationCurrent,
+	operationAlwaysCurrent,
+	type OperationGuard
+} from '../core/operation-guard';
 import type { KeyEnvelopeV1 } from '../custody/key-envelope';
 import { normalizeDmRelayUrls } from '../nostr/dm-relays';
 
@@ -63,8 +68,10 @@ function validateTimestamp(value: number): void {
 
 export async function registerAccount(
 	registry: AccountRegistry,
-	input: RegisterAccountInput
+	input: RegisterAccountInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<RegisteredAccount> {
+	assertOperationCurrent(isCurrent);
 	if (!HEX_32.test(input.pubkey)) throw new Error('account pubkey is invalid');
 	if (input.envelope.account_pubkey !== input.pubkey) {
 		throw new Error('key envelope belongs to a different account');
@@ -79,24 +86,34 @@ export async function registerAccount(
 		createdAt: input.createdAt,
 		updatedAt: input.createdAt
 	};
+	assertOperationCurrent(isCurrent);
 	await registry.transaction('rw', registry.accounts, async () => {
+		assertOperationCurrent(isCurrent);
 		if (await registry.accounts.get(input.pubkey)) throw new Error('account is already registered');
+		assertOperationCurrent(isCurrent);
 		await registry.accounts.add(account);
+		assertOperationCurrent(isCurrent);
 	});
+	assertOperationCurrent(isCurrent);
 	return account;
 }
 
 export async function replaceRecoveredAccount(
 	registry: AccountRegistry,
-	input: RegisterAccountInput
+	input: RegisterAccountInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<RegisteredAccount> {
+	assertOperationCurrent(isCurrent);
 	if (!HEX_32.test(input.pubkey)) throw new Error('account pubkey is invalid');
 	if (input.envelope.account_pubkey !== input.pubkey) {
 		throw new Error('key envelope belongs to a different account');
 	}
 	validateTimestamp(input.createdAt);
-	return registry.transaction('rw', registry.accounts, async () => {
+	assertOperationCurrent(isCurrent);
+	const account = await registry.transaction('rw', registry.accounts, async () => {
+		assertOperationCurrent(isCurrent);
 		const existing = await registry.accounts.get(input.pubkey);
+		assertOperationCurrent(isCurrent);
 		if (!existing) throw new Error('account is not registered');
 		const account: RegisteredAccount = {
 			...existing,
@@ -106,31 +123,52 @@ export async function replaceRecoveredAccount(
 			recoveryConfirmed: true,
 			updatedAt: Math.max(existing.updatedAt, input.createdAt)
 		};
+		assertOperationCurrent(isCurrent);
 		await registry.accounts.put(account);
+		assertOperationCurrent(isCurrent);
 		return account;
 	});
+	assertOperationCurrent(isCurrent);
+	return account;
 }
 
 export async function confirmRecoveryCode(
 	registry: AccountRegistry,
 	pubkey: string,
-	confirmedAt: number
+	confirmedAt: number,
+	isCurrent: OperationGuard = operationAlwaysCurrent
 ): Promise<void> {
+	assertOperationCurrent(isCurrent);
 	validateTimestamp(confirmedAt);
 	await registry.transaction('rw', registry.accounts, async () => {
+		assertOperationCurrent(isCurrent);
 		const account = await registry.accounts.get(pubkey);
+		assertOperationCurrent(isCurrent);
 		if (!account) throw new Error('account is not registered');
 		await registry.accounts.put({
 			...account,
 			recoveryConfirmed: true,
 			updatedAt: Math.max(account.updatedAt, confirmedAt)
 		});
+		assertOperationCurrent(isCurrent);
 	});
+	assertOperationCurrent(isCurrent);
 }
 
-export async function setActiveAccount(registry: AccountRegistry, pubkey: string): Promise<void> {
-	if (!(await registry.accounts.get(pubkey))) throw new Error('account is not registered');
-	await registry.settings.put({ key: ACTIVE_ACCOUNT_KEY, value: pubkey });
+export async function setActiveAccount(
+	registry: AccountRegistry,
+	pubkey: string,
+	isCurrent: OperationGuard = operationAlwaysCurrent
+): Promise<void> {
+	assertOperationCurrent(isCurrent);
+	await registry.transaction('rw', registry.accounts, registry.settings, async () => {
+		assertOperationCurrent(isCurrent);
+		if (!(await registry.accounts.get(pubkey))) throw new Error('account is not registered');
+		assertOperationCurrent(isCurrent);
+		await registry.settings.put({ key: ACTIVE_ACCOUNT_KEY, value: pubkey });
+		assertOperationCurrent(isCurrent);
+	});
+	assertOperationCurrent(isCurrent);
 }
 
 export async function getActiveAccount(
@@ -140,12 +178,26 @@ export async function getActiveAccount(
 	return setting ? registry.accounts.get(setting.value) : undefined;
 }
 
-export async function removeAccount(registry: AccountRegistry, pubkey: string): Promise<void> {
+export type AccountDatabaseDeleter = (name: string) => Promise<void>;
+
+export async function removeAccount(
+	registry: AccountRegistry,
+	pubkey: string,
+	deleteDatabase: AccountDatabaseDeleter = (name) => Dexie.delete(name),
+	isCurrent: OperationGuard = operationAlwaysCurrent
+): Promise<void> {
+	assertOperationCurrent(isCurrent);
 	if (!HEX_32.test(pubkey)) throw new Error('account pubkey is invalid');
+	await deleteDatabase(`aura-r1:${pubkey}`);
+	assertOperationCurrent(isCurrent);
 	await registry.transaction('rw', registry.accounts, registry.settings, async () => {
+		assertOperationCurrent(isCurrent);
 		await registry.accounts.delete(pubkey);
+		assertOperationCurrent(isCurrent);
 		const active = await registry.settings.get(ACTIVE_ACCOUNT_KEY);
+		assertOperationCurrent(isCurrent);
 		if (active?.value === pubkey) await registry.settings.delete(ACTIVE_ACCOUNT_KEY);
+		assertOperationCurrent(isCurrent);
 	});
-	await Dexie.delete(`aura-r1:${pubkey}`);
+	assertOperationCurrent(isCurrent);
 }

@@ -43,7 +43,7 @@ const ALLOWED_TRANSITIONS: Readonly<Record<MessageDeliveryState, readonly Messag
 		publishing: ['network_accepted', 'retry_wait', 'network_rejected'],
 		network_accepted: ['recipient_confirmed'],
 		recipient_confirmed: [],
-		retry_wait: ['publishing', 'permanent_failure'],
+		retry_wait: ['publishing', 'network_accepted', 'network_rejected', 'permanent_failure'],
 		network_rejected: ['queued', 'permanent_failure'],
 		permanent_failure: []
 	};

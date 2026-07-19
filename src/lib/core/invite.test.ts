@@ -26,7 +26,8 @@ const encodeBase64Url = (value: Uint8Array) =>
 		.replaceAll('+', '-')
 		.replaceAll('/', '_')
 		.replace(/=+$/u, '');
-const PUBKEY = bytesToHex(schnorr.getPublicKey(hexToBytes(SECRET)));
+const SECRET_BYTES = hexToBytes(SECRET);
+const PUBKEY = bytesToHex(schnorr.getPublicKey(SECRET_BYTES));
 const ORIGIN = 'https://aura.frankfmy.com';
 
 function payload(overrides: Partial<InvitePayload> = {}): InvitePayload {
@@ -46,7 +47,7 @@ function payload(overrides: Partial<InvitePayload> = {}): InvitePayload {
 
 describe('signed invite envelope', () => {
 	it('creates and verifies a real Schnorr-signed invite', () => {
-		const token = createInviteToken(payload(), SECRET);
+		const token = createInviteToken(payload(), SECRET_BYTES);
 		const verified = verifyInviteToken(token, { expectedOrigin: ORIGIN, now: NOW });
 
 		expect(verified.payload.issuer_pubkey).toBe(PUBKEY);
@@ -55,8 +56,16 @@ describe('signed invite envelope', () => {
 		expect(verified.digest).toMatch(/^[0-9a-f]{64}$/);
 	});
 
+	it('borrows a 32-byte signing key without mutating it', () => {
+		const signingKey = SECRET_BYTES.slice();
+		const before = signingKey.slice();
+		createInviteToken(payload(), signingKey);
+		expect(signingKey).toEqual(before);
+		expect(() => createInviteToken(payload(), new Uint8Array(31))).toThrow(/32 bytes/i);
+	});
+
 	it('accepts only an origin-bound /i#<token> URL', () => {
-		const token = createInviteToken(payload(), SECRET);
+		const token = createInviteToken(payload(), SECRET_BYTES);
 		const verified = parseAndVerifyInviteUrl(`${ORIGIN}/i#${token}`, {
 			expectedOrigin: ORIGIN,
 			now: NOW
@@ -86,11 +95,11 @@ describe('signed invite envelope', () => {
 	it('generates a canonical 16-byte base64url nonce', () => {
 		const nonce = generateInviteNonce((length) => Uint8Array.from({ length }, (_, index) => index));
 		expect(decodeBase64Url(nonce)).toEqual(Uint8Array.from({ length: 16 }, (_, index) => index));
-		expect(() => createInviteToken(payload({ nonce }), SECRET)).not.toThrow();
+		expect(() => createInviteToken(payload({ nonce }), SECRET_BYTES)).not.toThrow();
 	});
 
 	it('rejects payload tampering', () => {
-		const token = createInviteToken(payload(), SECRET);
+		const token = createInviteToken(payload(), SECRET_BYTES);
 		const [encoded, signature] = token.split('.');
 		const raw = JSON.parse(new TextDecoder().decode(decodeBase64Url(encoded)));
 		raw.display.name = 'Mallory';
@@ -103,22 +112,25 @@ describe('signed invite envelope', () => {
 	});
 
 	it('rejects invalid origin and time bounds', () => {
-		const wrongOrigin = createInviteToken(payload({ origin: 'https://evil.example' }), SECRET);
+		const wrongOrigin = createInviteToken(
+			payload({ origin: 'https://evil.example' }),
+			SECRET_BYTES
+		);
 		expect(() => verifyInviteToken(wrongOrigin, { expectedOrigin: ORIGIN, now: NOW })).toThrow(
 			/origin/i
 		);
 
-		const expired = createInviteToken(payload({ expires_at: NOW - 1 }), SECRET);
+		const expired = createInviteToken(payload({ expires_at: NOW - 1 }), SECRET_BYTES);
 		expect(() => verifyInviteToken(expired, { expectedOrigin: ORIGIN, now: NOW })).toThrow(
 			/expired/i
 		);
 		expect(() =>
-			createInviteToken(payload({ expires_at: NOW + 7 * 24 * 3600 + 1 }), SECRET)
+			createInviteToken(payload({ expires_at: NOW + 7 * 24 * 3600 + 1 }), SECRET_BYTES)
 		).toThrow(/lifetime/i);
 
 		const future = createInviteToken(
 			payload({ issued_at: NOW + 301, expires_at: NOW + 1000 }),
-			SECRET
+			SECRET_BYTES
 		);
 		expect(() => verifyInviteToken(future, { expectedOrigin: ORIGIN, now: NOW })).toThrow(
 			/future/i
@@ -127,48 +139,51 @@ describe('signed invite envelope', () => {
 
 	it('rejects unknown fields', () => {
 		const withUnknown = { ...payload(), admin: true } as InvitePayload;
-		expect(() => createInviteToken(withUnknown, SECRET)).toThrow(/unknown invite field/i);
+		expect(() => createInviteToken(withUnknown, SECRET_BYTES)).toThrow(/unknown invite field/i);
 		const nestedUnknown = payload({
 			display: { name: 'Artem', role: 'admin' } as InvitePayload['display']
 		});
-		expect(() => createInviteToken(nestedUnknown, SECRET)).toThrow(/unknown display field/i);
+		expect(() => createInviteToken(nestedUnknown, SECRET_BYTES)).toThrow(/unknown display field/i);
 	});
 
 	it('rejects malformed nonces and unsafe relay hints', () => {
-		expect(() => createInviteToken(payload({ nonce: 'short' }), SECRET)).toThrow(/nonce/i);
+		expect(() => createInviteToken(payload({ nonce: 'short' }), SECRET_BYTES)).toThrow(/nonce/i);
 		expect(() =>
-			createInviteToken(payload({ relay_hints: ['https://relay.one'] }), SECRET)
+			createInviteToken(payload({ relay_hints: ['https://relay.one'] }), SECRET_BYTES)
 		).toThrow(/wss/i);
 		expect(() =>
-			createInviteToken(payload({ relay_hints: ['wss://user:pass@relay.one'] }), SECRET)
+			createInviteToken(payload({ relay_hints: ['wss://user:pass@relay.one'] }), SECRET_BYTES)
 		).toThrow(/credentials/i);
 		for (const relay of ['wss://localhost', 'wss://10.0.0.1', 'wss://[::1]']) {
-			expect(() => createInviteToken(payload({ relay_hints: [relay] }), SECRET)).toThrow(
+			expect(() => createInviteToken(payload({ relay_hints: [relay] }), SECRET_BYTES)).toThrow(
 				/local or private/i
 			);
 		}
 		expect(() =>
-			createInviteToken(payload({ relay_hints: ['wss://relay.one', 'wss://relay.one/'] }), SECRET)
+			createInviteToken(
+				payload({ relay_hints: ['wss://relay.one', 'wss://relay.one/'] }),
+				SECRET_BYTES
+			)
 		).toThrow(/duplicate/i);
 		expect(() =>
 			createInviteToken(
 				payload({
 					relay_hints: ['wss://a.one', 'wss://b.one', 'wss://c.one', 'wss://d.one', 'wss://e.one']
 				}),
-				SECRET
+				SECRET_BYTES
 			)
 		).toThrow(/at most 4/i);
 	});
 
 	it('rejects invalid display claims and malformed tokens', () => {
-		expect(() => createInviteToken(payload({ display: { name: 'x'.repeat(81) } }), SECRET)).toThrow(
-			/display name/i
-		);
-		expect(() => createInviteToken(payload({ display: { name: 'e\u0301' } }), SECRET)).toThrow(
-			/normalized/i
-		);
 		expect(() =>
-			createInviteToken(payload({ display: { picture: 'http://example.com/a.png' } }), SECRET)
+			createInviteToken(payload({ display: { name: 'x'.repeat(81) } }), SECRET_BYTES)
+		).toThrow(/display name/i);
+		expect(() =>
+			createInviteToken(payload({ display: { name: 'e\u0301' } }), SECRET_BYTES)
+		).toThrow(/normalized/i);
+		expect(() =>
+			createInviteToken(payload({ display: { picture: 'http://example.com/a.png' } }), SECRET_BYTES)
 		).toThrow(/picture/i);
 		expect(() => verifyInviteToken('not-a-token', { expectedOrigin: ORIGIN, now: NOW })).toThrow(
 			/format/i

@@ -1,7 +1,9 @@
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getPublicKey } from 'nostr-tools';
+import * as recovery from '../custody/recovery';
 import type { CredentialProvider } from '../custody/webauthn-prf';
+import * as webauthnPrf from '../custody/webauthn-prf';
 import { AccountRegistry } from '../storage/account-registry';
 import {
 	createPersistentAccount,
@@ -40,6 +42,7 @@ function registry() {
 }
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(registries.splice(0).map((value) => value.delete()));
 });
 
@@ -65,6 +68,80 @@ describe('persistent account bootstrap', () => {
 			provider
 		});
 		expect(unlocked.pubkey).toBe(pubkey);
+	});
+
+	it('zeroizes an owned secret when the lifecycle is stale at persistence entry', async () => {
+		const accounts = registry();
+		const ownedSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		vi.spyOn(recovery, 'recoveryWordsToSecretKey').mockReturnValue(ownedSecret);
+
+		await expect(
+			restorePersistentAccount({
+				registry: accounts,
+				displayName: 'Cancelled immediately',
+				recoveryWords: 'controlled by test seam',
+				origin: 'https://aura.frankfmy.com',
+				rpId: 'aura.frankfmy.com',
+				dmRelays: ['wss://relay.one/'],
+				provider,
+				isCurrent: () => false
+			})
+		).rejects.toThrow(/operation cancelled/i);
+		expect(ownedSecret).toEqual(new Uint8Array(32));
+		expect(await accounts.accounts.count()).toBe(0);
+	});
+
+	it('zeroizes PRF output when cancellation follows credential creation', async () => {
+		const accounts = registry();
+		let current = true;
+		const prfOutput = new Uint8Array(32).fill(11);
+		vi.spyOn(webauthnPrf, 'createPrfCredential').mockImplementation(async () => {
+			current = false;
+			return {
+				credentialId: new Uint8Array(24).fill(8),
+				prfSalt: new Uint8Array(32).fill(9),
+				prfOutput
+			};
+		});
+
+		await expect(
+			createPersistentAccount({
+				registry: accounts,
+				displayName: 'Cancelled after WebAuthn',
+				origin: 'https://aura.frankfmy.com',
+				rpId: 'aura.frankfmy.com',
+				dmRelays: ['wss://relay.one/'],
+				provider,
+				isCurrent: () => current
+			})
+		).rejects.toThrow(/operation cancelled/i);
+		expect(prfOutput).toEqual(new Uint8Array(32));
+		expect(await accounts.accounts.count()).toBe(0);
+	});
+
+	it('does not persist an account when its lifecycle is stale after WebAuthn', async () => {
+		const accounts = registry();
+		let current = true;
+		const cancellingProvider: CredentialProvider = {
+			create: async () => {
+				current = false;
+				return credential();
+			},
+			get: async () => credential()
+		};
+
+		await expect(
+			createPersistentAccount({
+				registry: accounts,
+				displayName: 'Cancelled',
+				origin: 'https://aura.frankfmy.com',
+				rpId: 'aura.frankfmy.com',
+				dmRelays: ['wss://relay.one/'],
+				provider: cancellingProvider,
+				isCurrent: () => current
+			})
+		).rejects.toThrow(/operation cancelled/i);
+		expect(await accounts.accounts.count()).toBe(0);
 	});
 
 	it('replaces an unusable local credential when restoring the same identity', async () => {
