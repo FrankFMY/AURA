@@ -4,27 +4,31 @@
 		ArrowRight,
 		Check,
 		ChevronLeft,
-		Copy,
 		KeyRound,
 		LockKeyhole,
-		LogOut,
 		MessageCircle,
-		Plus,
-		Send,
 		ShieldCheck,
-		Trash2,
 		UserRound,
-		Wifi,
 		WifiOff
 	} from 'lucide-svelte';
 	import { nip19 } from 'nostr-tools';
+	import ChatListPane from './ChatListPane.svelte';
+	import ConversationPane from './ConversationPane.svelte';
 	import Logo from './Logo.svelte';
+	import ProfilePane from './ProfilePane.svelte';
 	import {
 		createPersistentAccount,
 		restorePersistentAccount,
 		unlockPersistentAccount,
 		type BootstrappedAccount
 	} from '$lib/app/account-service';
+	import { collectLocalDiagnostics } from '$lib/app/diagnostics';
+	import {
+		contactDisplayLabel,
+		inviteDisplayName as inviteName,
+		messageStateLabel as stateLabel,
+		shortNostrKey as shortKey
+	} from '$lib/app/messenger-view';
 	import {
 		CoalescingTaskRunner,
 		ConversationDraftStore,
@@ -48,7 +52,7 @@
 	import { parseNostrPubkey } from '$lib/nostr/identity';
 	import { MessengerRuntime, type HydratedMessage } from '$lib/nostr/messenger-runtime';
 	import { createNostrPool } from '$lib/nostr/relay-client';
-	import { AccountDatabase, type MessageRecord } from '$lib/storage/account-database';
+	import { AccountDatabase } from '$lib/storage/account-database';
 	import {
 		AccountRegistry,
 		confirmRecoveryCode,
@@ -116,39 +120,26 @@
 	let pendingForceEnd = '';
 	let sessionGeneration = 0;
 	let accountOperationGeneration = 0;
+	let diagnosticsGeneration = 0;
 	let componentGeneration = 0;
 	const refreshRunner = new CoalescingTaskRunner(performRefresh, handleBackgroundRefreshError);
 	const draftStore = new ConversationDraftStore();
 	const messageErrors = new Map<string, string>();
-
-	const shortKey = (pubkey: string) => {
-		try {
-			const npub = nip19.npubEncode(pubkey);
-			return `${npub.slice(0, 10)}…${npub.slice(-6)}`;
-		} catch {
-			return `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}`;
-		}
-	};
-	const inviteName = (payload: InvitePayload) => payload.display?.name?.trim() || 'Someone';
-	const stateLabel = (state: MessageRecord['state']) => {
-		switch (state) {
-			case 'network_accepted':
-				return 'Sent';
-			case 'recipient_confirmed':
-				return 'Confirmed';
-			case 'retry_wait':
-				return 'Retrying';
-			case 'network_rejected':
-			case 'permanent_failure':
-				return 'Not sent';
-			case 'received':
-				return 'Received';
-			case 'restored':
-				return 'Restored';
-			default:
-				return 'Preparing';
-		}
-	};
+	let presentedChats = $derived(
+		chats.map((chat) => ({ ...chat, label: contactDisplayLabel(chat.pubkey, invite) }))
+	);
+	let conversationLabel = $derived(
+		activeConversation ? contactDisplayLabel(activeConversation, invite) : ''
+	);
+	let presentedMessages = $derived(
+		messages.map((message) => ({
+			rumorId: message.rumorId,
+			direction: message.direction,
+			content: message.content,
+			createdAt: message.createdAt,
+			stateLabel: stateLabel(message.state)
+		}))
+	);
 
 	$effect(() => {
 		if (composerInput) resizeComposer(composerInput);
@@ -653,6 +644,33 @@
 		if (messageSpace && isNearConversationEnd(messageSpace)) unseenBelow = 0;
 	}
 
+	function closeConversation(): void {
+		activeConversation = '';
+		unseenBelow = 0;
+	}
+
+	function handleComposerInput(value: string, element: HTMLTextAreaElement): void {
+		draftStore.save(activeConversation, value);
+		resizeComposer(element);
+	}
+
+	function handleComposerKeydown(event: KeyboardEvent): void {
+		if (
+			shouldSendComposerKey(
+				{
+					key: event.key,
+					shiftKey: event.shiftKey,
+					isComposing: event.isComposing,
+					keyCode: event.keyCode
+				},
+				{ mobile: mobileComposer }
+			)
+		) {
+			event.preventDefault();
+			void sendMessage();
+		}
+	}
+
 	function refreshData(forceEnd = false): Promise<void> {
 		if (forceEnd && activeConversation) pendingForceEnd = activeConversation;
 		return refreshRunner.request();
@@ -783,6 +801,12 @@
 		await openConversationFromList(pubkey);
 	}
 
+	function cancelNewChat(): void {
+		newChatOpen = false;
+		contactInput = '';
+		contactError = '';
+	}
+
 	async function sendMessage() {
 		if (sendBusy || !runtime || !session || !activeConversation || !composer.trim()) return;
 		const runtimeInstance = runtime;
@@ -908,7 +932,40 @@
 		}
 	}
 
+	async function copyDiagnostics() {
+		if (!session || !account || !database) return;
+		const currentSession = session;
+		const currentAccount = account;
+		const currentDatabase = database;
+		const operationGeneration = sessionGeneration;
+		const requestGeneration = ++diagnosticsGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration &&
+			sessionGeneration === operationGeneration &&
+			diagnosticsGeneration === requestGeneration &&
+			session === currentSession &&
+			database === currentDatabase &&
+			account?.pubkey === currentAccount.pubkey;
+		clearFeedback();
+		try {
+			const report = await collectLocalDiagnostics(currentDatabase, {
+				connection,
+				recoveryConfirmed: currentAccount.recoveryConfirmed
+			});
+			if (!operationIsCurrent()) return;
+			await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+			if (!operationIsCurrent()) return;
+			notice = 'Copied redacted local diagnostics.';
+		} catch {
+			if (operationIsCurrent()) {
+				error = 'The local diagnostics could not be copied.';
+			}
+		}
+	}
+
 	function clearSensitiveUiState(): void {
+		diagnosticsGeneration += 1;
 		if (copyResetTimer) clearTimeout(copyResetTimer);
 		copyResetTimer = undefined;
 		pending = undefined;
@@ -1227,258 +1284,52 @@
 		{/if}
 
 		{#if view === 'chats'}
-			<section class="chat-list-pane" class:hidden-mobile={Boolean(activeConversation)}>
-				<header class="pane-header">
-					<div>
-						<p class="eyebrow">AURA</p>
-						<h1>Chats</h1>
-					</div>
-					<button class="icon-button" aria-label="New chat" onclick={openNewChat}
-						><Plus size={20} /></button
-					>
-				</header>
-				<div class="connection-pill" class:offline={connection === 'offline'}>
-					{#if connection === 'online'}<Wifi size={14} /> Private relays connected{:else if connection === 'connecting'}<span
-							class="pulse"
-						></span> Connecting private relays{:else}<WifiOff size={14} /> Working offline{/if}
-				</div>
-				{#if newChatOpen}
-					<form
-						class="new-chat-inline"
-						onsubmit={(event) => {
-							event.preventDefault();
-							void beginChat();
-						}}
-					>
-						<div class="new-chat-inline-heading">
-							<div>
-								<strong>Start a private chat</strong>
-								<p>Paste an <span class="mono">npub</span> or lowercase public key.</p>
-							</div>
-							<button
-								type="button"
-								class="text-button"
-								onclick={() => {
-									newChatOpen = false;
-									contactInput = '';
-									contactError = '';
-								}}>Cancel</button
-							>
-						</div>
-						<label>
-							<span>Contact identifier</span>
-							<textarea
-								bind:this={contactInputElement}
-								bind:value={contactInput}
-								rows="3"
-								autocapitalize="none"
-								autocomplete="off"
-								spellcheck="false"
-								placeholder="npub1…"></textarea>
-						</label>
-						{#if contactError}<div class="inline-error" role="alert">{contactError}</div>{/if}
-						<button class="button primary full" type="submit"
-							>Open conversation <ArrowRight size={18} /></button
-						>
-					</form>
-				{:else if chats.length === 0}
-					<div class="empty-list">
-						<div class="quiet-orbit"><MessageCircle size={24} /></div>
-						<h2>Your quiet inbox</h2>
-						<p>Start with an <span>npub</span> or open a signed invitation.</p>
-						<button class="button secondary" onclick={openNewChat}>Start a conversation</button>
-					</div>
-				{:else}
-					<div class="chat-items">
-						{#each chats as chat}
-							<button
-								class="chat-item"
-								class:active={activeConversation === chat.pubkey}
-								onclick={() => void openConversationFromList(chat.pubkey)}
-							>
-								<span class="avatar">{chat.pubkey.slice(0, 2).toUpperCase()}</span>
-								<span class="chat-meta"
-									><strong
-										>{invite?.issuer_pubkey === chat.pubkey
-											? inviteName(invite)
-											: shortKey(chat.pubkey)}</strong
-									><small>Private conversation</small></span
-								>
-								<time
-									>{new Date(chat.lastAt * 1000).toLocaleDateString([], {
-										month: 'short',
-										day: 'numeric'
-									})}</time
-								>
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</section>
+			<ChatListPane
+				bind:contactInput
+				bind:contactInputElement
+				{activeConversation}
+				chats={presentedChats}
+				{connection}
+				{newChatOpen}
+				{contactError}
+				onOpenNewChat={openNewChat}
+				onCancelNewChat={cancelNewChat}
+				onBeginChat={beginChat}
+				onOpenConversation={openConversationFromList}
+			/>
 
-			<section class="conversation-pane" class:hidden-mobile={!activeConversation}>
-				{#if activeConversation}
-					<header class="conversation-header">
-						<button
-							class="mobile-back"
-							aria-label="Back to chats"
-							onclick={() => {
-								activeConversation = '';
-								unseenBelow = 0;
-							}}><ChevronLeft size={21} /></button
-						>
-						<span class="avatar small">{activeConversation.slice(0, 2).toUpperCase()}</span>
-						<div>
-							<strong
-								>{invite?.issuer_pubkey === activeConversation
-									? inviteName(invite)
-									: shortKey(activeConversation)}</strong
-							><small>Private relay routing</small>
-						</div>
-					</header>
-					<div
-						class="message-space"
-						bind:this={messageSpace}
-						onscroll={handleConversationScroll}
-						aria-live="polite"
-					>
-						{#if messages.length === 0}
-							<div class="conversation-empty">
-								<LockKeyhole size={24} />
-								<h2>A private beginning</h2>
-								<p>Messages appear here only after encryption and durable local persistence.</p>
-							</div>
-						{:else}
-							<div class="message-stack">
-								{#each messages as message (message.rumorId)}
-									<article class="bubble" class:mine={message.direction === 'outgoing'}>
-										<p>{message.content}</p>
-										<footer>
-											<time
-												>{new Date(message.createdAt * 1000).toLocaleTimeString([], {
-													hour: '2-digit',
-													minute: '2-digit'
-												})}</time
-											><span>{stateLabel(message.state)}</span>
-										</footer>
-									</article>
-								{/each}
-							</div>
-						{/if}
-					</div>
-					{#if unseenBelow > 0}
-						<button class="new-message-chip" onclick={revealLatestMessages}>
-							{unseenBelow} new {unseenBelow === 1 ? 'message' : 'messages'}
-						</button>
-					{/if}
-					{#if error}<div class="composer-error" role="alert">{error}</div>{/if}
-					<form
-						class="composer"
-						aria-busy={sendBusy}
-						onsubmit={(event) => {
-							event.preventDefault();
-							void sendMessage();
-						}}
-					>
-						<textarea
-							bind:this={composerInput}
-							bind:value={composer}
-							rows="1"
-							maxlength="16384"
-							enterkeyhint={mobileComposer ? 'enter' : 'send'}
-							placeholder="Write a message"
-							aria-label="Message"
-							oninput={(event) => {
-								draftStore.save(activeConversation, event.currentTarget.value);
-								resizeComposer(event.currentTarget);
-							}}
-							onkeydown={(event) => {
-								if (
-									shouldSendComposerKey(
-										{
-											key: event.key,
-											shiftKey: event.shiftKey,
-											isComposing: event.isComposing,
-											keyCode: event.keyCode
-										},
-										{ mobile: mobileComposer }
-									)
-								) {
-									event.preventDefault();
-									void sendMessage();
-								}
-							}}></textarea>
-						<button
-							type="submit"
-							aria-label="Send message"
-							disabled={sendBusy || !composer.trim()}
-							onpointerdown={(event) => event.preventDefault()}><Send size={19} /></button
-						>
-					</form>
-				{:else}
-					<div class="desktop-empty">
-						<div class="quiet-orbit large"><MessageCircle size={28} /></div>
-						<h2>Choose a conversation</h2>
-						<p>Your private messages will open here.</p>
-					</div>
-				{/if}
-			</section>
+			<ConversationPane
+				bind:composer
+				bind:composerInput
+				bind:messageSpace
+				{activeConversation}
+				{conversationLabel}
+				messages={presentedMessages}
+				{unseenBelow}
+				{error}
+				{sendBusy}
+				{mobileComposer}
+				onBack={closeConversation}
+				onScroll={handleConversationScroll}
+				onRevealLatest={revealLatestMessages}
+				onSend={sendMessage}
+				onComposerInput={handleComposerInput}
+				onComposerKeydown={handleComposerKeydown}
+			/>
 		{:else}
-			<section class="single-pane">
-				<div class="single-content profile-content">
-					<p class="eyebrow">Local identity</p>
-					<div class="profile-title">
-						<div class="profile-orb small">{account.displayName.slice(0, 1).toUpperCase()}</div>
-						<div>
-							<h1>{account.displayName}</h1>
-							<p class="mono muted">{shortKey(account.pubkey)}</p>
-						</div>
-					</div>
-					<div class="settings-grid">
-						<section class="setting-card accent">
-							<ShieldCheck size={22} />
-							<div>
-								<strong>Recovery confirmed</strong>
-								<p>Your exact identity can be restored from the saved 24 words.</p>
-							</div>
-						</section>
-						<section class="setting-card">
-							<KeyRound size={22} />
-							<div>
-								<strong>Device protected</strong>
-								<p>The encrypted key envelope requires user verification and Passkey PRF.</p>
-							</div>
-						</section>
-					</div>
-					<div class="profile-actions">
-						<button class="button primary" onclick={buildInvite}
-							>{copied === 'invite' ? 'Copied invitation' : 'Copy private invitation'}
-							<Copy size={17} /></button
-						>
-						<button class="button secondary" onclick={copyPubkey}
-							>{copied === 'pubkey' ? 'Copied identity' : 'Copy npub'} <Copy size={17} /></button
-						>
-						<button class="button secondary" onclick={lock}
-							>Lock profile <LogOut size={17} /></button
-						>
-					</div>
-					{#if inviteUrl}<label
-							><span>Latest invitation</span><textarea readonly rows="3" value={inviteUrl}
-							></textarea></label
-						>{/if}
-					{#if notice}<div class="inline-notice">{notice}</div>{/if}
-					{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
-					<div class="danger-zone">
-						<div>
-							<strong>Remove local profile</strong>
-							<p>Deletes the encrypted envelope and local message database from this device.</p>
-						</div>
-						<button class="danger-button" onclick={deleteCurrentAccount}
-							><Trash2 size={17} /> Remove</button
-						>
-					</div>
-				</div>
-			</section>
+			<ProfilePane
+				displayName={account.displayName}
+				identityLabel={shortKey(account.pubkey)}
+				{copied}
+				{inviteUrl}
+				{notice}
+				{error}
+				onBuildInvite={buildInvite}
+				onCopyPubkey={copyPubkey}
+				onCopyDiagnostics={copyDiagnostics}
+				onLock={lock}
+				onDelete={deleteCurrentAccount}
+			/>
 		{/if}
 	</main>
 {/if}

@@ -990,6 +990,24 @@ textarea::placeholder {
 	gap: 0.7rem;
 	margin: 2rem 0;
 }
+.profile-support {
+	border: 1px solid var(--line);
+	border-radius: 1rem;
+	background: var(--surface);
+	padding: 1rem 1.1rem;
+}
+.profile-support summary {
+	cursor: pointer;
+	font-size: 0.8rem;
+	font-weight: 700;
+}
+.profile-support p {
+	margin: 0.8rem 0;
+	max-width: 34rem;
+	color: var(--muted);
+	font-size: 0.72rem;
+	line-height: 1.55;
+}
 .danger-zone {
 	display: flex;
 	align-items: center;

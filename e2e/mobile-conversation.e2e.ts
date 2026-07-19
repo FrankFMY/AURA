@@ -351,8 +351,120 @@ test.describe('mobile conversation', () => {
 
 		await page.getByRole('button', { name: 'Back to chats' }).click();
 		await page.getByRole('button', { name: 'Profile' }).click();
+		await page.getByText('Support', { exact: true }).click();
 		const pageErrors: string[] = [];
 		page.on('pageerror', (cause) => pageErrors.push(cause.message));
+		await page.evaluate(() => {
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: {
+					writeText: (value: string) => {
+						document.body.dataset.diagnosticsClipboard = value;
+						return Promise.resolve();
+					}
+				}
+			});
+		});
+		await page.getByRole('button', { name: 'Copy diagnostics' }).click();
+		await expect
+			.poll(() => page.evaluate(() => document.body.dataset.diagnosticsClipboard ?? ''))
+			.not.toBe('');
+		const diagnostics = await page.evaluate(() => document.body.dataset.diagnosticsClipboard ?? '');
+		expect(JSON.parse(diagnostics)).toMatchObject({
+			format: 'aura-local-diagnostics-v1',
+			storage: {
+				schemaVersion: 1
+			}
+		});
+		expect(diagnostics).not.toMatch(/pubkey|relayUrl|eventJson|lastError|content/iu);
+
+		const sensitiveDiagnosticsError = `diagnostics-secret-${'a'.repeat(64)}`;
+		await page.evaluate((sentinel) => {
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: { writeText: () => Promise.reject(new Error(sentinel)) }
+			});
+		}, sensitiveDiagnosticsError);
+		await page.getByRole('button', { name: 'Copy diagnostics' }).click();
+		await expect(page.getByRole('alert')).toHaveText('The local diagnostics could not be copied.');
+		await expect(page.getByText(sensitiveDiagnosticsError, { exact: false })).toHaveCount(0);
+
+		await page.evaluate(() => {
+			let releaseFirst!: () => void;
+			let calls = 0;
+			Object.defineProperty(window, '__releaseFirstAuraDiagnosticsClipboard', {
+				configurable: true,
+				value: () => releaseFirst()
+			});
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: {
+					writeText: () => {
+						calls += 1;
+						if (calls === 1) {
+							document.body.dataset.firstDiagnosticsClipboardPending = 'true';
+							return new Promise<void>((resolve) => {
+								releaseFirst = resolve;
+							});
+						}
+						return Promise.reject(new Error('newest diagnostics request failed'));
+					}
+				}
+			});
+		});
+		await page.getByRole('button', { name: 'Copy diagnostics' }).click();
+		await expect
+			.poll(() => page.evaluate(() => document.body.dataset.firstDiagnosticsClipboardPending))
+			.toBe('true');
+		await page.getByRole('button', { name: 'Copy diagnostics' }).click();
+		await expect(page.getByRole('alert')).toHaveText('The local diagnostics could not be copied.');
+		await page.evaluate(() => {
+			(
+				window as typeof window & { __releaseFirstAuraDiagnosticsClipboard: () => void }
+			).__releaseFirstAuraDiagnosticsClipboard();
+		});
+		await page.waitForTimeout(50);
+		await expect(page.getByRole('alert')).toHaveText('The local diagnostics could not be copied.');
+		await expect(page.getByText('Copied redacted local diagnostics.', { exact: true })).toHaveCount(
+			0
+		);
+
+		await page.evaluate(() => {
+			let release!: () => void;
+			Object.defineProperty(window, '__releaseAuraDiagnosticsClipboard', {
+				configurable: true,
+				value: () => release()
+			});
+			Object.defineProperty(navigator, 'clipboard', {
+				configurable: true,
+				value: {
+					writeText: () => {
+						document.body.dataset.diagnosticsClipboardPending = 'true';
+						return new Promise<void>((resolve) => {
+							release = resolve;
+						});
+					}
+				}
+			});
+		});
+		await page.getByRole('button', { name: 'Copy diagnostics' }).click();
+		await expect
+			.poll(() => page.evaluate(() => document.body.dataset.diagnosticsClipboardPending))
+			.toBe('true');
+		await page.getByRole('button', { name: 'Lock profile' }).click();
+		await page.evaluate(() => {
+			(
+				window as typeof window & { __releaseAuraDiagnosticsClipboard: () => void }
+			).__releaseAuraDiagnosticsClipboard();
+		});
+		await expect(page.getByRole('button', { name: 'Unlock with device' })).toBeVisible();
+		await expect(page.getByText('Copied redacted local diagnostics.', { exact: true })).toHaveCount(
+			0
+		);
+		await page.getByRole('button', { name: 'Unlock with device' }).click();
+		await expect(page.getByRole('button', { name: 'Profile' })).toBeVisible();
+		await page.getByRole('button', { name: 'Profile' }).click();
+
 		await page.evaluate(() => {
 			Object.defineProperty(navigator, 'clipboard', {
 				configurable: true,
