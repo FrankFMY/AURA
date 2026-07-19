@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { createInviteToken, generateInviteNonce } from '../src/lib/core/invite';
+import { createDeviceLinkRequest } from '../src/lib/core/device-link';
 
 const INVITE_SECRET = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
 
@@ -69,6 +70,47 @@ test.describe('public shell', () => {
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
 		).toBe(true);
+	});
+
+	test('fits and cancels the target QR flow across mobile widths', async ({ page }) => {
+		await page.addInitScript(() => {
+			class PlatformCredential {
+				static async isUserVerifyingPlatformAuthenticatorAvailable() {
+					return true;
+				}
+			}
+			Object.defineProperty(globalThis, 'PublicKeyCredential', {
+				configurable: true,
+				value: PlatformCredential
+			});
+		});
+		await page.routeWebSocket(/wss:\/\//u, (socket) => socket.onMessage(() => undefined));
+
+		for (const viewport of [
+			{ width: 320, height: 640 },
+			{ width: 390, height: 844 },
+			{ width: 412, height: 915 }
+		]) {
+			await page.setViewportSize(viewport);
+			await page.goto('/');
+			await page.getByRole('button', { name: /Link an existing profile/i }).click();
+			const qr = page.getByRole('img', { name: /one-time AURA device-link QR/i });
+			await expect(qr).toBeVisible();
+			const geometry = await page.evaluate(() => {
+				const qrImage = document.querySelector<HTMLImageElement>('.link-qr-wrap img');
+				const actions = Array.from(document.querySelectorAll<HTMLElement>('.link-target-card button'));
+				return {
+					noOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+					qrWidth: qrImage?.getBoundingClientRect().width ?? 0,
+					minimumActionHeight: Math.min(...actions.map((action) => action.getBoundingClientRect().height))
+				};
+			});
+			expect(geometry.noOverflow).toBe(true);
+			expect(geometry.qrWidth).toBeGreaterThanOrEqual(280);
+			expect(geometry.minimumActionHeight).toBeGreaterThanOrEqual(44);
+			await page.getByRole('button', { name: 'Cancel' }).click();
+			await expect(page.getByRole('heading', { name: /Your people/i })).toBeVisible();
+		}
 	});
 
 	test('centers the desktop empty conversation state in the full pane', async ({ page }) => {
@@ -201,6 +243,29 @@ test.describe('public shell', () => {
 		await expect(page.getByRole('heading', { name: /invitation cannot be opened/i })).toBeVisible();
 		expect(requested.some((url) => url.includes(secretFragment))).toBe(false);
 		expect(await page.evaluate(() => location.hash)).toBe('');
+	});
+
+	test('keeps a valid device-link fragment out of HTTP and requires a trusted local profile', async ({
+		page
+	}) => {
+		const now = Math.floor(Date.now() / 1000);
+		const request = createDeviceLinkRequest({
+			origin: 'http://127.0.0.1:4173',
+			relayHints: ['wss://relay.damus.io/', 'wss://nos.lol/'],
+			issuedAt: now,
+			expiresAt: now + 300
+		});
+		const requested: string[] = [];
+		page.on('request', (httpRequest) => requested.push(httpRequest.url()));
+		try {
+			await page.goto(`/link/#${request.token}`);
+			await expect(page.getByRole('heading', { name: /Your people/i })).toBeVisible();
+			await expect(page.getByRole('alert')).toContainText(/already trusted device/i);
+			expect(await page.evaluate(() => location.hash)).toBe('');
+			expect(requested.some((url) => url.includes(request.token))).toBe(false);
+		} finally {
+			request.receiverSecretKey.fill(0);
+		}
 	});
 
 	test('opens a signed invitation without treating its display name as verified identity', async ({

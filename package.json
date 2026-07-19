@@ -61,6 +61,8 @@
 		"@scure/bip39": "^2.2.0",
 		"dexie": "^4.4.4",
 		"lucide-svelte": "^1.0.1",
-		"nostr-tools": "^2.23.12"
+		"nostr-tools": "^2.23.12",
+		"qr-scanner": "1.4.2",
+		"uqr": "0.1.3"
 	}
 }

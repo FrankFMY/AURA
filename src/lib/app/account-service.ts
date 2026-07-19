@@ -18,6 +18,7 @@ import {
 } from '../custody/webauthn-prf';
 import {
 	registerAccount,
+	registerLinkedAccount,
 	replaceRecoveredAccount,
 	type AccountRegistry,
 	type RegisteredAccount
@@ -45,6 +46,11 @@ export interface RestorePersistentAccountOptions extends CommonAccountOptions {
 	recoveryWords: string;
 }
 
+export interface ImportLinkedPersistentAccountOptions extends CommonAccountOptions {
+	/** Ownership is transferred; this buffer is zeroized on both success and failure. */
+	secretKey: Uint8Array;
+}
+
 export interface UnlockPersistentAccountOptions {
 	account: RegisteredAccount;
 	origin: string;
@@ -59,6 +65,11 @@ export interface BootstrappedAccount {
 	recoveryWords: string;
 }
 
+export interface LinkedPersistentAccount {
+	account: RegisteredAccount;
+	session: UnlockedSession;
+}
+
 function systemClock(): ClockValue {
 	const milliseconds = Date.now();
 	return { seconds: Math.floor(milliseconds / 1000), milliseconds };
@@ -67,13 +78,27 @@ function systemClock(): ClockValue {
 async function persistSecret(
 	secretKey: Uint8Array,
 	options: CommonAccountOptions,
-	replaceExisting = false
-): Promise<BootstrappedAccount> {
+	mode: 'create' | 'restore'
+): Promise<BootstrappedAccount>;
+async function persistSecret(
+	secretKey: Uint8Array,
+	options: CommonAccountOptions,
+	mode: 'link'
+): Promise<LinkedPersistentAccount>;
+async function persistSecret(
+	secretKey: Uint8Array,
+	options: CommonAccountOptions,
+	mode: 'create' | 'restore' | 'link'
+): Promise<BootstrappedAccount | LinkedPersistentAccount> {
 	const isCurrent = options.isCurrent ?? operationAlwaysCurrent;
 	let prfOutput: Uint8Array | undefined;
 	try {
 		assertOperationCurrent(isCurrent);
 		const pubkey = getPublicKey(secretKey);
+		if (mode === 'link' && (await options.registry.accounts.get(pubkey))) {
+			throw new Error('account is already registered');
+		}
+		assertOperationCurrent(isCurrent);
 		const ceremony = await createPrfCredential({
 			accountPubkey: pubkey,
 			displayName: options.displayName,
@@ -99,15 +124,19 @@ async function persistSecret(
 			dmRelays: options.dmRelays,
 			createdAt: now.milliseconds
 		};
-		const existing = replaceExisting ? await options.registry.accounts.get(pubkey) : undefined;
+		const existing = mode === 'restore' ? await options.registry.accounts.get(pubkey) : undefined;
 		assertOperationCurrent(isCurrent);
-		const account = existing
-			? await replaceRecoveredAccount(options.registry, accountInput, isCurrent)
-			: await registerAccount(options.registry, accountInput, isCurrent);
+		const account =
+			mode === 'link'
+				? await registerLinkedAccount(options.registry, accountInput, isCurrent)
+				: existing
+					? await replaceRecoveredAccount(options.registry, accountInput, isCurrent)
+					: await registerAccount(options.registry, accountInput, isCurrent);
 		assertOperationCurrent(isCurrent);
-		const recoveryWords = secretKeyToRecoveryWords(secretKey);
 		const session = new UnlockedSession(secretKey);
-		return { account, session, recoveryWords };
+		return mode === 'link'
+			? { account, session }
+			: { account, session, recoveryWords: secretKeyToRecoveryWords(secretKey) };
 	} finally {
 		secretKey.fill(0);
 		prfOutput?.fill(0);
@@ -117,13 +146,19 @@ async function persistSecret(
 export async function createPersistentAccount(
 	options: CreatePersistentAccountOptions
 ): Promise<BootstrappedAccount> {
-	return persistSecret(generateSecretKey(), options);
+	return persistSecret(generateSecretKey(), options, 'create');
 }
 
 export async function restorePersistentAccount(
 	options: RestorePersistentAccountOptions
 ): Promise<BootstrappedAccount> {
-	return persistSecret(recoveryWordsToSecretKey(options.recoveryWords), options, true);
+	return persistSecret(recoveryWordsToSecretKey(options.recoveryWords), options, 'restore');
+}
+
+export async function importLinkedPersistentAccount(
+	options: ImportLinkedPersistentAccountOptions
+): Promise<LinkedPersistentAccount> {
+	return persistSecret(options.secretKey, options, 'link');
 }
 
 export async function unlockPersistentAccount(

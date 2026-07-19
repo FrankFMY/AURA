@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Copy, KeyRound, LogOut, ShieldCheck, Trash2 } from 'lucide-svelte';
+	import { Copy, KeyRound, LogOut, ScanLine, ShieldCheck, Trash2 } from 'lucide-svelte';
 
 	interface Props {
 		displayName: string;
@@ -9,6 +9,7 @@
 		notice: string;
 		error: string;
 		onBuildInvite: () => void | Promise<void>;
+		onLinkDevice: () => void | Promise<void>;
 		onCopyPubkey: () => void | Promise<void>;
 		onCopyDiagnostics: () => void | Promise<void>;
 		onLock: () => void | Promise<void>;
@@ -23,6 +24,7 @@
 		notice,
 		error,
 		onBuildInvite,
+		onLinkDevice,
 		onCopyPubkey,
 		onCopyDiagnostics,
 		onLock,
@@ -57,7 +59,10 @@
 			</section>
 		</div>
 		<div class="profile-actions">
-			<button class="button primary" onclick={() => void onBuildInvite()}>
+			<button class="button primary" onclick={() => void onLinkDevice()}>
+				Link another device <ScanLine size={17} />
+			</button>
+			<button class="button secondary" onclick={() => void onBuildInvite()}>
 				{copied === 'invite' ? 'Copied invitation' : 'Copy private invitation'}
 				<Copy size={17} />
 			</button>

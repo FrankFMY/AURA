@@ -40,6 +40,26 @@ Record exact device, OS and browser/PWA mode.
 - [ ] The invite path creates or unlocks safely, then pre-opens the expected conversation.
 - [ ] Manual npub entry exists only inline in Chats; there is no separate New chat tab.
 
+## Device linking
+
+Use an existing profile on the source and an empty browser profile on the target.
+
+- [ ] Target creates a `/link/#...` QR locally and shows a six-digit verification code.
+- [ ] Cancelling the target request returns to first-run; the old QR can no longer complete linking.
+- [ ] Source scans inside AURA using the live camera.
+- [ ] QR-image upload decodes the same request when camera access is unavailable.
+- [ ] Paste-link fallback works inside the already unlocked source profile.
+- [ ] System-camera deep link clears its fragment; without a trusted local profile it imports nothing.
+- [ ] The fragment never appears in HTTP requests, `Referer`, logs or diagnostics.
+- [ ] Both devices show the same six-digit code before approval.
+- [ ] Source approval performs a fresh Face ID/Passkey prompt even while the profile is unlocked.
+- [ ] Target shows the received display name and npub before persistence.
+- [ ] Target creates a fresh local Passkey; no Recovery Code is shown or copied.
+- [ ] Linked target npub exactly matches the source npub.
+- [ ] A sender-copy message written before linking reappears after target relay replay.
+- [ ] Expired, altered, wrong-origin, unsupported-relay and replayed requests fail closed.
+- [ ] Closing, locking or unmounting either flow removes pairing UI and cannot apply stale completion.
+
 ## Chat list and navigation
 
 - [ ] Primary navigation contains only Chats and Profile.
@@ -107,6 +127,11 @@ B→A message PASS/FAIL:
 Offline/reconnect PASS/FAIL:
 Lock/reload PASS/FAIL:
 Invite fragment leak check PASS/FAIL:
+Device-link QR scan PASS/FAIL:
+Device-link fresh source verification PASS/FAIL:
+Linked exact npub PASS/FAIL:
+Linked history replay PASS/FAIL:
+Device-link fragment leak check PASS/FAIL:
 Diagnostics redaction PASS/FAIL:
 Known limitations:
 ```

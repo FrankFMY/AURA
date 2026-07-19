@@ -66,10 +66,11 @@ function validateTimestamp(value: number): void {
 	if (!Number.isSafeInteger(value) || value < 0) throw new Error('account timestamp is invalid');
 }
 
-export async function registerAccount(
+async function registerNewAccount(
 	registry: AccountRegistry,
 	input: RegisterAccountInput,
-	isCurrent: OperationGuard = operationAlwaysCurrent
+	recoveryConfirmed: boolean,
+	isCurrent: OperationGuard
 ): Promise<RegisteredAccount> {
 	assertOperationCurrent(isCurrent);
 	if (!HEX_32.test(input.pubkey)) throw new Error('account pubkey is invalid');
@@ -82,7 +83,7 @@ export async function registerAccount(
 		displayName: validateDisplayName(input.displayName),
 		envelope: input.envelope,
 		dmRelays: normalizeDmRelayUrls(input.dmRelays),
-		recoveryConfirmed: false,
+		recoveryConfirmed,
 		createdAt: input.createdAt,
 		updatedAt: input.createdAt
 	};
@@ -96,6 +97,22 @@ export async function registerAccount(
 	});
 	assertOperationCurrent(isCurrent);
 	return account;
+}
+
+export async function registerAccount(
+	registry: AccountRegistry,
+	input: RegisterAccountInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
+): Promise<RegisteredAccount> {
+	return registerNewAccount(registry, input, false, isCurrent);
+}
+
+export async function registerLinkedAccount(
+	registry: AccountRegistry,
+	input: RegisterAccountInput,
+	isCurrent: OperationGuard = operationAlwaysCurrent
+): Promise<RegisteredAccount> {
+	return registerNewAccount(registry, input, true, isCurrent);
 }
 
 export async function replaceRecoveredAccount(

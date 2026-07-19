@@ -12,12 +12,16 @@
 		WifiOff
 	} from 'lucide-svelte';
 	import { nip19 } from 'nostr-tools';
+	import { renderSVG } from 'uqr';
 	import ChatListPane from './ChatListPane.svelte';
 	import ConversationPane from './ConversationPane.svelte';
+	import DeviceLinkSourceDialog from './DeviceLinkSourceDialog.svelte';
+	import DeviceLinkTargetPane from './DeviceLinkTargetPane.svelte';
 	import Logo from './Logo.svelte';
 	import ProfilePane from './ProfilePane.svelte';
 	import {
 		createPersistentAccount,
+		importLinkedPersistentAccount,
 		restorePersistentAccount,
 		unlockPersistentAccount,
 		type BootstrappedAccount
@@ -46,11 +50,19 @@
 		parseAndVerifyInviteUrl,
 		type InvitePayload
 	} from '$lib/core/invite';
+	import {
+		createDeviceLinkRequest,
+		createDeviceLinkTransfer,
+		parseAndVerifyDeviceLinkUrl,
+		type ImportedDeviceLinkProfile,
+		type VerifiedDeviceLinkRequest
+	} from '$lib/core/device-link';
 	import { hasPlatformWebAuthn } from '$lib/custody/webauthn-prf';
 	import { secretKeyToRecoveryWords } from '$lib/custody/recovery';
 	import type { UnlockedSession } from '$lib/custody/session';
 	import { parseNostrPubkey } from '$lib/nostr/identity';
 	import { MessengerRuntime, type HydratedMessage } from '$lib/nostr/messenger-runtime';
+	import { DeviceLinkReceiver, publishDeviceLinkTransfer } from '$lib/nostr/device-link-runtime';
 	import { createNostrPool } from '$lib/nostr/relay-client';
 	import { AccountDatabase } from '$lib/storage/account-database';
 	import {
@@ -70,10 +82,13 @@
 		| 'create'
 		| 'restore'
 		| 'recovery'
+		| 'link-target'
 		| 'unlock'
 		| 'app';
 	type View = 'chats' | 'profile';
 	type ConnectionState = 'connecting' | 'online' | 'offline';
+	type LinkTargetStatus = 'waiting' | 'received' | 'expired' | 'error';
+	type LinkSourceMode = 'scan' | 'approve' | 'sent';
 
 	const LOOKUP_RELAYS = ['wss://relay.damus.io/', 'wss://nos.lol/', 'wss://relay.primal.net/'];
 	const DM_RELAYS = ['wss://relay.damus.io/', 'wss://nos.lol/'];
@@ -107,6 +122,20 @@
 	let invite = $state.raw<InvitePayload>();
 	let inviteError = $state('');
 	let inviteUrl = $state('');
+	let linkTargetStatus = $state<LinkTargetStatus>('waiting');
+	let targetLinkUrl = $state('');
+	let targetQrDataUrl = $state('');
+	let targetVerificationCode = $state('');
+	let targetRequest = $state.raw<VerifiedDeviceLinkRequest>();
+	let targetImported = $state.raw<ImportedDeviceLinkProfile>();
+	let targetReceiver = $state.raw<DeviceLinkReceiver>();
+	let targetPool = $state.raw<ReturnType<typeof createNostrPool>>();
+	let targetCopied = $state(false);
+	let sourceLinkOpen = $state(false);
+	let sourceLinkMode = $state<LinkSourceMode>('scan');
+	let sourceRequest = $state.raw<VerifiedDeviceLinkRequest>();
+	let sourceLinkBusy = $state(false);
+	let sourceLinkError = $state('');
 	let copied = $state<'invite' | 'pubkey'>();
 	let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
 	let displayNameInput = $state.raw<HTMLInputElement>();
@@ -121,6 +150,7 @@
 	let sessionGeneration = 0;
 	let accountOperationGeneration = 0;
 	let diagnosticsGeneration = 0;
+	let deviceLinkGeneration = 0;
 	let componentGeneration = 0;
 	const refreshRunner = new CoalescingTaskRunner(performRefresh, handleBackgroundRefreshError);
 	const draftStore = new ConversationDraftStore();
@@ -224,6 +254,8 @@
 			document.documentElement.style.removeProperty('--aura-viewport-top');
 			document.documentElement.removeAttribute('data-aura-keyboard-open');
 			componentGeneration += 1;
+			clearTargetLinkState('AURA component unmounted');
+			closeSourceLink();
 			sessionGeneration += 1;
 			accountOperationGeneration += 1;
 			const currentSession = session;
@@ -261,6 +293,7 @@
 	async function initialize(componentIsCurrent: () => boolean) {
 		if (!componentIsCurrent()) return;
 		parseInvite();
+		parseSourceDeviceLink();
 		let selectedAccount = await getActiveAccount(registry);
 		if (!componentIsCurrent()) return;
 		if (!selectedAccount) {
@@ -270,6 +303,10 @@
 				await setActiveAccount(registry, selectedAccount.pubkey, componentIsCurrent);
 				if (!componentIsCurrent()) return;
 			}
+		}
+		if (!selectedAccount && sourceRequest) {
+			sourceRequest = undefined;
+			error = 'Open this link inside the AURA profile on your already trusted device, or paste it there.';
 		}
 		account = selectedAccount;
 		phase = selectedAccount
@@ -295,9 +332,331 @@
 		}
 	}
 
+	function parseSupportedDeviceLink(value: string): VerifiedDeviceLinkRequest {
+		const request = parseAndVerifyDeviceLinkUrl(value, {
+			expectedOrigin: location.origin,
+			now: Math.floor(Date.now() / 1000)
+		});
+		const allowedRelays = new Set(DM_RELAYS);
+		if (request.payload.relay_hints.some((relay) => !allowedRelays.has(relay))) {
+			throw new Error('device link request uses unsupported relays');
+		}
+		return request;
+	}
+
+	function parseSourceDeviceLink(): void {
+		if (location.pathname !== '/link' && location.pathname !== '/link/') return;
+		const requestUrl = location.href;
+		history.replaceState(history.state, '', `${location.pathname}${location.search}`);
+		try {
+			sourceRequest = parseSupportedDeviceLink(requestUrl);
+		} catch {
+			error = 'This device-link request is invalid, expired, or uses unsupported relays.';
+		}
+	}
+
 	function clearFeedback() {
 		error = '';
 		notice = '';
+	}
+
+	function destroyTargetLinkTransport(reason: string): void {
+		const receiver = targetReceiver;
+		const linkPool = targetPool;
+		targetReceiver = undefined;
+		targetPool = undefined;
+		try {
+			receiver?.stop(reason);
+		} catch {
+			// Continue secret cleanup even if the relay adapter is already closed.
+		}
+		try {
+			linkPool?.destroy();
+		} catch {
+			// Continue secret cleanup.
+		}
+	}
+
+	function clearTargetLinkState(reason: string): void {
+		deviceLinkGeneration += 1;
+		destroyTargetLinkTransport(reason);
+		targetImported?.accountSecretKey.fill(0);
+		targetImported = undefined;
+		targetRequest = undefined;
+		targetLinkUrl = '';
+		targetQrDataUrl = '';
+		targetVerificationCode = '';
+		targetCopied = false;
+		linkTargetStatus = 'waiting';
+	}
+
+	function closeSourceLink(): void {
+		deviceLinkGeneration += 1;
+		sourceLinkOpen = false;
+		sourceLinkMode = 'scan';
+		sourceRequest = undefined;
+		sourceLinkBusy = false;
+		sourceLinkError = '';
+	}
+
+	async function startTargetLink(): Promise<void> {
+		if (busy) return;
+		clearTargetLinkState('replacing device link request');
+		const generation = deviceLinkGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration &&
+			deviceLinkGeneration === generation &&
+			phase === 'link-target';
+		phase = 'link-target';
+		linkTargetStatus = 'waiting';
+		error = '';
+		busy = true;
+		let created: ReturnType<typeof createDeviceLinkRequest> | undefined;
+		try {
+			if (!(await hasPlatformWebAuthn())) {
+				throw new Error('This browser cannot create a user-verified device credential.');
+			}
+			if (!operationIsCurrent()) return;
+			const issuedAt = Math.floor(Date.now() / 1000);
+			created = createDeviceLinkRequest({
+				origin: location.origin,
+				relayHints: DM_RELAYS,
+				issuedAt,
+				expiresAt: issuedAt + 5 * 60
+			});
+			const requestUrl = `${location.origin}/link/#${created.token}`;
+			const svg = renderSVG(requestUrl, {
+				ecc: 'M',
+				boostEcc: true,
+				border: 4,
+				pixelSize: 4,
+				whiteColor: '#ffffff',
+				blackColor: '#111412'
+			});
+			if (!operationIsCurrent()) {
+				created.receiverSecretKey.fill(0);
+				return;
+			}
+			targetRequest = created;
+			targetLinkUrl = requestUrl;
+			targetQrDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+			targetVerificationCode = created.verificationCode;
+			const linkPool = createNostrPool();
+			targetPool = linkPool;
+			const receiver = new DeviceLinkReceiver({
+				pool: linkPool,
+				request: created,
+				receiverSecretKey: created.receiverSecretKey,
+				onTransfer: (profile) => {
+					if (!operationIsCurrent()) {
+						profile.accountSecretKey.fill(0);
+						return;
+					}
+					targetImported = profile;
+					linkTargetStatus = 'received';
+					targetLinkUrl = '';
+					targetQrDataUrl = '';
+					destroyTargetLinkTransport('device link transfer received');
+				},
+				onExpire: () => {
+					if (!operationIsCurrent()) return;
+					linkTargetStatus = 'expired';
+					error = 'This one-time device-link request expired.';
+					targetLinkUrl = '';
+					targetQrDataUrl = '';
+					destroyTargetLinkTransport('device link request expired');
+				},
+				onClose: () => {
+					if (!operationIsCurrent() || targetImported) return;
+					linkTargetStatus = 'error';
+					error = 'The private relays closed before the profile was received.';
+					destroyTargetLinkTransport('device link relays closed');
+				}
+			});
+			targetReceiver = receiver;
+			receiver.start();
+			created = undefined;
+		} catch (cause) {
+			created?.receiverSecretKey.fill(0);
+			if (operationIsCurrent()) {
+				linkTargetStatus = 'error';
+				error = boundedDeviceLinkError(
+					cause,
+					'A secure device-link request could not be created.'
+				);
+				destroyTargetLinkTransport('device link startup failed');
+			}
+		} finally {
+			if (operationIsCurrent()) busy = false;
+		}
+	}
+
+	async function copyTargetLink(): Promise<void> {
+		if (!targetLinkUrl) return;
+		const value = targetLinkUrl;
+		const generation = deviceLinkGeneration;
+		try {
+			await navigator.clipboard.writeText(value);
+			if (deviceLinkGeneration === generation && targetLinkUrl === value) targetCopied = true;
+		} catch {
+			if (deviceLinkGeneration === generation) error = 'The device-link URL could not be copied.';
+		}
+	}
+
+	async function protectLinkedProfile(): Promise<void> {
+		if (busy || !targetImported || !targetRequest) return;
+		const imported = targetImported;
+		targetImported = undefined;
+		const generation = ++deviceLinkGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration && deviceLinkGeneration === generation;
+		busy = true;
+		error = '';
+		let linked: Awaited<ReturnType<typeof importLinkedPersistentAccount>> | undefined;
+		try {
+			if (!(await hasPlatformWebAuthn())) {
+				imported.accountSecretKey.fill(0);
+				throw new Error('This browser cannot create a user-verified device credential.');
+			}
+			if (!operationIsCurrent()) {
+				imported.accountSecretKey.fill(0);
+				return;
+			}
+			linked = await importLinkedPersistentAccount({
+				registry,
+				displayName: imported.displayName,
+				secretKey: imported.accountSecretKey,
+				origin: location.origin,
+				rpId: location.hostname,
+				dmRelays: imported.dmRelays,
+				isCurrent: operationIsCurrent
+			});
+			if (!operationIsCurrent()) {
+				linked.session.lock();
+				return;
+			}
+			await setActiveAccount(registry, linked.account.pubkey, operationIsCurrent);
+			if (!operationIsCurrent()) {
+				linked.session.lock();
+				return;
+			}
+			account = linked.account;
+			await activate(linked.session);
+			if (!operationIsCurrent()) return;
+			targetRequest = undefined;
+			targetVerificationCode = '';
+			linked = undefined;
+		} catch (cause) {
+			linked?.session.lock();
+			imported.accountSecretKey.fill(0);
+			if (operationIsCurrent()) {
+				linkTargetStatus = 'error';
+				error = boundedDeviceLinkError(
+					cause,
+					'The linked profile could not be protected on this device.'
+				);
+			}
+		} finally {
+			if (operationIsCurrent()) busy = false;
+		}
+	}
+
+	function cancelTargetLink(): void {
+		clearTargetLinkState('device linking cancelled');
+		busy = false;
+		error = '';
+		phase = invite ? 'invite' : inviteError ? 'invite-error' : 'welcome';
+	}
+
+	function openSourceLink(): void {
+		if (!session || !account || !pool) return;
+		deviceLinkGeneration += 1;
+		sourceLinkOpen = true;
+		sourceLinkMode = 'scan';
+		sourceRequest = undefined;
+		sourceLinkBusy = false;
+		sourceLinkError = '';
+	}
+
+	async function acceptScannedSourceLink(value: string): Promise<void> {
+		try {
+			sourceRequest = parseSupportedDeviceLink(value);
+			sourceLinkMode = 'approve';
+			sourceLinkError = '';
+		} catch {
+			sourceLinkError = 'This device-link request is invalid, expired, or uses unsupported relays.';
+			throw new Error('invalid device link request');
+		}
+	}
+
+	function scanSourceLinkAgain(): void {
+		deviceLinkGeneration += 1;
+		sourceRequest = undefined;
+		sourceLinkMode = 'scan';
+		sourceLinkBusy = false;
+		sourceLinkError = '';
+	}
+
+	async function approveSourceLink(): Promise<void> {
+		if (!sourceRequest || !sourceLinkOpen || sourceLinkBusy || !account || !session || !pool) return;
+		const request = sourceRequest;
+		const currentAccount = account;
+		const currentSession = session;
+		const currentPool = pool;
+		const generation = ++deviceLinkGeneration;
+		const mountedGeneration = componentGeneration;
+		const operationIsCurrent = (): boolean =>
+			componentGeneration === mountedGeneration &&
+			deviceLinkGeneration === generation &&
+			sourceLinkOpen &&
+			sourceLinkMode === 'approve' &&
+			sourceRequest === request &&
+			account === currentAccount &&
+			session === currentSession &&
+			pool === currentPool;
+		sourceLinkBusy = true;
+		sourceLinkError = '';
+		let verifiedSession: UnlockedSession | undefined;
+		try {
+			verifiedSession = await unlockPersistentAccount({
+				account: currentAccount,
+				origin: location.origin,
+				rpId: location.hostname,
+				isCurrent: operationIsCurrent
+			});
+			if (!operationIsCurrent()) {
+				verifiedSession.lock();
+				return;
+			}
+			const transfer = verifiedSession.withSecretKey((secretKey) =>
+				createDeviceLinkTransfer({
+					request,
+					accountSecretKey: secretKey,
+					displayName: currentAccount.displayName,
+					dmRelays: currentAccount.dmRelays,
+					createdAt: Math.floor(Date.now() / 1000)
+				})
+			);
+			verifiedSession.lock();
+			verifiedSession = undefined;
+			if (!operationIsCurrent()) return;
+			await publishDeviceLinkTransfer(currentPool, request.payload.relay_hints, transfer);
+			if (!operationIsCurrent()) return;
+			sourceRequest = undefined;
+			sourceLinkMode = 'sent';
+		} catch (cause) {
+			if (operationIsCurrent()) {
+				sourceLinkError = boundedDeviceLinkError(
+					cause,
+					'The encrypted device-link transfer could not be sent.'
+				);
+			}
+		} finally {
+			verifiedSession?.lock();
+			if (operationIsCurrent()) sourceLinkBusy = false;
+		}
 	}
 
 	function startAccountOperation(): () => boolean {
@@ -608,7 +967,14 @@
 				return;
 			}
 			phase = 'app';
-			view = 'chats';
+			if (sourceRequest) {
+				sourceLinkOpen = true;
+				sourceLinkMode = 'approve';
+				sourceLinkError = '';
+				view = 'profile';
+			} else {
+				view = 'chats';
+			}
 			if (invite) activeConversation = invite.issuer_pubkey;
 			await refreshData(Boolean(activeConversation));
 			if (!activationIsCurrent()) {
@@ -966,6 +1332,8 @@
 
 	function clearSensitiveUiState(): void {
 		diagnosticsGeneration += 1;
+		clearTargetLinkState('sensitive UI state cleared');
+		closeSourceLink();
 		if (copyResetTimer) clearTimeout(copyResetTimer);
 		copyResetTimer = undefined;
 		pending = undefined;
@@ -1064,6 +1432,13 @@
 		}
 	}
 
+	function boundedDeviceLinkError(cause: unknown, fallback: string): string {
+		if (cause instanceof Error && /cancel|notallowederror/iu.test(`${cause.name} ${cause.message}`)) {
+			return 'The device confirmation was cancelled.';
+		}
+		return fallback;
+	}
+
 	function friendlyError(cause: unknown, fallback: string) {
 		if (!(cause instanceof Error)) return fallback;
 		if (/cancel|notallowederror/iu.test(cause.message))
@@ -1125,10 +1500,13 @@
 			{/if}
 			{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
 			<div class="stack-actions">
-				<button class="button primary" onclick={() => void openOnboarding('create')}>
+				<button class="button primary" disabled={busy} onclick={() => void openOnboarding('create')}>
 					Create secure profile <ArrowRight size={18} />
 				</button>
-				<button class="button secondary" onclick={() => void openOnboarding('restore')}>
+				<button class="button secondary" disabled={busy} onclick={() => void startTargetLink()}>
+					Link an existing profile
+				</button>
+				<button class="button secondary" disabled={busy} onclick={() => void openOnboarding('restore')}>
 					I have a Recovery Code
 				</button>
 			</div>
@@ -1241,6 +1619,21 @@
 			<p class="fine-print">Do not screenshot or paste these words into cloud notes.</p>
 		</section>
 	</main>
+{:else if phase === 'link-target'}
+	<DeviceLinkTargetPane
+		status={linkTargetStatus}
+		qrDataUrl={targetQrDataUrl}
+		verificationCode={targetVerificationCode}
+		receivedName={targetImported?.displayName}
+		receivedIdentityLabel={targetImported ? shortKey(targetImported.accountPubkey) : undefined}
+		{busy}
+		copied={targetCopied}
+		{error}
+		onCopyLink={copyTargetLink}
+		onProtect={protectLinkedProfile}
+		onRestart={startTargetLink}
+		onCancel={cancelTargetLink}
+	/>
 {:else if phase === 'unlock' && account}
 	<main class="unlock-stage">
 		<section class="unlock-card">
@@ -1325,6 +1718,7 @@
 				{notice}
 				{error}
 				onBuildInvite={buildInvite}
+				onLinkDevice={openSourceLink}
 				onCopyPubkey={copyPubkey}
 				onCopyDiagnostics={copyDiagnostics}
 				onLock={lock}
@@ -1332,4 +1726,22 @@
 			/>
 		{/if}
 	</main>
+{/if}
+
+{#if sourceLinkOpen && account}
+	<DeviceLinkSourceDialog
+		mode={sourceLinkMode}
+		verificationCode={sourceRequest?.verificationCode}
+		profileName={account.displayName}
+		identityLabel={shortKey(account.pubkey)}
+		busy={sourceLinkBusy}
+		error={sourceLinkError}
+		onDetected={acceptScannedSourceLink}
+		onScannerError={(message) => {
+			sourceLinkError = message;
+		}}
+		onApprove={approveSourceLink}
+		onScanAgain={scanSourceLinkAgain}
+		onCancel={closeSourceLink}
+	/>
 {/if}

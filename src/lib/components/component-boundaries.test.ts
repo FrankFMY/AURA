@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 const COMPONENTS = ['ChatListPane', 'ConversationPane', 'ProfilePane'] as const;
+const PRESENTATION_COMPONENTS = [
+	...COMPONENTS,
+	'DeviceLinkTargetPane',
+	'DeviceLinkSourceDialog',
+	'DeviceLinkScanner'
+] as const;
 const sources = import.meta.glob('./*.svelte', {
 	eager: true,
 	query: '?raw',
@@ -25,14 +31,19 @@ describe('messenger component boundaries', () => {
 		expect(appSource).not.toContain('class="profile-content"');
 	});
 
-	it('keeps custody, storage, and runtime objects out of presentation panes', () => {
-		for (const component of COMPONENTS) {
+	it('keeps custody, storage, and runtime objects out of presentation components', () => {
+		for (const component of PRESENTATION_COMPONENTS) {
 			const componentSource = sources[`./${component}.svelte`];
-			expect(componentSource).not.toMatch(/\$lib\/(?:custody|storage|nostr\/messenger-runtime)/u);
+			expect(componentSource).not.toMatch(
+				/(?:\$lib\/|\.\.?\/)(?:[^'"\n]*\/)?(?:custody|storage|nostr\/(?:messenger-runtime|device-link-runtime))/u
+			);
+			expect(componentSource).not.toMatch(
+				/RegisteredAccount|KeyEnvelope|UnlockedSession|ImportedDeviceLinkProfile|VerifiedDeviceLinkRequest|accountSecretKey|receiverSecretKey/u
+			);
 		}
 
 		const profileSource = sources['./ProfilePane.svelte'];
-		expect(profileSource).not.toMatch(/RegisteredAccount|KeyEnvelope|credential_id|\baccount\s*:/u);
+		expect(profileSource).not.toMatch(/credential_id|\baccount\s*:/u);
 		const appSource = sources['./App.svelte'];
 		expect(appSource).not.toMatch(/<ProfilePane[\s\S]{0,320}\{account\}/u);
 	});

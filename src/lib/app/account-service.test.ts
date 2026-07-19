@@ -7,6 +7,7 @@ import * as webauthnPrf from '../custody/webauthn-prf';
 import { AccountRegistry } from '../storage/account-registry';
 import {
 	createPersistentAccount,
+	importLinkedPersistentAccount,
 	restorePersistentAccount,
 	unlockPersistentAccount
 } from './account-service';
@@ -68,6 +69,37 @@ describe('persistent account bootstrap', () => {
 			provider
 		});
 		expect(unlocked.pubkey).toBe(pubkey);
+	});
+
+	it('rejects a fresh unlock assertion when its lifecycle becomes stale', async () => {
+		const accounts = registry();
+		const created = await createPersistentAccount({
+			registry: accounts,
+			displayName: 'Source approval',
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider
+		});
+		created.session.lock();
+		let current = true;
+		const staleAfterAssertionProvider: CredentialProvider = {
+			create: async () => credential(),
+			get: async () => {
+				current = false;
+				return credential();
+			}
+		};
+
+		await expect(
+			unlockPersistentAccount({
+				account: created.account,
+				origin: 'https://aura.frankfmy.com',
+				rpId: 'aura.frankfmy.com',
+				provider: staleAfterAssertionProvider,
+				isCurrent: () => current
+			})
+		).rejects.toThrow(/operation cancelled/i);
 	});
 
 	it('zeroizes an owned secret when the lifecycle is stale at persistence entry', async () => {
@@ -209,6 +241,73 @@ describe('persistent account bootstrap', () => {
 		expect(restored.session.pubkey).toBe(expectedPubkey);
 		expect(restored.account.pubkey).toBe(
 			getPublicKey(restored.session.withSecretKey((key) => key))
+		);
+	});
+
+	it('imports an exact linked identity under a fresh Passkey without materializing recovery words', async () => {
+		const accounts = registry();
+		const transferredSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		const expectedPubkey = getPublicKey(transferredSecret);
+		const recoverySpy = vi.spyOn(recovery, 'secretKeyToRecoveryWords');
+		const linked = await importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'Linked Artem',
+			secretKey: transferredSecret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider,
+			now: () => ({ seconds: 1_750_000_000, milliseconds: 1_750_000_000_000 })
+		});
+
+		expect(transferredSecret).toEqual(new Uint8Array(32));
+		expect(recoverySpy).not.toHaveBeenCalled();
+		expect(linked.account.pubkey).toBe(expectedPubkey);
+		expect(linked.account.recoveryConfirmed).toBe(true);
+		expect('recoveryWords' in linked).toBe(false);
+		expect(
+			(
+				await unlockPersistentAccount({
+					account: linked.account,
+					origin: 'https://aura.frankfmy.com',
+					rpId: 'aura.frankfmy.com',
+					provider
+				})
+			).pubkey
+		).toBe(expectedPubkey);
+		linked.session.lock();
+	});
+
+	it('zeroizes a transferred secret and leaves the existing envelope untouched on duplicate import', async () => {
+		const accounts = registry();
+		const firstSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		const first = await importLinkedPersistentAccount({
+			registry: accounts,
+			displayName: 'First',
+			secretKey: firstSecret,
+			origin: 'https://aura.frankfmy.com',
+			rpId: 'aura.frankfmy.com',
+			dmRelays: ['wss://relay.one/'],
+			provider
+		});
+		const originalEnvelope = JSON.stringify(first.account.envelope);
+		first.session.lock();
+		const duplicateSecret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+		await expect(
+			importLinkedPersistentAccount({
+				registry: accounts,
+				displayName: 'Duplicate',
+				secretKey: duplicateSecret,
+				origin: 'https://aura.frankfmy.com',
+				rpId: 'aura.frankfmy.com',
+				dmRelays: ['wss://relay.two/'],
+				provider
+			})
+		).rejects.toThrow(/already registered/i);
+		expect(duplicateSecret).toEqual(new Uint8Array(32));
+		expect(await accounts.accounts.count()).toBe(1);
+		expect(JSON.stringify((await accounts.accounts.get(first.account.pubkey))?.envelope)).toBe(
+			originalEnvelope
 		);
 	});
 });

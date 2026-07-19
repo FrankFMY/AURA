@@ -9,6 +9,7 @@ import {
 	confirmRecoveryCode,
 	getActiveAccount,
 	registerAccount,
+	registerLinkedAccount,
 	removeAccount,
 	setActiveAccount
 } from './account-registry';
@@ -131,5 +132,21 @@ describe('encrypted account registry', () => {
 		expect(await registry.accounts.get(pubkey)).toBeDefined();
 		expect((await getActiveAccount(registry))?.pubkey).toBe(pubkey);
 		expect(await Dexie.exists(account.name)).toBe(true);
+	});
+
+	it('registers a linked identity as recovery-confirmed without replacing a duplicate', async () => {
+		const { pubkey, envelope, registry } = await fixture();
+		const input = {
+			pubkey,
+			displayName: 'Linked Artem',
+			envelope,
+			dmRelays: ['wss://relay.one/'],
+			createdAt: 1_750_000_000_000
+		};
+		const linked = await registerLinkedAccount(registry, input);
+		expect(linked.recoveryConfirmed).toBe(true);
+		expect((await registry.accounts.get(pubkey))?.recoveryConfirmed).toBe(true);
+		await expect(registerLinkedAccount(registry, input)).rejects.toThrow(/already registered/i);
+		expect(await registry.accounts.count()).toBe(1);
 	});
 });

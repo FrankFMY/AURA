@@ -17,6 +17,7 @@ AURA is a focused, browser-based Nostr messenger. It implements encrypted one-to
 - Keeps each identity in a physically separate IndexedDB database.
 - Stores a versioned AES-GCM key envelope instead of raw private-key material.
 - Restores the exact 32-byte Nostr key from a 24-word Recovery Code.
+- Links the same identity to another device through a five-minute QR request, fresh source approval, and a new local Passkey envelope.
 - Opens signed invitations from URL fragments, keeping tokens out of HTTP requests and `Referer` headers.
 
 ## Identity custody
