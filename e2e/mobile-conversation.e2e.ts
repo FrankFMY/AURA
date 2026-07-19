@@ -164,6 +164,8 @@ test.describe('mobile conversation', () => {
 		const draftBeforeRemount = await composer.inputValue();
 		await page.getByRole('button', { name: 'Back to chats' }).click();
 		await page.getByRole('button', { name: 'Start a conversation' }).click();
+		await expect(page.getByLabel('Contact identifier')).toBeFocused();
+		await expect(page.getByText('Direct connection', { exact: true })).toHaveCount(0);
 		await page.getByRole('button', { name: /Open conversation/i }).click();
 		await expect(composer).toHaveValue(draftBeforeRemount);
 		const reopenedHeight = await composer.evaluate(
@@ -233,8 +235,11 @@ test.describe('mobile conversation', () => {
 			await composer.evaluate((element) => element.getBoundingClientRect().height)
 		).toBeGreaterThanOrEqual(remountHeight - 1);
 		const primaryNavigation = page.getByRole('navigation', { name: 'Primary navigation' });
-		await primaryNavigation.getByRole('button', { name: 'New chat' }).click();
-		await primaryNavigation.getByRole('button', { name: 'Chats' }).click();
+		await expect(primaryNavigation.getByRole('button', { name: 'New chat' })).toHaveCount(0);
+		await page.getByRole('button', { name: 'New chat' }).click();
+		await expect(page.getByLabel('Contact identifier')).toBeFocused();
+		await page.getByRole('button', { name: 'Cancel' }).click();
+		await expect(page.getByLabel('Contact identifier')).toHaveCount(0);
 		await expect(composer).toHaveValue(remountDraft);
 		expect(
 			await composer.evaluate((element) => element.getBoundingClientRect().height)

@@ -600,6 +600,55 @@ textarea::placeholder {
 	border-color: var(--line);
 	background: var(--surface);
 }
+.new-chat-inline {
+	display: grid;
+	gap: 0.9rem;
+	margin: 0 1rem 1rem;
+	border: 1px solid var(--line-strong);
+	border-radius: 1rem;
+	background: var(--surface);
+	padding: 1rem;
+}
+.new-chat-inline-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+}
+.new-chat-inline-heading strong {
+	font-size: 0.86rem;
+}
+.new-chat-inline-heading p {
+	margin: 0.3rem 0 0;
+	color: var(--muted);
+	font-size: 0.7rem;
+	line-height: 1.5;
+}
+.new-chat-inline-heading .text-button {
+	flex: 0 0 auto;
+}
+.new-chat-inline label {
+	display: grid;
+	gap: 0.45rem;
+}
+.new-chat-inline label > span {
+	color: var(--muted);
+	font-size: 0.66rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+.new-chat-inline textarea {
+	width: 100%;
+	min-height: 5rem;
+	color: var(--ink);
+	border-color: var(--line-strong);
+	background: var(--surface-2);
+	resize: vertical;
+}
+.new-chat-inline .inline-error {
+	margin-top: 0;
+}
 .pulse {
 	width: 0.48rem;
 	height: 0.48rem;

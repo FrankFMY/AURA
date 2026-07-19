@@ -12,7 +12,6 @@
 		Plus,
 		Send,
 		ShieldCheck,
-		SquarePen,
 		Trash2,
 		UserRound,
 		Wifi,
@@ -69,7 +68,7 @@
 		| 'recovery'
 		| 'unlock'
 		| 'app';
-	type View = 'chats' | 'new-chat' | 'profile';
+	type View = 'chats' | 'profile';
 	type ConnectionState = 'connecting' | 'online' | 'offline';
 
 	const LOOKUP_RELAYS = ['wss://relay.damus.io/', 'wss://nos.lol/', 'wss://relay.primal.net/'];
@@ -95,6 +94,8 @@
 	let error = $state('');
 	let notice = $state('');
 	let contactInput = $state('');
+	let contactError = $state('');
+	let newChatOpen = $state(false);
 	let activeConversation = $state('');
 	let messages = $state<HydratedMessage[]>([]);
 	let chats = $state<{ pubkey: string; lastAt: number; unread: number }[]>([]);
@@ -105,6 +106,7 @@
 	let copied = $state<'invite' | 'pubkey'>();
 	let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
 	let displayNameInput = $state.raw<HTMLInputElement>();
+	let contactInputElement = $state.raw<HTMLTextAreaElement>();
 	let composerInput = $state.raw<HTMLTextAreaElement>();
 	let messageSpace = $state.raw<HTMLDivElement>();
 	let mobileComposer = $state(false);
@@ -747,14 +749,20 @@
 
 	function showChats(): void {
 		view = 'chats';
+		newChatOpen = false;
+		contactError = '';
 		error = activeConversation ? (messageErrors.get(activeConversation) ?? '') : '';
 		notice = '';
 	}
 
-	function openNewChat() {
+	async function openNewChat() {
 		clearFeedback();
+		contactError = '';
 		contactInput = invite?.issuer_pubkey ?? '';
-		view = 'new-chat';
+		newChatOpen = true;
+		view = 'chats';
+		await tick();
+		contactInputElement?.focus();
 	}
 
 	async function beginChat() {
@@ -765,9 +773,12 @@
 			if (pubkey === account?.pubkey)
 				throw new Error('Choose another person, not your own identity.');
 		} catch (cause) {
-			error = friendlyError(cause, 'That contact identifier is invalid.');
+			contactError = friendlyError(cause, 'That contact identifier is invalid.');
 			return;
 		}
+		contactError = '';
+		newChatOpen = false;
+		contactInput = '';
 		view = 'chats';
 		await openConversationFromList(pubkey);
 	}
@@ -910,11 +921,14 @@
 		error = '';
 		notice = '';
 		contactInput = '';
+		contactError = '';
+		newChatOpen = false;
 		activeConversation = '';
 		messages = [];
 		chats = [];
 		composer = '';
 		displayNameInput = undefined;
+		contactInputElement = undefined;
 		composerInput = undefined;
 		messageSpace = undefined;
 		unseenBelow = 0;
@@ -1199,12 +1213,6 @@
 						onclick={showChats}
 						aria-label="Chats"><MessageCircle size={21} /></button
 					>
-					<button
-						class:active={view === 'new-chat'}
-						aria-current={view === 'new-chat' ? 'page' : undefined}
-						onclick={openNewChat}
-						aria-label="New chat"><SquarePen size={21} /></button
-					>
 				</nav>
 				<button
 					class:active={view === 'profile'}
@@ -1234,7 +1242,46 @@
 							class="pulse"
 						></span> Connecting private relays{:else}<WifiOff size={14} /> Working offline{/if}
 				</div>
-				{#if chats.length === 0}
+				{#if newChatOpen}
+					<form
+						class="new-chat-inline"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void beginChat();
+						}}
+					>
+						<div class="new-chat-inline-heading">
+							<div>
+								<strong>Start a private chat</strong>
+								<p>Paste an <span class="mono">npub</span> or lowercase public key.</p>
+							</div>
+							<button
+								type="button"
+								class="text-button"
+								onclick={() => {
+									newChatOpen = false;
+									contactInput = '';
+									contactError = '';
+								}}>Cancel</button
+							>
+						</div>
+						<label>
+							<span>Contact identifier</span>
+							<textarea
+								bind:this={contactInputElement}
+								bind:value={contactInput}
+								rows="3"
+								autocapitalize="none"
+								autocomplete="off"
+								spellcheck="false"
+								placeholder="npub1…"></textarea>
+						</label>
+						{#if contactError}<div class="inline-error" role="alert">{contactError}</div>{/if}
+						<button class="button primary full" type="submit"
+							>Open conversation <ArrowRight size={18} /></button
+						>
+					</form>
+				{:else if chats.length === 0}
 					<div class="empty-list">
 						<div class="quiet-orbit"><MessageCircle size={24} /></div>
 						<h2>Your quiet inbox</h2>
@@ -1375,33 +1422,6 @@
 						<p>Your private messages will open here.</p>
 					</div>
 				{/if}
-			</section>
-		{:else if view === 'new-chat'}
-			<section class="single-pane">
-				<div class="single-content narrow">
-					<button class="back-button inline" onclick={showChats}
-						><ChevronLeft size={20} /> Chats</button
-					>
-					<p class="eyebrow">Direct connection</p>
-					<h1>Start a private chat</h1>
-					<p class="lede small">
-						Paste the person’s <span class="mono">npub</span> or lowercase public key. AURA checks their
-						signed private-relay preference before sending anything.
-					</p>
-					<label
-						><span>Contact identifier</span><textarea
-							bind:value={contactInput}
-							rows="4"
-							autocapitalize="none"
-							autocomplete="off"
-							spellcheck="false"
-							placeholder="npub1…"></textarea></label
-					>
-					{#if error}<div class="inline-error" role="alert">{error}</div>{/if}
-					<button class="button primary" onclick={beginChat}
-						>Open conversation <ArrowRight size={18} /></button
-					>
-				</div>
 			</section>
 		{:else}
 			<section class="single-pane">
