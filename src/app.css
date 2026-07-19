@@ -1075,9 +1075,14 @@ textarea::placeholder {
 	.app-shell.conversation-open .rail {
 		display: none;
 	}
-	.app-shell.conversation-open .conversation-pane {
+	.app-shell.conversation-open .conversation-pane,
+	.app-shell .conversation-pane:not(.hidden-mobile) {
+		z-index: 30;
+		width: 100%;
 		min-height: 0;
-		height: 100%;
+		height: var(--aura-viewport-height, 100dvh);
+		position: fixed;
+		inset: var(--aura-viewport-top, 0px) 0 auto;
 		padding-bottom: 0;
 	}
 	.chat-list-pane {
@@ -1102,6 +1107,9 @@ textarea::placeholder {
 	.composer {
 		width: calc(100% - 1rem);
 		margin-bottom: max(0.5rem, env(safe-area-inset-bottom));
+	}
+	:root[data-aura-keyboard-open] .composer {
+		margin-bottom: 0.5rem;
 	}
 	.single-pane {
 		grid-column: 1;

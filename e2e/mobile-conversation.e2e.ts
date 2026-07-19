@@ -194,7 +194,7 @@ test.describe('mobile conversation', () => {
 				viewport.height
 			);
 			const layout = await page.evaluate(() => {
-				const rail = document.querySelector<HTMLElement>('.rail')!;
+				const rail = document.querySelector<HTMLElement>('.rail');
 				const shell = document.querySelector<HTMLElement>('.app-shell')!.getBoundingClientRect();
 				const pane = document
 					.querySelector<HTMLElement>('.conversation-pane')!
@@ -202,7 +202,7 @@ test.describe('mobile conversation', () => {
 				const form = document.querySelector<HTMLElement>('.composer')!.getBoundingClientRect();
 				const back = document.querySelector<HTMLElement>('.mobile-back')!.getBoundingClientRect();
 				return {
-					railDisplay: getComputedStyle(rail).display,
+					railPresent: rail !== null,
 					shellHeight: shell.height,
 					paneBottom: pane.bottom,
 					composerBottom: form.bottom,
@@ -211,7 +211,7 @@ test.describe('mobile conversation', () => {
 					documentWidth: document.documentElement.scrollWidth
 				};
 			});
-			expect(layout.railDisplay).toBe('none');
+			expect(layout.railPresent).toBe(false);
 			expect(layout.shellHeight).toBeLessThanOrEqual(viewport.height);
 			expect(layout.paneBottom - layout.composerBottom).toBeLessThanOrEqual(16);
 			expect(layout.backWidth).toBeGreaterThanOrEqual(44);
@@ -274,22 +274,75 @@ test.describe('mobile conversation', () => {
 		);
 		const keyboardLayout = await page.evaluate(() => {
 			const shell = document.querySelector<HTMLElement>('.app-shell')!.getBoundingClientRect();
+			const pane = document
+				.querySelector<HTMLElement>('.conversation-pane')!
+				.getBoundingClientRect();
 			const composerForm = document
 				.querySelector<HTMLElement>('form.composer')!
 				.getBoundingClientRect();
+			const viewport = window.visualViewport!;
 			return {
 				shellTop: shell.top,
 				shellHeight: shell.height,
+				paneTop: pane.top,
+				paneBottom: pane.bottom,
+				viewportBottom: viewport.offsetTop + viewport.height,
 				composerBottom: composerForm.bottom,
+				railPresent: document.querySelector('.rail') !== null,
+				keyboardOpen: document.documentElement.hasAttribute('data-aura-keyboard-open'),
 				documentWidth: document.documentElement.scrollWidth
 			};
 		});
 		expect(keyboardLayout.shellTop).toBeGreaterThanOrEqual(119);
 		expect(keyboardLayout.shellTop).toBeLessThanOrEqual(121);
 		expect(keyboardLayout.shellHeight).toBeLessThanOrEqual(480);
-		expect(keyboardLayout.composerBottom).toBeLessThanOrEqual(601);
+		expect(keyboardLayout.paneTop).toBeGreaterThanOrEqual(119);
+		expect(keyboardLayout.paneTop).toBeLessThanOrEqual(121);
+		expect(keyboardLayout.paneBottom).toBeGreaterThanOrEqual(599);
+		expect(keyboardLayout.paneBottom).toBeLessThanOrEqual(601);
+		expect(keyboardLayout.viewportBottom - keyboardLayout.composerBottom).toBeGreaterThanOrEqual(0);
+		expect(keyboardLayout.viewportBottom - keyboardLayout.composerBottom).toBeLessThanOrEqual(16);
+		expect(keyboardLayout.railPresent).toBe(false);
+		expect(keyboardLayout.keyboardOpen).toBe(true);
 		expect(keyboardLayout.documentWidth).toBeLessThanOrEqual(390);
 		await expect(composer).toBeFocused();
+
+		await page.evaluate(() => {
+			(
+				window as typeof window & {
+					__setAuraVisualViewport: (height: number, offsetTop: number) => void;
+				}
+			).__setAuraVisualViewport(414, 0);
+		});
+		await page.waitForFunction(
+			() =>
+				document.documentElement.style.getPropertyValue('--aura-viewport-height') === '414px' &&
+				document.documentElement.style.getPropertyValue('--aura-viewport-top') === '0px'
+		);
+		const safariKeyboardLayout = await page.evaluate(() => {
+			const pane = document
+				.querySelector<HTMLElement>('.conversation-pane')!
+				.getBoundingClientRect();
+			const form = document.querySelector<HTMLElement>('form.composer')!.getBoundingClientRect();
+			const header = document
+				.querySelector<HTMLElement>('.conversation-header')!
+				.getBoundingClientRect();
+			return {
+				paneTop: pane.top,
+				paneBottom: pane.bottom,
+				headerTop: header.top,
+				composerBottom: form.bottom,
+				railPresent: document.querySelector('.rail') !== null
+			};
+		});
+		expect(safariKeyboardLayout.paneTop).toBeGreaterThanOrEqual(0);
+		expect(safariKeyboardLayout.paneTop).toBeLessThanOrEqual(1);
+		expect(safariKeyboardLayout.paneBottom).toBeGreaterThanOrEqual(413);
+		expect(safariKeyboardLayout.paneBottom).toBeLessThanOrEqual(415);
+		expect(safariKeyboardLayout.headerTop).toBeGreaterThanOrEqual(0);
+		expect(414 - safariKeyboardLayout.composerBottom).toBeGreaterThanOrEqual(0);
+		expect(414 - safariKeyboardLayout.composerBottom).toBeLessThanOrEqual(16);
+		expect(safariKeyboardLayout.railPresent).toBe(false);
 
 		await page.getByRole('button', { name: 'Back to chats' }).click();
 		await page.getByRole('button', { name: 'Profile' }).click();

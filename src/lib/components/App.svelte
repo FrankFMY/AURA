@@ -194,8 +194,12 @@
 			const viewport = window.visualViewport;
 			const height = Math.max(1, Math.round(viewport?.height ?? window.innerHeight));
 			const offsetTop = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+			const keyboardOpen =
+				mobileMedia.matches &&
+				window.innerHeight - height > Math.max(160, Math.round(window.innerHeight * 0.2));
 			document.documentElement.style.setProperty('--aura-viewport-height', `${height}px`);
 			document.documentElement.style.setProperty('--aura-viewport-top', `${offsetTop}px`);
+			document.documentElement.toggleAttribute('data-aura-keyboard-open', keyboardOpen);
 		};
 		updateMobileComposer();
 		updateVisualViewport();
@@ -225,6 +229,7 @@
 			refreshRunner.cancelQueued();
 			document.documentElement.style.removeProperty('--aura-viewport-height');
 			document.documentElement.style.removeProperty('--aura-viewport-top');
+			document.documentElement.removeAttribute('data-aura-keyboard-open');
 			componentGeneration += 1;
 			sessionGeneration += 1;
 			accountOperationGeneration += 1;
@@ -1184,32 +1189,34 @@
 	</main>
 {:else if phase === 'app' && account}
 	<main class="app-shell" class:conversation-open={view === 'chats' && Boolean(activeConversation)}>
-		<aside class="rail">
-			<div class="rail-logo"><Logo compact /></div>
-			<nav aria-label="Primary navigation">
+		{#if !mobileComposer || view !== 'chats' || !activeConversation}
+			<aside class="rail">
+				<div class="rail-logo"><Logo compact /></div>
+				<nav aria-label="Primary navigation">
+					<button
+						class:active={view === 'chats'}
+						aria-current={view === 'chats' ? 'page' : undefined}
+						onclick={showChats}
+						aria-label="Chats"><MessageCircle size={21} /></button
+					>
+					<button
+						class:active={view === 'new-chat'}
+						aria-current={view === 'new-chat' ? 'page' : undefined}
+						onclick={openNewChat}
+						aria-label="New chat"><SquarePen size={21} /></button
+					>
+				</nav>
 				<button
-					class:active={view === 'chats'}
-					aria-current={view === 'chats' ? 'page' : undefined}
-					onclick={showChats}
-					aria-label="Chats"><MessageCircle size={21} /></button
+					class:active={view === 'profile'}
+					aria-current={view === 'profile' ? 'page' : undefined}
+					onclick={() => {
+						view = 'profile';
+						error = '';
+					}}
+					aria-label="Profile"><UserRound size={21} /></button
 				>
-				<button
-					class:active={view === 'new-chat'}
-					aria-current={view === 'new-chat' ? 'page' : undefined}
-					onclick={openNewChat}
-					aria-label="New chat"><SquarePen size={21} /></button
-				>
-			</nav>
-			<button
-				class:active={view === 'profile'}
-				aria-current={view === 'profile' ? 'page' : undefined}
-				onclick={() => {
-					view = 'profile';
-					error = '';
-				}}
-				aria-label="Profile"><UserRound size={21} /></button
-			>
-		</aside>
+			</aside>
+		{/if}
 
 		{#if view === 'chats'}
 			<section class="chat-list-pane" class:hidden-mobile={Boolean(activeConversation)}>
