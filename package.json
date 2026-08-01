@@ -44,7 +44,7 @@
 		"@testing-library/jest-dom": "^6.9.1",
 		"@testing-library/svelte": "^5.4.2",
 		"fake-indexeddb": "^6.2.5",
-		"jsdom": "^29.1.1",
+		"jsdom": "^30.0.1",
 		"prettier": "^3.9.5",
 		"prettier-plugin-svelte": "^4.1.1",
 		"svelte": "^5.56.6",
