@@ -35,7 +35,7 @@ describe('messenger component boundaries', () => {
 		for (const component of PRESENTATION_COMPONENTS) {
 			const componentSource = sources[`./${component}.svelte`];
 			expect(componentSource).not.toMatch(
-				/(?:\$lib\/|\.\.?\/)(?:[^'"\n]*\/)?(?:custody|storage|nostr\/(?:messenger-runtime|device-link-runtime))/u
+				/(?:#lib\/|\$lib\/|\.\.?\/)(?:[^'"\n]*\/)?(?:custody|storage|nostr\/(?:messenger-runtime|device-link-runtime))/u
 			);
 			expect(componentSource).not.toMatch(
 				/RegisteredAccount|KeyEnvelope|UnlockedSession|ImportedDeviceLinkProfile|VerifiedDeviceLinkRequest|accountSecretKey|receiverSecretKey/u

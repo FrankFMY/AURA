@@ -43,6 +43,7 @@ A relay acknowledgement is not presented as recipient delivery.
 Requirements:
 
 - [Bun](https://bun.sh/) 1.3.14 (the CI toolchain)
+- Node.js 22.17 or newer for the build toolchain (use a supported LTS release)
 - Chromium installed by Playwright for browser tests
 
 ```bash

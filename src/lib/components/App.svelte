@@ -25,16 +25,16 @@
 		restorePersistentAccount,
 		unlockPersistentAccount,
 		type BootstrappedAccount
-	} from '$lib/app/account-service';
-	import { collectLocalDiagnostics } from '$lib/app/diagnostics';
-	import { acceptDeviceLinkReceipt } from '$lib/app/device-link-receipt';
-	import type { ExpiringSecretLease } from '$lib/app/expiring-secret';
+	} from '#lib/app/account-service.js';
+	import { collectLocalDiagnostics } from '#lib/app/diagnostics.js';
+	import { acceptDeviceLinkReceipt } from '#lib/app/device-link-receipt.js';
+	import type { ExpiringSecretLease } from '#lib/app/expiring-secret.js';
 	import {
 		contactDisplayLabel,
 		inviteDisplayName as inviteName,
 		messageStateLabel as stateLabel,
 		shortNostrKey as shortKey
-	} from '$lib/app/messenger-view';
+	} from '#lib/app/messenger-view.js';
 	import {
 		CoalescingTaskRunner,
 		ConversationDraftStore,
@@ -45,28 +45,28 @@
 		scrollToConversationEnd,
 		shouldClearSubmittedDraft,
 		shouldSendComposerKey
-	} from '$lib/app/conversation-ui';
+	} from '#lib/app/conversation-ui.js';
 	import {
 		createInviteToken,
 		generateInviteNonce,
 		parseAndVerifyInviteUrl,
 		type InvitePayload
-	} from '$lib/core/invite';
+	} from '#lib/core/invite.js';
 	import {
 		createDeviceLinkRequest,
 		createDeviceLinkTransfer,
 		parseAndVerifyDeviceLinkUrl,
 		type ImportedDeviceLinkProfile,
 		type VerifiedDeviceLinkRequest
-	} from '$lib/core/device-link';
-	import { hasPlatformWebAuthn } from '$lib/custody/webauthn-prf';
-	import { secretKeyToRecoveryWords } from '$lib/custody/recovery';
-	import type { UnlockedSession } from '$lib/custody/session';
-	import { parseNostrPubkey } from '$lib/nostr/identity';
-	import { MessengerRuntime, type HydratedMessage } from '$lib/nostr/messenger-runtime';
-	import { DeviceLinkReceiver, publishDeviceLinkTransfer } from '$lib/nostr/device-link-runtime';
-	import { createNostrPool } from '$lib/nostr/relay-client';
-	import { AccountDatabase } from '$lib/storage/account-database';
+	} from '#lib/core/device-link.js';
+	import { hasPlatformWebAuthn } from '#lib/custody/webauthn-prf.js';
+	import { secretKeyToRecoveryWords } from '#lib/custody/recovery.js';
+	import type { UnlockedSession } from '#lib/custody/session.js';
+	import { parseNostrPubkey } from '#lib/nostr/identity.js';
+	import { MessengerRuntime, type HydratedMessage } from '#lib/nostr/messenger-runtime.js';
+	import { DeviceLinkReceiver, publishDeviceLinkTransfer } from '#lib/nostr/device-link-runtime.js';
+	import { createNostrPool } from '#lib/nostr/relay-client.js';
+	import { AccountDatabase } from '#lib/storage/account-database.js';
 	import {
 		AccountRegistry,
 		confirmRecoveryCode,
@@ -74,7 +74,7 @@
 		removeAccount,
 		setActiveAccount,
 		type RegisteredAccount
-	} from '$lib/storage/account-registry';
+	} from '#lib/storage/account-registry.js';
 
 	type Phase =
 		| 'loading'

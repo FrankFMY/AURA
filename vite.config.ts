@@ -10,7 +10,9 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			// Preserve the existing opt-in update behavior across SvelteKit versions.
+			version: { pollInterval: 0 }
 		})
 	],
 	test: {
