@@ -42,10 +42,12 @@ A relay acknowledgement is not presented as recipient delivery.
 
 Requirements:
 
-- [Bun](https://bun.sh/)
+- [Bun](https://bun.sh/) 1.3.14 (the CI toolchain)
 - Chromium installed by Playwright for browser tests
 
 ```bash
+git clone https://github.com/FrankFMY/AURA.git
+cd AURA
 bun install --frozen-lockfile
 bunx playwright install chromium
 bun run check
@@ -66,6 +68,14 @@ The static production artifact is written to `build/`.
 
 Please report security issues privately as described in [SECURITY.md](SECURITY.md). Do not open a public issue for a suspected vulnerability.
 
+## Author and contact
+
+**Artem Prianishnikov** · [FrankFMY](https://github.com/FrankFMY)
+
+[Website](https://frankfmy.com) · [Telegram](https://t.me/FrankFMY) · [LinkedIn](https://www.linkedin.com/in/frankfmy/) · [X](https://x.com/FrankFMY) · [npm profile](https://www.npmjs.com/~frankfmy)
+
+Email: [frankfmy@proton.me](mailto:frankfmy@proton.me) · [Pryanishnikovartem@gmail.com](mailto:Pryanishnikovartem@gmail.com)
+
 ## License
 
-AURA is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+AURA is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). See [NOTICE](NOTICE) for attribution notices.
