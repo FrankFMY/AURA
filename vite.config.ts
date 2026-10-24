@@ -11,7 +11,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
-			// Preserve the existing opt-in update behavior across SvelteKit versions.
+			// Keep periodic version checks disabled, as before the SvelteKit upgrade.
 			version: { pollInterval: 0 }
 		})
 	],
