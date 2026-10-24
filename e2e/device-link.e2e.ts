@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { createInviteToken, generateInviteNonce } from '../src/lib/core/invite';
 import { generateSecretKey, getPublicKey, nip19, type Event, type Filter } from 'nostr-tools';
 import { createDmRelayList } from '../src/lib/nostr/dm-relays';
@@ -6,12 +6,7 @@ import { createDmRelayList } from '../src/lib/nostr/dm-relays';
 const ORIGIN = 'http://127.0.0.1:4173';
 const INVITER_SECRET = generateSecretKey();
 
-interface RoutedSocket {
-	send(message: string): void;
-	onMessage(handler: (message: string) => void): void;
-	onClose(handler: () => void): void;
-	close(options?: { code?: number; reason?: string }): void;
-}
+type RoutedSocket = Pick<WebSocketRoute, 'send' | 'onMessage' | 'onClose' | 'close'>;
 
 interface RelayClient {
 	socket: RoutedSocket;

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	start: vi.fn(() => new Promise<void>(() => undefined))
 }));
 
-vi.mock('$lib/app/qr-scanner', () => ({
+vi.mock('#lib/app/qr-scanner.js', () => ({
 	loadQrScanner: async () =>
 		class MockQrScanner {
 			static scanImage = mocks.scanImage;

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Camera, ImageUp, Link2, X } from 'lucide-svelte';
 	import type QrScanner from 'qr-scanner';
-	import { loadQrScanner } from '$lib/app/qr-scanner';
+	import { loadQrScanner } from '#lib/app/qr-scanner.js';
 
 	interface Props {
 		onDetected: (value: string) => void | Promise<void>;
